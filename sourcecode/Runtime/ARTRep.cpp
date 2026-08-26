@@ -1,9 +1,0 @@
-
-
-namespace Nom
-{
-	namespace Runtime
-	{
-
-	}
-}

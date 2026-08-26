@@ -1,0 +1,44 @@
+#pragma once
+#include "NomClass.h"
+#include "NomVMInterface.h"
+#include "RTClass.h"
+
+// namespace Nom
+//{
+//	namespace Runtime
+//	{
+//		class RTStringClass : public RTClass
+//		{
+//		public:
+//			RTStringClass();
+//		};
+//
+//	}
+// }
+
+namespace Nom {
+namespace Runtime {
+class ObjectHeader;
+class NomStringClass : public NomClassInternal {
+private:
+  NomStringClass();
+
+public:
+  static NomStringClass *GetInstance();
+  virtual ~NomStringClass() override {}
+};
+
+} // namespace Runtime
+} // namespace Nom
+
+// extern const Nom::Runtime::RTStringClass _RTStringClass;
+// extern const Nom::Runtime::NomStringClass _NomStringClass;
+// extern const Nom::Runtime::NomStringClass * const _NomStringClassRef;
+// extern const Nom::Runtime::RTStringClass * const _RTStringClassRef;
+// extern const Nom::Runtime::NomClass * const _NomStringClassNC;
+// extern const Nom::Runtime::RTClass * const _RTStringClassRTC;
+
+extern "C" DLLEXPORT void *LIB_NOM_String_Print_1(void *str);
+llvm::Function *GetDebugPrint(llvm::Module *mod);
+
+llvm::Function *GetDebugPrintHex(llvm::Module *mod);

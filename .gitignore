@@ -319,3 +319,13 @@ a.out
 !experiments/higgs/bin/**
 !experiments/reticulated/retic/**
 experiments/higgs/higgscheck/tscontracts/tests
+
+## new added
+.vscode/
+.cache/
+build/
+*.sln
+!Dockerfile
+*.fdb_latexmk
+*.fls
+*.gz

@@ -10,7 +10,3 @@ cd ../..
 cd sourcecode/NomProject
 dotnet build -c Release NomProject.csproj
 cd ../..
-cd sourcecode/Runtime
-. /opt/intel/oneapi/setvars.sh
-make headers
-make -j4
