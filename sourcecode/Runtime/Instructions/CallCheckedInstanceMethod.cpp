@@ -228,11 +228,6 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                   builder->CreateGEP(argsasarr, MakeInt32(j), "arginarray"),
                   AtomicOrdering::NotAtomic);
       }
-      // invariantID =
-      // builder->CreateIntrinsic(llvm::Intrinsic::invariant_start, {
-      // POINTERTYPE }, {
-      // MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
-      // argsArrSize), builder->CreatePointerCast(argsasarr, POINTERTYPE) });
       argarr[RTConfig_NumberOfVarargsArguments] =
           builder->CreatePointerCast(argsasarr, POINTERTYPE);
     } else {
@@ -279,12 +274,8 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
                argsArrSize),
            argarr[RTConfig_NumberOfVarargsArguments + 1]});
-      // builder->CreateIntrinsic(llvm::Intrinsic::lifetime_end, { POINTERTYPE
-      // }, {
-      // MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
-      // argsArrSize), argarr[RTConfig_NumberOfVarargsArguments + 1] });
     }
-  } else {
+  } else { // for dynamic call
     if (NomCastStats) {
       builder->CreateCall(
           GetIncDirectClassMethodCalls(

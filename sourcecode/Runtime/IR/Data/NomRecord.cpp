@@ -10,6 +10,7 @@
 #include "NomClassType.h"
 #include "NomDynamicType.h"
 #include "NomField.h"
+#include "NomIMTransition.h"
 #include "NomLambdaCallTag.h"
 #include "NomMemberContext.h"
 #include "NomNameRepository.h"
@@ -97,10 +98,12 @@ NomRecord::createLLVMElement(llvm::Module &mod,
       arrtype(GetDynamicDispatchListEntryType()->getPointerTo(), IMTsize),
       ArrayRef<Constant *>(ddarr, IMTsize));
 
+  auto imt = GetInterfaceTableLookup(mod, linkage);
+  NomIMTNode::CreateIMTNode(imt);
+
   auto constant = RTRecord::CreateConstant(
       this, GetDynamicFieldLookup(mod, linkage),
-      GetDynamicFieldStore(mod, linkage), GetInterfaceTableLookup(mod, linkage),
-      ddreftable);
+      GetDynamicFieldStore(mod, linkage), imt, ddreftable);
   gv->setInitializer(ConstantStruct::get(
       gvartype,
       {ConstantArray::get(arrtype(inttype(64), hasRawInvoke ? 1 : 0),

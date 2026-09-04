@@ -6,7 +6,6 @@
 #include "CallCheckedStaticMethod.h"
 #include "CallConstructor.h"
 #include "CallDispatchBestMethod.h"
-#include "CallFinalInstanceMethod.h"
 #include "CastInstruction.h"
 #include "CondBranchInstruction.h"
 #include "ConstructStruct.h"
