@@ -62,6 +62,43 @@ const NomRecordCallTag *NomRecordCallTag::GetCallTag(const std::string &name,
   return callTags[key];
 }
 NomRecordCallTag::~NomRecordCallTag() {}
+llvm::Constant *NomRecordCallTag::createLLVMElement2(
+    llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
+  Function *fun =
+      mod.getFunction("MONNOM_RT_RCT_" + name + "/" + to_string(typeargcount) +
+                      "/" + to_string(argcount));
+  if (fun == nullptr) {
+    fun = Function::Create(GetIMTFunctionType(), linkage,
+                           "MONNOM_RT_RCT_" + name + "/" +
+                               to_string(typeargcount) + "/" +
+                               to_string(argcount),
+                           mod);
+    fun->setCallingConv(NOMCC);
+
+    NomBuilder builder;
+
+    BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
+    builder->SetInsertPoint(startBlock);
+
+    auto argiter = fun->arg_begin();
+    auto callTag = argiter;
+    argiter++;
+    auto receiver = argiter;
+    argiter++;
+
+    llvm::raw_os_ostream out(std::cout);
+    if (verifyFunction(*fun, &out)) {
+      out.flush();
+      std::cout << "Could not verify Record Call Tag function ";
+      std::cout << name << "/" << typeargcount << "/" << argcount;
+      fun->print(out);
+      out.flush();
+      std::cout.flush();
+      throw new std::exception();
+    }
+  }
+  return fun;
+}
 llvm::Constant *NomRecordCallTag::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   Function *fun =
