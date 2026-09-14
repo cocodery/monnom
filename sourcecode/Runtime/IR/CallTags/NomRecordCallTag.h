@@ -1,5 +1,6 @@
 #pragma once
 #include "AvailableExternally.h"
+#include "NomVMInterface.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Module.h"
 #include <string>

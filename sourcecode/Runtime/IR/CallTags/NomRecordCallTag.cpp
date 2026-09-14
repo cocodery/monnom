@@ -81,10 +81,17 @@ llvm::Constant *NomRecordCallTag::createLLVMElement2(
     builder->SetInsertPoint(startBlock);
 
     auto argiter = fun->arg_begin();
-    auto callTag = argiter;
+    auto callTag = argiter; // the target call tag of the call
     argiter++;
-    auto receiver = argiter;
+    auto receiver = (NomValue)argiter; // the receiver of the call
     argiter++;
+
+    auto vtable = RefValueHeader::GenerateReadVTablePointer(
+        builder, receiver); // RTVTable
+    // auto imt_entry = RTVTable::GenerateReadInterfaceMethodTableEntry(
+    //     builder, vtable,
+    //     MakeInt32((NomString(name).HashCode() + (GetOffset() * 4177)) %
+    //               IMTsize)); // IMTEntry
 
     llvm::raw_os_ostream out(std::cout);
     if (verifyFunction(*fun, &out)) {
@@ -116,6 +123,17 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
 
     BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
     builder->SetInsertPoint(startBlock);
+
+    // CPP_NOM_Print takes the address of a std::string (as i64), so the string
+    // must outlive the JITed code; it is intentionally never freed.
+    auto printStr =
+        new std::string("Record call tag: /" +
+                        to_string(typeargcount) + "/" + to_string(argcount) +
+                        "\n");
+    builder->CreateCall(
+        GetPrint(&mod),
+        {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                          reinterpret_cast<uint64_t>(printStr), false)});
 
     auto argiter = fun->arg_begin();
     auto callTag = argiter;
