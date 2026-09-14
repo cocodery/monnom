@@ -18,6 +18,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/raw_os_ostream.h"
+#include <NomVMInterface.h>
 #include <cstdio>
 #include <iostream>
 
@@ -140,6 +141,14 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
   Value *receiver = (*env)[Receiver];
 
   if (rawInvoke) {
+    // builder->CreateCall(
+    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     {ConstantInt::get(
+    //         Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //         reinterpret_cast<uint64_t>(new std::string(
+    //             "Raw invocation of method: " + method.Elem->GetName() + "\n")),
+    //         false)});
+
     if (NomCastStats) {
       builder->CreateCall(
           GetIncTypedRawInvokes(
@@ -199,6 +208,14 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     RegisterValue(env,
                   NomValue(result, method.Elem->GetReturnType(&nscl), true));
   } else if (method.Elem->GetContainer()->IsInterface()) {
+    // builder->CreateCall(
+    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     {ConstantInt::get(
+    //         Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //         reinterpret_cast<uint64_t>(new std::string(
+    //             "Interface call to method: " + method.Elem->GetName() + "\n")),
+    //         false)});
+
     Value *invariantID = nullptr;
     auto argsArrSize = method.Elem->GetArgumentCount() +
                        method.Elem->GetDirectTypeParametersCount() -
@@ -282,6 +299,15 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
               *builder->GetInsertBlock()->getParent()->getParent()),
           {});
     }
+    // builder->CreateCall(
+    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //                       reinterpret_cast<uint64_t>(
+    //                           new std::string("Direct call to non-final method "
+    //                                           "without interface: " +
+    //                                           method.Elem->GetName() + "\n")),
+    //                       false)});
+
     Value *methodptr = ObjectHeader::GetDispatchMethodPointer(
         builder, env, Receiver, lineno, method);
     auto call =

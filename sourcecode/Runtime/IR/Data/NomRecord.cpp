@@ -315,6 +315,8 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
     NomBuilder builder;
     builder->SetInsertPoint(startBlock);
 
+    // std::cout << fun->getName().str() << std::endl;
+
     auto argiter = fun->arg_begin();
     auto argarr = makealloca(Value *, 2 + RTConfig_NumberOfVarargsArguments);
     argarr[0] = argiter;
@@ -332,6 +334,9 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
     for (auto &meth : Methods) {
       if (NomNameRepository::Instance().GetNameID(meth->GetName()) % IMTsize ==
           i) {
+        // std::cout << "Adding method " << meth->GetName() << " to IMT slot "
+        // << i
+        //           << std::endl;
         BasicBlock *callBlock =
             BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
         BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
@@ -350,6 +355,14 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
         builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
                               GetLikelyFirstBranchMetadata());
         builder->SetInsertPoint(callBlock);
+
+        // builder->CreateCall(
+        //     GetPrint(&mod),
+        //     {ConstantInt::get(
+        //         Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+        //         reinterpret_cast<uint64_t>(new std::string(
+        //             "Calling record method: " + meth->GetName() + "\n")),
+        //         false)});
 
         auto implFunctionType = meth->GetLLVMFunctionType();
         auto paramCount = implFunctionType->getNumParams();
