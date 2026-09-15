@@ -3,6 +3,7 @@
 #include "CompileEnv.h"
 #include "NomBuilder.h"
 #include "NomRecord.h"
+#include "NomVMInterface.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
@@ -19,6 +20,7 @@ NomRecordMethod::NomRecordMethod(const NomRecord *container, std::string &name,
                         argTypes),
       Container(container),
       /*ArgumentTypes(argTypes),*/ ReturnType(returnType) {}
+
 llvm::Function *NomRecordMethod::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   NomBuilder builder;
@@ -35,6 +37,16 @@ llvm::Function *NomRecordMethod::createLLVMElement(
   InitializePhis(builder, fun, env);
 
   builder->SetInsertPoint(startBlock);
+
+  builder->CreateCall(
+      GetPrint(&mod),
+      {ConstantInt::get(
+           Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+           reinterpret_cast<uint64_t>(new std::string(
+               "Calling record method: " + name + " from True Branch\n")),
+           false),
+       llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1,
+                              false)});
 
   const std::vector<NomInstruction *> *instructions = GetInstructions();
 #ifdef INSTRUCTIONMESSAGES
@@ -62,6 +74,7 @@ llvm::Function *NomRecordMethod::createLLVMElement(
   }
   return fun;
 }
+
 NomTypeRef
 NomRecordMethod::GetReturnType(const NomSubstitutionContext *context) const {
   NomSubstitutionContextMemberContext nscmc(this);

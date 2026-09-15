@@ -124,16 +124,15 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
     builder->SetInsertPoint(startBlock);
 
-    // CPP_NOM_Print takes the address of a std::string (as i64), so the string
-    // must outlive the JITed code; it is intentionally never freed.
-    auto printStr =
-        new std::string("Record call tag: /" +
-                        to_string(typeargcount) + "/" + to_string(argcount) +
-                        "\n");
     builder->CreateCall(
         GetPrint(&mod),
         {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                          reinterpret_cast<uint64_t>(printStr), false)});
+                          reinterpret_cast<uint64_t>(new std::string(
+                              "Record call tag: /" + to_string(typeargcount) +
+                              "/" + to_string(argcount) + "\n")),
+                          false),
+         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                                1, false)});
 
     auto argiter = fun->arg_begin();
     auto callTag = argiter;

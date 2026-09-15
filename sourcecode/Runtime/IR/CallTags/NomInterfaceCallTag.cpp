@@ -77,6 +77,16 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   Value **argbuf = makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
   NomBuilder builder;
   builder->SetInsertPoint(block);
+
+  builder->CreateCall(
+      GetPrint(&mod),
+      {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                        reinterpret_cast<uint64_t>(new std::string(
+                            "Call interface call tag: " + key + "\n")),
+                        false),
+       llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1,
+                              false)});
+
   argbuf++;
 
   auto fargs = fun->arg_begin();
@@ -129,6 +139,14 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   }
   Value *actualResult = nullptr;
   if (method->GetName().empty() && NomLambdaOptimizationLevel > 0) {
+    builder->CreateCall(
+        GetPrint(&mod),
+        {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                          reinterpret_cast<uint64_t>(new std::string(
+                              "Call Lambda Call-Tag in Interface Call Tag\n")),
+                          false),
+         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                                1, false)});
     argbuf[0] = builder->CreatePointerCast(
         NomLambdaCallTag::GetCallTag(targcount, argTRTs.size())
             ->GetLLVMElement(mod),
@@ -142,6 +160,14 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
     callResult->setCallingConv(NOMCC);
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   } else {
+    builder->CreateCall(
+        GetPrint(&mod),
+        {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                          reinterpret_cast<uint64_t>(new std::string(
+                              "Call Record Call-Tag in Interface Call Tag\n")),
+                          false),
+         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                                1, false)});
     argbuf[0] = builder->CreatePointerCast(
         NomRecordCallTag::GetCallTag(this->method->GetName(), targcount,
                                      argTRTs.size())

@@ -16,6 +16,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/Support/DynamicLibrary.h"
 #include <cinttypes>
+#include <exception>
 #include <forward_list>
 #include <iostream>
 
@@ -25,8 +26,9 @@ using namespace Nom::Runtime;
 llvm::Function *GetPrint(llvm::Module *mod) {
   Function *ret = mod->getFunction("CPP_NOM_Print");
   if (ret == nullptr) {
-    std::array<Type *, 1> chararrpluslen = {
-        {Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t))}};
+    std::array<Type *, 2> chararrpluslen = {
+        {Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+         Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t))}};
     FunctionType *printFunType =
         FunctionType::get(Type::getVoidTy(LLVMCONTEXT), chararrpluslen, false);
     ret = Function::Create(printFunType, Function::ExternalLinkage,
@@ -101,7 +103,10 @@ void GenerateLLVMDebugPrint(IRBuilder<> &builder, llvm::Module *mod,
   llvm::ConstantInt *pointerIntConstant = llvm::ConstantInt::get(
       Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), strptr, false);
   fprintf(stdout, "%" PRIu64 "\n", pointerIntConstant->getZExtValue());
-  std::array<Value *, 1> args = {{pointerIntConstant}};
+  std::array<Value *, 2> args = {
+      {pointerIntConstant,
+       llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1,
+                              false)}};
   builder.CreateCall(GetPrint(mod), args);
 }
 
@@ -167,9 +172,15 @@ extern "C" DLLEXPORT void *CPP_NOM_CLASSTYPEALLOC(size_t numtargs) {
   return ret;
 }
 
-extern "C" DLLEXPORT void CPP_NOM_Print(uint64_t str) {
-  fprintf(stdout, "%" PRIu64 "\n", str);
+extern "C" DLLEXPORT void CPP_NOM_Print(uint64_t addr, uint64_t mode) {
+  // fprintf(stdout, "%" PRIu64 "\n", str);
   std::cout << "PRINT: ";
   std::cout.flush();
-  std::cout << *(reinterpret_cast<std::string *>(str));
+  if (mode == 0) {
+    std::cout << addr << std::endl;
+  } else if (mode == 1) {
+    std::cout << *(reinterpret_cast<std::string *>(addr));
+  } else {
+    throw std::exception();
+  }
 }
