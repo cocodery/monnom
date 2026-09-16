@@ -40,11 +40,11 @@ llvm::Function *NomRecordMethod::createLLVMElement(
 
   builder->CreateCall(
       GetPrint(&mod),
-      {ConstantInt::get(
-           Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-           reinterpret_cast<uint64_t>(new std::string(
-               "Calling record method: " + name + " from True Branch\n")),
-           false),
+      {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                        reinterpret_cast<uint64_t>(
+                            new std::string("Calling record method: " + name +
+                                            ", the record method body\n")),
+                        false),
        llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1,
                               false)});
 
@@ -63,8 +63,8 @@ llvm::Function *NomRecordMethod::createLLVMElement(
 #endif
   }
   llvm::raw_os_ostream out(std::cout);
-  // For some reason, verifyFunction is supposed to return false if there are no
-  // problems
+  // For some reason, verifyFunction is supposed to return false if there are
+  // no problems
   if (verifyFunction(*fun, &out)) {
     std::cout << "Could not verify structure method!";
     fun->print(out);

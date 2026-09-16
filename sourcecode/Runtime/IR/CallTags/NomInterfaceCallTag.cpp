@@ -181,6 +181,11 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
         GetIMTFunctionType(), dispatcher,
         ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
         method->GetQName());
+
+    // auto callResult = builder->CreateCall(
+    //     GetIMTFunctionType(), dispatcher, GetIMTFunctionType(), call_tag,
+    //     ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
+    //     method->GetQName());
     callResult->setCallingConv(NOMCC);
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   }

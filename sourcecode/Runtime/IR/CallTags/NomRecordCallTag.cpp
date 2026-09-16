@@ -127,10 +127,10 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     builder->CreateCall(
         GetPrint(&mod),
         {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                          reinterpret_cast<uint64_t>(new std::string(
-                              "Record call tag: /" + to_string(typeargcount) +
-                              "/" + to_string(argcount) + "\n")),
-                          false),
+                           reinterpret_cast<uint64_t>(
+                              new std::string("Call record call tag: /" +
+                                              to_string(typeargcount) + "/" +
+                                              to_string(argcount) + " in RCT-fun\n")),
          llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
                                 1, false)});
 
