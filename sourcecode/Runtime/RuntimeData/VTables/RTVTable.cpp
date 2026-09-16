@@ -279,8 +279,14 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
       BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Match$Field", fun);
   BasicBlock *loopMatchMethodBlock =
       BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Match$Method", fun);
+  //   BasicBlock *loopDictionaryBlock =
+  //       RTOutput_Fail::GenerateFailUnimplementedBlock(builder);
   BasicBlock *loopDictionaryBlock =
-      RTOutput_Fail::GenerateFailUnimplementedBlock(builder);
+      BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$IsRecord", fun);
+  BasicBlock *loopRecordDictionaryBlock =
+      BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Dictionary", fun);
+  BasicBlock *errorBlock =
+      RTOutput_Fail::GenerateFailOutputBlock(builder, "No such method!");
   BasicBlock *checkLambdaExistsBlock =
       BasicBlock::Create(LLVMCONTEXT, "checkLambdaExists", fun);
   BasicBlock *outBlock = BasicBlock::Create(LLVMCONTEXT, "DDLookup$out", fun);
@@ -349,7 +355,7 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
                                    "but value has no lambda method!";
   BasicBlock *noLambdaBlock =
       RTOutput_Fail::GenerateFailOutputBlock(builder, noLambdaMsg);
-  auto fieldValuePHI = builder->CreatePHI(REFTYPE, 2, "fieldValue");
+  auto fieldValuePHI = builder->CreatePHI(REFTYPE, 3, "fieldValue");
   auto hasLambda = GenerateHasRawInvoke(
       builder,
       RefValueHeader::GenerateReadVTablePointer(builder, fieldValuePHI));
@@ -371,6 +377,22 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
         {1});
     outPHI->addIncoming(retval, builder->GetInsertBlock());
     builder->CreateBr(outBlock);
+  }
+
+  builder->SetInsertPoint(loopDictionaryBlock);
+  {
+    auto kind = GenerateReadKind(builder, vtablePtr);
+    auto isRecord = builder->CreateICmpEQ(
+        kind, MakeIntLike(kind, (uint64_t)RTDescriptorKind::Record));
+    builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                             {isRecord, MakeUInt(1, 1)});
+    builder->CreateCondBr(isRecord, loopRecordDictionaryBlock, errorBlock);
+
+    builder->SetInsertPoint(loopRecordDictionaryBlock);
+    auto dfield = builder->CreatePointerCast(
+        RecordHeader::GenerateReadDictField(builder, refValue, name), REFTYPE);
+    fieldValuePHI->addIncoming(dfield, builder->GetInsertBlock());
+    builder->CreateBr(checkLambdaExistsBlock);
   }
 
   builder->SetInsertPoint(loopMatchFieldBlock);

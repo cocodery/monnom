@@ -203,9 +203,14 @@ llvm::Function *NomRecord::GetDynamicFieldLookup(
                            // values are always supposed to be packed
     }
     builder->SetInsertPoint(notfound);
-    static const char *lookupfailstr =
-        "Could not find any fields with matching name!";
-    CreateDummyReturn(builder, fun);
+
+    // static const char *lookupfailstr =
+    //     "Could not find any fields with matching name!";
+    // CreateDummyReturn(builder, fun);
+    auto returnVal =
+        RecordHeader::GenerateReadDictField(builder, thisarg, namearg);
+    builder->CreateRet(returnVal);
+
     llvm::raw_os_ostream out(std::cout);
     if (verifyFunction(*fun, &out)) {
       out.flush();
@@ -276,9 +281,12 @@ NomRecord::GetDynamicFieldStore(llvm::Module &mod,
       builder->CreateRetVoid();
     }
     builder->SetInsertPoint(notfound);
-    static const char *lookupfailstr =
-        "Could not find any fields with matching name!";
-    CreateDummyReturn(builder, fun);
+
+    // static const char *lookupfailstr =
+    //     "Could not find any fields with matching name!";
+    // CreateDummyReturn(builder, fun);
+    RecordHeader::GenerateWriteDictField(builder, thisarg, namearg, newValue);
+    builder->CreateRetVoid();
 
     builder->SetInsertPoint(errorBlock);
     static const char *generic_errorMessage = "Trying to write invalid value!";

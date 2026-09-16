@@ -22,6 +22,15 @@ public:
 
   static llvm::Value *GenerateReadStructDictionary(NomBuilder &builder,
                                                    llvm::Value *objPointer);
+  static llvm::Value *GenerateGetStructDictionary(NomBuilder &builder,
+                                                  llvm::Value *objPointer);
+  static llvm::Value *GenerateWriteDictField(NomBuilder &builder,
+                                             llvm::Value *thisObj,
+                                             llvm::Value *fieldName,
+                                             llvm::Value *value);
+  static llvm::Value *GenerateReadDictField(NomBuilder &builder,
+                                            llvm::Value *thisObj,
+                                            llvm::Value *fieldName);
   static llvm::Value *GenerateWriteField(NomBuilder &builder,
                                          llvm::Value *thisObj,
                                          int32_t fieldindex, llvm::Value *value,
