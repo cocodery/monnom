@@ -339,14 +339,15 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
       argiter++;
     }
 
-    builder->CreateCall(
-        GetPrint(&mod),
-        {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                          reinterpret_cast<uint64_t>(new std::string(
-                              "Enter IMT slot " + std::to_string(i) + "\n")),
-                          false),
-         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                                1, false)});
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "Enter IMT slot " + std::to_string(i) + "\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+    //      bitsin(uint64_t)),
+    //                             1, false)});
 
     for (auto &meth : Methods) {
       if (NomNameRepository::Instance().GetNameID(meth->GetName()) % IMTsize ==
@@ -366,17 +367,17 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
         auto rhs = ConstantExpr::getPtrToInt(methodCallTag->GetLLVMElement(mod),
                                              numtype(intptr_t));
 
-        builder->CreateCall(
-            GetPrint(&mod),
-            {lhs,
-             llvm::ConstantInt::get(
-                 Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 0, false)});
+        // builder->CreateCall(
+        //     GetPrint(&mod),
+        //     {lhs,
+        //      llvm::ConstantInt::get(
+        //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 0, false)});
 
-        builder->CreateCall(
-            GetPrint(&mod),
-            {rhs,
-             llvm::ConstantInt::get(
-                 Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 0, false)});
+        // builder->CreateCall(
+        //     GetPrint(&mod),
+        //     {rhs,
+        //      llvm::ConstantInt::get(
+        //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 0, false)});
 
         auto callTagMatch = builder->CreateICmpEQ(lhs, rhs, "callTagMatch");
         builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
@@ -385,15 +386,15 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
                               GetLikelyFirstBranchMetadata());
         builder->SetInsertPoint(callBlock);
 
-        builder->CreateCall(
-            GetPrint(&mod),
-            {ConstantInt::get(
-                 Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                 reinterpret_cast<uint64_t>(new std::string(
-                     "Calling record method: " + meth->GetName() + "\n")),
-                 false),
-             llvm::ConstantInt::get(
-                 Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1, false)});
+        // builder->CreateCall(
+        //     GetPrint(&mod),
+        //     {ConstantInt::get(
+        //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+        //          reinterpret_cast<uint64_t>(new std::string(
+        //              "Calling record method: " + meth->GetName() + "\n")),
+        //          false),
+        //      llvm::ConstantInt::get(
+        //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1, false)});
 
         auto implFunctionType = meth->GetLLVMFunctionType();
         auto paramCount = implFunctionType->getNumParams();
@@ -445,23 +446,27 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
       }
     }
 
-    builder->CreateCall(
-        GetPrint(&mod),
-        {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                          reinterpret_cast<uint64_t>(new std::string(
-                              "No matching method found in IMT slot " +
-                              std::to_string(i) + "\n")),
-                          false),
-         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                                1, false)});
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "No matching method found in IMT slot " +
+    //                           std::to_string(i) + "\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+    //      bitsin(uint64_t)),
+    //                             1, false)});
 
     auto callTagFun = builder->CreatePointerCast(
         callTag, GetIMTCastFunctionType()->getPointerTo());
-    builder->CreateCall(
-        GetPrint(&mod),
-        {builder->CreatePtrToInt(callTagFun, numtype(intptr_t)),
-         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                                0, false)});
+
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {builder->CreatePtrToInt(callTagFun, numtype(intptr_t)),
+    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+    //      bitsin(uint64_t)),
+    //                             0, false)});
+
     auto tagCall = builder->CreateCall(
         GetIMTCastFunctionType(), callTagFun,
         ArrayRef<Value *>(argarr, 2 + RTConfig_NumberOfVarargsArguments));

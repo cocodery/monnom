@@ -118,6 +118,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/pugixml
     ${CMAKE_SOURCE_DIR}/Runtime
     ${CMAKE_SOURCE_DIR}/Runtime/Config
+    ${CMAKE_SOURCE_DIR}/Runtime/IMT
     ${CMAKE_SOURCE_DIR}/Runtime/Memory
     ${CMAKE_SOURCE_DIR}/Runtime/Statistics
     ${CMAKE_SOURCE_DIR}/Runtime/Typing

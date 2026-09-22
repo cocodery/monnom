@@ -28,7 +28,7 @@ class Main
 	{
 		IList<Int> list = new List<Int>(5);
 		Int i =0;
-		while(i<100000)
+		while(i<5)
 		{
 			Int num = (i * 163841 + 176081) % 122251;
 			list.Add(num);

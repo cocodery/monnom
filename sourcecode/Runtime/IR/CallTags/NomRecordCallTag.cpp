@@ -124,16 +124,17 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
     builder->SetInsertPoint(startBlock);
 
-    builder->CreateCall(
-        GetPrint(&mod),
-        {ConstantInt::get(
-             Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-             reinterpret_cast<uint64_t>(new std::string(
-                 "Call record call tag: /" + to_string(typeargcount) + "/" +
-                 to_string(argcount) + " in RCT-fun\n")),
-             false),
-         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                                1, false)});
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(
+    //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //          reinterpret_cast<uint64_t>(new std::string(
+    //              "Call record call tag: /" + to_string(typeargcount) + "/" +
+    //              to_string(argcount) + " in RCT-fun\n")),
+    //          false),
+    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+    //      bitsin(uint64_t)),
+    //                             1, false)});
 
     auto argiter = fun->arg_begin();
     auto callTag = argiter;

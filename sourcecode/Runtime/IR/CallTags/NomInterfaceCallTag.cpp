@@ -78,14 +78,15 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   NomBuilder builder;
   builder->SetInsertPoint(block);
 
-  builder->CreateCall(
-      GetPrint(&mod),
-      {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                        reinterpret_cast<uint64_t>(new std::string(
-                            "Call interface call tag: " + key + "\n")),
-                        false),
-       llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1,
-                              false)});
+  //   builder->CreateCall(
+  //       GetPrint(&mod),
+  //       {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+  //                         reinterpret_cast<uint64_t>(new std::string(
+  //                             "Call interface call tag: " + key + "\n")),
+  //                         false),
+  //        llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+  //        bitsin(uint64_t)), 1,
+  //                               false)});
 
   argbuf++;
 
@@ -139,14 +140,16 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   }
   Value *actualResult = nullptr;
   if (method->GetName().empty() && NomLambdaOptimizationLevel > 0) {
-    builder->CreateCall(
-        GetPrint(&mod),
-        {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                          reinterpret_cast<uint64_t>(new std::string(
-                              "Call Lambda Call-Tag in Interface Call Tag\n")),
-                          false),
-         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                                1, false)});
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "Call Lambda Call-Tag in Interface Call
+    //                           Tag\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+    //      bitsin(uint64_t)),
+    //                             1, false)});
     argbuf[0] = builder->CreatePointerCast(
         NomLambdaCallTag::GetCallTag(targcount, argTRTs.size())
             ->GetLLVMElement(mod),
@@ -160,32 +163,43 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
     callResult->setCallingConv(NOMCC);
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   } else {
-    builder->CreateCall(
-        GetPrint(&mod),
-        {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                          reinterpret_cast<uint64_t>(new std::string(
-                              "Call Record Call-Tag in Interface Call Tag\n")),
-                          false),
-         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                                1, false)});
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "Call Record Call-Tag in Interface Call
+    //                           Tag\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+    //      bitsin(uint64_t)),
+    //                             1, false)});
+
     argbuf[0] = builder->CreatePointerCast(
         NomRecordCallTag::GetCallTag(this->method->GetName(), targcount,
                                      argTRTs.size())
             ->GetLLVMElement(mod),
         POINTERTYPE);
-    auto receiver = builder->CreatePointerCast(argbuf[1], REFTYPE);
-    auto vtable = RefValueHeader::GenerateReadVTablePointer(builder, receiver);
-    auto dispatcher = RTVTable::GenerateReadInterfaceMethodTableEntry(
-        builder, vtable, MakeInt32(name % IMTsize));
+
+    // auto receiver = builder->CreatePointerCast(argbuf[1], REFTYPE);
+    // auto vtable = RefValueHeader::GenerateReadVTablePointer(builder,
+    // receiver); auto dispatcher =
+    // RTVTable::GenerateReadInterfaceMethodTableEntry(
+    //     builder, vtable, MakeInt32(name % IMTsize));
+    // auto callResult = builder->CreateCall(
+    //     GetIMTFunctionType(), dispatcher,
+    //     ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
+    //     method->GetQName());
+
     auto callResult = builder->CreateCall(
-        GetIMTFunctionType(), dispatcher,
+        GetIMTFunctionType(),
+        builder->CreatePointerCast(
+            NomRecordCallTag::GetCallTag(this->method->GetName(), targcount,
+                                         argTRTs.size())
+                ->GetLLVMElement(mod),
+            GetIMTCastFunctionType()->getPointerTo()),
         ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
         method->GetQName());
 
-    // auto callResult = builder->CreateCall(
-    //     GetIMTFunctionType(), dispatcher, GetIMTFunctionType(), call_tag,
-    //     ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
-    //     method->GetQName());
     callResult->setCallingConv(NOMCC);
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   }
