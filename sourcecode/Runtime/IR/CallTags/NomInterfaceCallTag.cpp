@@ -91,6 +91,7 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   argbuf++;
 
   auto fargs = fun->arg_begin();
+  argbuf[0] = fargs;
   fargs++;           // ignore first argument, which is just this function
   argbuf[1] = fargs; // receiver; we know this is not a primitive value, as such
                      // a value would never call the method key
@@ -144,7 +145,7 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
     //     GetPrint(&mod),
     //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
     //                       reinterpret_cast<uint64_t>(new std::string(
-    //                           "Call Lambda Call-Tag in Interface Call
+    //                           "Call Lambda Call-Tag in Interface Call \
     //                           Tag\n")),
     //                       false),
     //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
@@ -167,36 +168,30 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
     //     GetPrint(&mod),
     //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
     //                       reinterpret_cast<uint64_t>(new std::string(
-    //                           "Call Record Call-Tag in Interface Call
+    //                           "Call Record Call-Tag in Interface Call \
     //                           Tag\n")),
     //                       false),
     //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
     //      bitsin(uint64_t)),
     //                             1, false)});
 
-    argbuf[0] = builder->CreatePointerCast(
+    auto callTag = builder->CreatePointerCast(
         NomRecordCallTag::GetCallTag(this->method->GetName(), targcount,
                                      argTRTs.size())
             ->GetLLVMElement(mod),
         POINTERTYPE);
 
+    // argbuf[0] = callTag;
     // auto receiver = builder->CreatePointerCast(argbuf[1], REFTYPE);
     // auto vtable = RefValueHeader::GenerateReadVTablePointer(builder,
-    // receiver); auto dispatcher =
-    // RTVTable::GenerateReadInterfaceMethodTableEntry(
+    // receiver); auto callee = RTVTable::GenerateReadInterfaceMethodTableEntry(
     //     builder, vtable, MakeInt32(name % IMTsize));
-    // auto callResult = builder->CreateCall(
-    //     GetIMTFunctionType(), dispatcher,
-    //     ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
-    //     method->GetQName());
+
+    auto callee = builder->CreatePointerCast(
+        callTag, GetIMTCastFunctionType()->getPointerTo());
 
     auto callResult = builder->CreateCall(
-        GetIMTFunctionType(),
-        builder->CreatePointerCast(
-            NomRecordCallTag::GetCallTag(this->method->GetName(), targcount,
-                                         argTRTs.size())
-                ->GetLLVMElement(mod),
-            GetIMTCastFunctionType()->getPointerTo()),
+        GetIMTFunctionType(), callee,
         ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
         method->GetQName());
 
