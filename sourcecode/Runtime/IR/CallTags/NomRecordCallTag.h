@@ -7,7 +7,7 @@
 
 namespace Nom {
 namespace Runtime {
-class NomRecordCallTag : public AvailableExternally<llvm::Constant> {
+class NomRecordCallTag : public CallTagExternally {
 private:
   std::string name;
   int typeargcount;

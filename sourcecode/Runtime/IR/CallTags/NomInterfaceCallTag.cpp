@@ -64,7 +64,7 @@ NomInterfaceCallTag::GetMethodKey(const NomMethod *method) {
     return nmk;
   }
 }
-llvm::Function *NomInterfaceCallTag::createLLVMElement(
+llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   Function *fun = Function::Create(GetIMTCastFunctionType(), linkage,
                                    "MONNOM_RT_ICT_" + key, mod);
@@ -364,7 +364,7 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   }
   return fun;
 }
-llvm::Function *NomInterfaceCallTag::findLLVMElement(llvm::Module &mod) const {
+llvm::Constant *NomInterfaceCallTag::findLLVMElement(llvm::Module &mod) const {
   return mod.getFunction("MONNOM_RT_ICT_" + key);
 }
 } // namespace Runtime

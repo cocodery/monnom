@@ -4,7 +4,7 @@
 
 namespace Nom {
 namespace Runtime {
-class NomLambdaCallTag : public AvailableExternally<llvm::Constant> {
+class NomLambdaCallTag : public CallTagExternally {
 private:
   int typeArgCount;
   int argCount;

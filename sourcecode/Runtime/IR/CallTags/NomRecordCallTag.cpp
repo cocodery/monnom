@@ -1,16 +1,20 @@
 #include "NomRecordCallTag.h"
+#include "AvailableExternally.h"
 #include "CallingConvConf.h"
 #include "CompileHelpers.h"
 #include "IMT.h"
+#include "NomInterfaceCallTag.h"
 #include "NomLambdaCallTag.h"
 #include "NomNameRepository.h"
 #include "NomString.h"
+#include "NomVMIMTInterface.h"
 #include "RTCompileConfig.h"
 #include "RTVTable.h"
 #include "RefValueHeader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
+#include <llvm/IR/Constant.h>
 #include <unordered_map>
 
 using namespace std;
@@ -81,7 +85,7 @@ llvm::Constant *NomRecordCallTag::createLLVMElement2(
     builder->SetInsertPoint(startBlock);
 
     auto argiter = fun->arg_begin();
-    auto callTag = argiter; // the target call tag of the call
+    auto callTag = argiter; // the target interface call tag of the call
     argiter++;
     auto receiver = (NomValue)argiter; // the receiver of the call
     argiter++;
