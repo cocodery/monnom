@@ -30,7 +30,7 @@ NomMethodLoaded::NomMethodLoaded(const NomInterface *container,
       /*NomMemberContextLoaded(container, typeParameters),*/
       /* argTypes(argTypes),*/ isFinal(isFinal), Container(container) {}
 
-int NomMethod::GetIMTIndex() const {
+const int NomMethod::GetIMTIndex() const {
   return (this->GetContainer()->GetName()->HashCode() + (GetOffset() * 4177)) %
          IMTsize;
 }

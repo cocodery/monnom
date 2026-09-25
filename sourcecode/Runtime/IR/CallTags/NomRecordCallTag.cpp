@@ -159,22 +159,28 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
       argiter++;
     }
     auto vtable = RefValueHeader::GenerateReadVTablePointer(builder, receiver);
-    auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
-        builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,
-        NomNameRepository::Instance().GetNameID(name));
 
     //
     // callTag is runtime potnier to the function header not the llvm::Function
-    // TODO: use the callTag to find the NomCallTag object
+    // DONE: use the callTag to find the NomCallTag object
     llvm::Value *callTagAddr = builder->CreateCall(
         GetReadFunCallTag(&mod),
         {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
 
     // TODO: Call the transition method
-    // Arguments: RTVTable of the receiver, NomInterfaceCallTag
+    // Arguments: RTVTable, InterfaceMethodTable, NomInterfaceCallTag
     // Return   : Return the updated IMT Entry
-    // auto imtarray = RTVTable::GenerateReadInterfaceMethodTable(builder, vtable);
+    auto imtArray = RTVTable::GenerateReadInterfaceMethodTable(builder, vtable);
+
+    llvm::Value *imtEntry = builder->CreateCall(
+        GetIMTTransition(&mod),
+        {builder->CreatePointerCast(vtable, POINTERTYPE), callTagAddr, callTag,
+         builder->CreatePointerCast(imtArray, POINTERTYPE)});
     //
+
+    auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
+        builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,
+        NomNameRepository::Instance().GetNameID(name));
 
     auto target = builder->CreateExtractValue(dpair, {0});
     argarr[1] = builder->CreatePointerCast(
