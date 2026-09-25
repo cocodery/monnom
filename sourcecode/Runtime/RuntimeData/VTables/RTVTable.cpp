@@ -61,6 +61,16 @@ llvm::Value *RTVTable::GenerateReadKind(NomBuilder &builder,
       builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
       MakeInt32(RTVTableFields::Kind), "VTableKind", AtomicOrdering::NotAtomic);
 }
+llvm::Value *
+RTVTable::GenerateReadInterfaceMethodTable(NomBuilder &builder,
+                                           llvm::Value *vtablePtr) {
+  return MakeInvariantLoad(
+      builder,
+      builder->CreateGEP(
+          builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
+          {MakeInt32(0), MakeInt32(RTVTableFields::InterfaceMethodTable)}),
+      "IMTArray", AtomicOrdering::NotAtomic);
+}
 llvm::Value *RTVTable::GenerateReadInterfaceMethodTableEntry(
     NomBuilder &builder, llvm::Value *vtablePtr, llvm::Constant *index) {
   return MakeInvariantLoad(

@@ -448,7 +448,7 @@ NomClass::GetRawInvokeFunction(llvm::Module &mod,
         BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
     BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
 
-    auto methodCallTag = NomInterfaceCallTag::GetMethodKey(meth);
+    auto methodCallTag = NomInterfaceCallTag::GetCallTag(meth);
 
     auto callTagMatch = builder->CreateICmpEQ(
         builder->CreatePtrToInt(callTag, numtype(intptr_t)),
@@ -978,7 +978,7 @@ llvm::Constant *NomClass::GetInterfaceTableLookup(
             BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
         nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
 
-        auto methodCallTag = NomInterfaceCallTag::GetMethodKey(meth);
+        auto methodCallTag = NomInterfaceCallTag::GetCallTag(meth);
 
         auto callTagMatch = builder->CreateICmpEQ(
             builder->CreatePtrToInt(callTag, numtype(intptr_t)),

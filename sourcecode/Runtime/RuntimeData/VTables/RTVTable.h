@@ -28,6 +28,8 @@ public:
 
   static llvm::Value *GenerateReadKind(NomBuilder &builder,
                                        llvm::Value *vtablePtr);
+  static llvm::Value *GenerateReadInterfaceMethodTable(NomBuilder &builder,
+                                                       llvm::Value *vtablePtr);
   static llvm::Value *GenerateReadInterfaceMethodTableEntry(
       NomBuilder &builder, llvm::Value *vtablePtr, llvm::Constant *index);
   static llvm::Value *GenerateReadMethodTableEntry(NomBuilder &builder,

@@ -635,7 +635,7 @@ llvm::Constant *NomInterface::GetCheckReturnTypeFunction(
   SmallVector<pair<NomInterfaceCallTag *, NomMethodTableEntry *>, 8> crtPairs;
 
   for (auto meth : MethodTable) {
-    NomInterfaceCallTag *nmk = NomInterfaceCallTag::GetMethodKey(meth->Method);
+    NomInterfaceCallTag *nmk = NomInterfaceCallTag::GetCallTag(meth->Method);
 
     bool found = false;
     for (auto &pair : crtPairs) {

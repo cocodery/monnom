@@ -8,7 +8,9 @@
 using namespace llvm;
 using namespace Nom::Runtime;
 
-extern llvm::Function *GetGetCallTag(llvm::Module *mod);
+extern llvm::Function *GetWriteFunCallTag(llvm::Module *mod);
+extern llvm::Function *GetReadFunCallTag(llvm::Module *mod);
 
-extern "C" DLLEXPORT const CallTagExternally *
-CPP_NOM_GetCallTag(llvm::Function *fun);
+extern "C" DLLEXPORT void CPP_NOM_WriteFunCallTag(intptr_t funAddr,
+                                                  intptr_t callTagAddr);
+extern "C" DLLEXPORT intptr_t CPP_NOM_ReadFunCallTag(intptr_t funAddr);

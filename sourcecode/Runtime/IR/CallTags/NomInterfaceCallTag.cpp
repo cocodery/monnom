@@ -36,8 +36,7 @@ NomInterfaceCallTag::NomInterfaceCallTag(
   this->key = key;
   this->argTRTs = argTRTs;
 }
-NomInterfaceCallTag *
-NomInterfaceCallTag::GetMethodKey(const NomMethod *method) {
+NomInterfaceCallTag *NomInterfaceCallTag::GetCallTag(const NomMethod *method) {
   static unordered_map<string, NomInterfaceCallTag *> methodKeys;
 
   std::string key = *method->GetSymbolName();
@@ -180,6 +179,14 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
                                      argTRTs.size())
             ->GetLLVMElement(mod),
         POINTERTYPE);
+
+    // std::cout << NomRecordCallTag::GetCallTag(this->method->GetName(),
+    //                                           targcount, argTRTs.size())
+    //           << " | " << callTag << " " <<
+    //           NomRecordCallTag::GetCallTag(this->method->GetName(),
+    //           targcount,
+    //                                  argTRTs.size())
+    //         ->GetLLVMElement(mod) << std::endl;
 
     // argbuf[0] = callTag;
     // auto receiver = builder->CreatePointerCast(argbuf[1], REFTYPE);

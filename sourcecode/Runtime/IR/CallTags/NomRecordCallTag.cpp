@@ -2,17 +2,20 @@
 #include "AvailableExternally.h"
 #include "CallingConvConf.h"
 #include "CompileHelpers.h"
+#include "Defs.h"
 #include "IMT.h"
 #include "NomInterfaceCallTag.h"
 #include "NomLambdaCallTag.h"
 #include "NomNameRepository.h"
 #include "NomString.h"
 #include "NomVMIMTInterface.h"
+#include "NomVMInterface.h"
 #include "RTCompileConfig.h"
 #include "RTVTable.h"
 #include "RefValueHeader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
+#include <cstdint>
 #include <iostream>
 #include <llvm/IR/Constant.h>
 #include <unordered_map>
@@ -159,6 +162,19 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
         builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,
         NomNameRepository::Instance().GetNameID(name));
+
+    //
+    // callTag is runtime potnier to the function header not the llvm::Function
+    // TODO: use the callTag to find the NomCallTag object
+    llvm::Value *callTagAddr = builder->CreateCall(
+        GetReadFunCallTag(&mod),
+        {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
+
+    // TODO: Call the transition method
+    // Arguments: RTVTable of the receiver, NomInterfaceCallTag
+    // Return   : Return the updated IMT Entry
+    // auto imtarray = RTVTable::GenerateReadInterfaceMethodTable(builder, vtable);
+    //
 
     auto target = builder->CreateExtractValue(dpair, {0});
     argarr[1] = builder->CreatePointerCast(

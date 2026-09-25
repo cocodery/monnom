@@ -19,7 +19,7 @@ private:
 public:
   NomInterfaceCallTag(NomInterfaceCallTag &other) = delete;
   NomInterfaceCallTag(NomInterfaceCallTag &&other) = delete;
-  static NomInterfaceCallTag *GetMethodKey(const NomMethod *method);
+  static NomInterfaceCallTag *GetCallTag(const NomMethod *method);
   // Inherited via AvailableExternally
   virtual llvm::Constant *
   createLLVMElement(llvm::Module &mod,

@@ -11,6 +11,7 @@
 #include "NomInterface.h"
 #include "NomInterfaceCallTag.h"
 #include "NomMethod.h"
+#include "NomVMIMTInterface.h"
 #include "RTCompileConfig.h"
 #include "RTConfig.h"
 #include "RefValueHeader.h"
@@ -29,7 +30,6 @@ namespace Runtime {
 CallCheckedInstanceMethod::~CallCheckedInstanceMethod() {}
 void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                                         int lineno) {
-
   env->basicBlockTerminated = false;
   NomSubstitutionContextMemberContext nscmc(env->Context);
 
@@ -118,12 +118,11 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
   }
   env->ClearArguments();
 
+  auto mod = builder->GetInsertBlock()->getParent()->getParent();
+
   if (method.Elem->IsFinal()) {
     if (NomCastStats) {
-      builder->CreateCall(
-          GetIncFinalInstanceMethodCalls(
-              *builder->GetInsertBlock()->getParent()->getParent()),
-          {});
+      builder->CreateCall(GetIncFinalInstanceMethodCalls(*mod), {});
     }
     Function *fun = method.Elem->GetLLVMFunction(env->Module);
     auto call = builder->CreateCall(
@@ -142,7 +141,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
 
   if (rawInvoke) {
     // builder->CreateCall(
-    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     GetPrint(mod),
     //     {ConstantInt::get(
     //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
     //          reinterpret_cast<uint64_t>(new std::string(
@@ -154,10 +153,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     //                             1, false)});
 
     if (NomCastStats) {
-      builder->CreateCall(
-          GetIncTypedRawInvokes(
-              *builder->GetInsertBlock()->getParent()->getParent()),
-          {});
+      builder->CreateCall(GetIncTypedRawInvokes(*mod), {});
     }
     auto recNV = (*env)[Receiver];
     llvm::Value *methodptr = builder->CreatePointerCast(
@@ -192,10 +188,10 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
       argarr[j] = WrapAsPointer(builder, argarr[j]);
     }
     argarr -= 1;
-    argarr[0] = builder->CreatePointerCast(
-        NomInterfaceCallTag::GetMethodKey(method.Elem)
-            ->GetLLVMElement(*env->Module),
-        POINTERTYPE);
+    argarr[0] =
+        builder->CreatePointerCast(NomInterfaceCallTag::GetCallTag(method.Elem)
+                                       ->GetLLVMElement(*env->Module),
+                                   POINTERTYPE);
     auto call = builder->CreateCall(
         GetIMTFunctionType(), methodptr,
         llvm::ArrayRef<llvm::Value *>(argarr,
@@ -208,7 +204,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                   NomValue(result, method.Elem->GetReturnType(&nscl), true));
   } else if (method.Elem->GetContainer()->IsInterface()) {
     // builder->CreateCall(
-    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     GetPrint(mod),
     //     {ConstantInt::get(
     //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
     //          reinterpret_cast<uint64_t>(new std::string(
@@ -227,10 +223,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
             method.Elem->GetDirectTypeParametersCount() >
         RTConfig_NumberOfVarargsArguments) {
       if (NomCastStats) {
-        builder->CreateCall(
-            GetIncExtendedInterfaceMethodCalls(
-                *builder->GetInsertBlock()->getParent()->getParent()),
-            {});
+        builder->CreateCall(GetIncExtendedInterfaceMethodCalls(*mod), {});
       }
       llvm::Value *argsasarr = builder->CreateAlloca(
           POINTERTYPE, MakeInt32(argsArrSize), "argarray");
@@ -252,30 +245,33 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
           builder->CreatePointerCast(argsasarr, POINTERTYPE);
     } else {
       if (NomCastStats) {
-        builder->CreateCall(
-            GetIncInterfaceMethodCalls(
-                *builder->GetInsertBlock()->getParent()->getParent()),
-            {});
+        builder->CreateCall(GetIncInterfaceMethodCalls(*mod), {});
       }
     }
     for (int j = 0; j <= RTConfig_NumberOfVarargsArguments; j++) {
       argarr[j] = WrapAsPointer(builder, argarr[j]);
     }
     argarr -= 1;
-    argarr[0] = builder->CreatePointerCast(
-        NomInterfaceCallTag::GetMethodKey(method.Elem)
-            ->GetLLVMElement(*env->Module),
-        POINTERTYPE);
+
+    auto ict = NomInterfaceCallTag::GetCallTag(method.Elem);
+    argarr[0] = builder->CreatePointerCast(ict->GetLLVMElement(*env->Module),
+                                           POINTERTYPE);
+
+    builder->CreateCall(
+        GetWriteFunCallTag(mod),
+        {builder->CreatePtrToInt(argarr[0], numtype(intptr_t)),
+         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+                                reinterpret_cast<intptr_t>(ict), false)});
 
     // builder->CreateCall(
-    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     GetPrint(mod),
     //     {builder->CreatePtrToInt(argarr[0], numtype(intptr_t)),
     //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
     //      bitsin(uint64_t)),
     //                             0, false)});
 
     // builder->CreateCall(
-    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     GetPrint(mod),
     //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
     //                       reinterpret_cast<uint64_t>(new std::string(
     //                           "Should go to IMT slot " +
@@ -317,13 +313,10 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     }
   } else { // for dynamic call
     if (NomCastStats) {
-      builder->CreateCall(
-          GetIncDirectClassMethodCalls(
-              *builder->GetInsertBlock()->getParent()->getParent()),
-          {});
+      builder->CreateCall(GetIncDirectClassMethodCalls(*mod), {});
     }
     // builder->CreateCall(
-    //     GetPrint(builder->GetInsertBlock()->getParent()->getParent()),
+    //     GetPrint(mod),
     //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
     //                       reinterpret_cast<uint64_t>(
     //                           new std::string("Direct call to non-final \

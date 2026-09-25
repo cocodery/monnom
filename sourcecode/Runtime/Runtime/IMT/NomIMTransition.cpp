@@ -1,4 +1,5 @@
 #include "NomIMTransition.h"
+#include <exception>
 
 namespace Nom {
 namespace Runtime {
@@ -13,7 +14,7 @@ std::shared_ptr<NomIMTNode> get(llvm::Constant *_imt) {
   if (node_pool.find(_imt) != node_pool.end()) {
     return node_pool[_imt];
   }
-  assert("unexist IMT");
+  throw std::exception();
 }
 
 // set a root node for imt at construction time
