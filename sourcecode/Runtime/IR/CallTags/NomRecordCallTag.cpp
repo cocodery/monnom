@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <iostream>
 #include <llvm/IR/Constant.h>
+#include <llvm/Support/AtomicOrdering.h>
 #include <unordered_map>
 
 using namespace std;
@@ -124,6 +125,8 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
                                to_string(typeargcount) + "/" +
                                to_string(argcount),
                            mod);
+    fun->setPrefixData(llvm::ConstantInt::get(
+        INTTYPE, reinterpret_cast<intptr_t>(this), false));
     fun->setCallingConv(NOMCC);
 
     NomBuilder builder;
@@ -134,14 +137,12 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     // builder->CreateCall(
     //     GetPrint(&mod),
     //     {ConstantInt::get(
-    //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //          INTTYPE,
     //          reinterpret_cast<uint64_t>(new std::string(
     //              "Call record call tag: /" + to_string(typeargcount) + "/" +
     //              to_string(argcount) + " in RCT-fun\n")),
     //          false),
-    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-    //      bitsin(uint64_t)),
-    //                             1, false)});
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     auto argiter = fun->arg_begin();
     auto callTag = argiter;
@@ -163,6 +164,27 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     //
     // callTag is runtime potnier to the function header not the llvm::Function
     // DONE: use the callTag to find the NomCallTag object
+
+    auto load = MakeInvariantLoad(
+        builder,
+        builder->CreateGEP(
+            builder->CreatePointerCast(callTag, INTTYPE->getPointerTo()),
+            MakeInt32(-1)),
+        "", AtomicOrdering::NotAtomic);
+
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "CallTagFun & PrefixData-CallTagObject\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+    // builder->CreateCall(GetPrint(&mod),
+    //                     {builder->CreatePtrToInt(callTag, numtype(intptr_t)),
+    //                      llvm::ConstantInt::get(INTTYPE, 0, false)});
+    // builder->CreateCall(GetPrint(&mod),
+    //                     {load, llvm::ConstantInt::get(INTTYPE, 0, false)});
+
     llvm::Value *callTagAddr = builder->CreateCall(
         GetReadFunCallTag(&mod),
         {builder->CreatePtrToInt(callTag, numtype(intptr_t))});

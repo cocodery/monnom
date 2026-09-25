@@ -26,9 +26,7 @@ using namespace Nom::Runtime;
 llvm::Function *GetPrint(llvm::Module *mod) {
   Function *ret = mod->getFunction("CPP_NOM_Print");
   if (ret == nullptr) {
-    std::array<Type *, 2> chararrpluslen = {
-        {Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-         Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t))}};
+    std::array<Type *, 2> chararrpluslen = {{INTTYPE, INTTYPE}};
     FunctionType *printFunType =
         FunctionType::get(Type::getVoidTy(LLVMCONTEXT), chararrpluslen, false);
     ret = Function::Create(printFunType, Function::ExternalLinkage,
@@ -104,9 +102,7 @@ void GenerateLLVMDebugPrint(IRBuilder<> &builder, llvm::Module *mod,
       Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), strptr, false);
   fprintf(stdout, "%" PRIu64 "\n", pointerIntConstant->getZExtValue());
   std::array<Value *, 2> args = {
-      {pointerIntConstant,
-       llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)), 1,
-                              false)}};
+      {pointerIntConstant, llvm::ConstantInt::get(INTTYPE, 1, false)}};
   builder.CreateCall(GetPrint(mod), args);
 }
 

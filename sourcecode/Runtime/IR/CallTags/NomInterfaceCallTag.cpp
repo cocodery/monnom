@@ -67,6 +67,8 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   Function *fun = Function::Create(GetIMTCastFunctionType(), linkage,
                                    "MONNOM_RT_ICT_" + key, mod);
+  fun->setPrefixData(
+      llvm::ConstantInt::get(INTTYPE, reinterpret_cast<intptr_t>(this), false));
   fun->setCallingConv(NOMCC);
   BasicBlock *block = BasicBlock::Create(LLVMCONTEXT, "", fun);
 
@@ -79,13 +81,11 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
 
   //   builder->CreateCall(
   //       GetPrint(&mod),
-  //       {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+  //       {ConstantInt::get(INTTYPE,
   //                         reinterpret_cast<uint64_t>(new std::string(
   //                             "Call interface call tag: " + key + "\n")),
   //                         false),
-  //        llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-  //        bitsin(uint64_t)), 1,
-  //                               false)});
+  //        llvm::ConstantInt::get(INTTYPE, 1, false)});
 
   argbuf++;
 
@@ -142,14 +142,12 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
   if (method->GetName().empty() && NomLambdaOptimizationLevel > 0) {
     // builder->CreateCall(
     //     GetPrint(&mod),
-    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //     {ConstantInt::get(INTTYPE,
     //                       reinterpret_cast<uint64_t>(new std::string(
     //                           "Call Lambda Call-Tag in Interface Call \
     //                           Tag\n")),
     //                       false),
-    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-    //      bitsin(uint64_t)),
-    //                             1, false)});
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
     argbuf[0] = builder->CreatePointerCast(
         NomLambdaCallTag::GetCallTag(targcount, argTRTs.size())
             ->GetLLVMElement(mod),
@@ -165,14 +163,12 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
   } else {
     // builder->CreateCall(
     //     GetPrint(&mod),
-    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //     {ConstantInt::get(INTTYPE,
     //                       reinterpret_cast<uint64_t>(new std::string(
     //                           "Call Record Call-Tag in Interface Call \
     //                           Tag\n")),
     //                       false),
-    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-    //      bitsin(uint64_t)),
-    //                             1, false)});
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     auto callTag = builder->CreatePointerCast(
         NomRecordCallTag::GetCallTag(this->method->GetName(), targcount,

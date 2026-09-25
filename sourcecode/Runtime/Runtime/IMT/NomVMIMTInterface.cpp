@@ -85,8 +85,8 @@ CPP_NOM_GetIMTTransition(void *vtable, int64_t callTagAddr,
   // callTagAddr for
   auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
 
-  std::cout << callTag->GetKey() << std::endl;
-  std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
+  // std::cout << callTag->GetKey() << std::endl;
+  // std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
 
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
   return nullptr;

@@ -143,14 +143,12 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     // builder->CreateCall(
     //     GetPrint(mod),
     //     {ConstantInt::get(
-    //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //          INTTYPE,
     //          reinterpret_cast<uint64_t>(new std::string(
     //              "Raw invocation of method: " + method.Elem->GetName() +
     //              "\n")),
     //          false),
-    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-    //      bitsin(uint64_t)),
-    //                             1, false)});
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     if (NomCastStats) {
       builder->CreateCall(GetIncTypedRawInvokes(*mod), {});
@@ -206,14 +204,12 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     // builder->CreateCall(
     //     GetPrint(mod),
     //     {ConstantInt::get(
-    //          Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //          INTTYPE,
     //          reinterpret_cast<uint64_t>(new std::string(
     //              "Interface call to method: " + method.Elem->GetName() +
     //              "\n")),
     //          false),
-    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-    //      bitsin(uint64_t)),
-    //                             1, false)});
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     Value *invariantID = nullptr;
     auto argsArrSize = method.Elem->GetArgumentCount() +
@@ -257,22 +253,19 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     argarr[0] = builder->CreatePointerCast(ict->GetLLVMElement(*env->Module),
                                            POINTERTYPE);
 
-    builder->CreateCall(
-        GetWriteFunCallTag(mod),
-        {builder->CreatePtrToInt(argarr[0], numtype(intptr_t)),
-         llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-                                reinterpret_cast<intptr_t>(ict), false)});
+    builder->CreateCall(GetWriteFunCallTag(mod),
+                        {builder->CreatePtrToInt(argarr[0], numtype(intptr_t)),
+                         llvm::ConstantInt::get(
+                             INTTYPE, reinterpret_cast<intptr_t>(ict), false)});
+
+    // builder->CreateCall(GetPrint(mod),
+    //                     {builder->CreatePtrToInt(argarr[0],
+    //                     numtype(intptr_t)),
+    //                      llvm::ConstantInt::get(INTTYPE, 0, false)});
 
     // builder->CreateCall(
     //     GetPrint(mod),
-    //     {builder->CreatePtrToInt(argarr[0], numtype(intptr_t)),
-    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-    //      bitsin(uint64_t)),
-    //                             0, false)});
-
-    // builder->CreateCall(
-    //     GetPrint(mod),
-    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //     {ConstantInt::get(INTTYPE,
     //                       reinterpret_cast<uint64_t>(new std::string(
     //                           "Should go to IMT slot " +
     //                           std::to_string(method.Elem->GetIMTIndex()) +
@@ -317,7 +310,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     }
     // builder->CreateCall(
     //     GetPrint(mod),
-    //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+    //     {ConstantInt::get(INTTYPE,
     //                       reinterpret_cast<uint64_t>(
     //                           new std::string("Direct call to non-final \
     //                                           method "
@@ -325,9 +318,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     //                                           method.Elem->GetName() +
     //                                           "\n")),
     //                       false),
-    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
-    //      bitsin(uint64_t)),
-    //                             1, false)});
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     Value *methodptr = ObjectHeader::GetDispatchMethodPointer(
         builder, env, Receiver, lineno, method);

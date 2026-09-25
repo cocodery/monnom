@@ -40,15 +40,13 @@ llvm::Function *NomRecordMethod::createLLVMElement(
 
   // builder->CreateCall(
   //     GetPrint(&mod),
-  //     {ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
+  //     {ConstantInt::get(INTTYPE,
   //                       reinterpret_cast<uint64_t>(
   //                           new std::string("Calling record method: " + name
   //                           +
   //                                           ", the record method body\n")),
   //                       false),
-  //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-  //      1,
-  //                             false)});
+  //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
   const std::vector<NomInstruction *> *instructions = GetInstructions();
 #ifdef INSTRUCTIONMESSAGES
