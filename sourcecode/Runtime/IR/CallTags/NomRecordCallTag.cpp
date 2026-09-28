@@ -125,8 +125,12 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
                                to_string(typeargcount) + "/" +
                                to_string(argcount),
                            mod);
-    fun->setPrefixData(llvm::ConstantInt::get(
-        INTTYPE, reinterpret_cast<intptr_t>(this), false));
+    fun->setPrefixData(ConstantArray::get(
+        ArrayType::get(INTTYPE, 2),
+        {llvm::ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(this),
+                                false),
+         llvm::ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(fun),
+                                false)}));
     fun->setCallingConv(NOMCC);
 
     NomBuilder builder;
@@ -165,13 +169,6 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     // callTag is runtime potnier to the function header not the llvm::Function
     // DONE: use the callTag to find the NomCallTag object
 
-    auto load = MakeInvariantLoad(
-        builder,
-        builder->CreateGEP(
-            builder->CreatePointerCast(callTag, INTTYPE->getPointerTo()),
-            MakeInt32(-1)),
-        "", AtomicOrdering::NotAtomic);
-
     // builder->CreateCall(
     //     GetPrint(&mod),
     //     {ConstantInt::get(INTTYPE,
@@ -185,9 +182,21 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     // builder->CreateCall(GetPrint(&mod),
     //                     {load, llvm::ConstantInt::get(INTTYPE, 0, false)});
 
-    llvm::Value *callTagAddr = builder->CreateCall(
-        GetReadFunCallTag(&mod),
-        {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
+    // llvm::Value *callTagAddr = builder->CreateCall(
+    //     GetReadFunCallTag(&mod),
+    //     {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
+
+    auto PrefixDataType = ArrayType::get(INTTYPE, 2);
+    auto PrefixDataPtr = builder->CreateGEP(
+        PrefixDataType,
+        builder->CreatePointerCast(callTag, PrefixDataType->getPointerTo()),
+        MakeInt32(-1));
+
+    llvm::Value *callTagAddr = MakeInvariantLoad(
+        builder, builder->CreateStructGEP(PrefixDataType, PrefixDataPtr, 0));
+
+    llvm::Value *callTagFunObjAddr = MakeInvariantLoad(
+        builder, builder->CreateStructGEP(PrefixDataType, PrefixDataPtr, 1));
 
     // TODO: Call the transition method
     // Arguments: RTVTable, InterfaceMethodTable, NomInterfaceCallTag
@@ -196,8 +205,8 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
 
     llvm::Value *imtEntry = builder->CreateCall(
         GetIMTTransition(&mod),
-        {builder->CreatePointerCast(vtable, POINTERTYPE), callTagAddr, callTag,
-         builder->CreatePointerCast(imtArray, POINTERTYPE)});
+        {builder->CreatePointerCast(vtable, POINTERTYPE), callTagAddr,
+         callTagFunObjAddr, builder->CreatePointerCast(imtArray, POINTERTYPE)});
     //
 
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
@@ -233,6 +242,10 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
 llvm::Constant *NomRecordCallTag::findLLVMElement(llvm::Module &mod) const {
   return mod.getFunction("MONNOM_RT_RCT_" + name + "/" +
                          to_string(typeargcount) + "/" + to_string(argcount));
+}
+std::string NomRecordCallTag::GetKey() const {
+  return name + "/" + std::to_string(typeargcount) + "/" +
+         std::to_string(argcount);
 }
 } // namespace Runtime
 } // namespace Nom

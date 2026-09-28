@@ -253,10 +253,12 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     argarr[0] = builder->CreatePointerCast(ict->GetLLVMElement(*env->Module),
                                            POINTERTYPE);
 
-    builder->CreateCall(GetWriteFunCallTag(mod),
-                        {builder->CreatePtrToInt(argarr[0], numtype(intptr_t)),
-                         llvm::ConstantInt::get(
-                             INTTYPE, reinterpret_cast<intptr_t>(ict), false)});
+    // builder->CreateCall(GetWriteFunCallTag(mod),
+    //                     {builder->CreatePtrToInt(argarr[0],
+    //                     numtype(intptr_t)),
+    //                      llvm::ConstantInt::get(
+    //                          INTTYPE, reinterpret_cast<intptr_t>(ict),
+    //                          false)});
 
     // builder->CreateCall(GetPrint(mod),
     //                     {builder->CreatePtrToInt(argarr[0],

@@ -16,6 +16,9 @@ public:
                   ConstantID returnType, ConstantID argTypes,
                   RegIndex regcount);
   virtual ~NomRecordMethod() override = default;
+
+  const int GetIMTIndex() const;
+
   // Inherited via NomCallable
   virtual llvm::Function *
   createLLVMElement(llvm::Module &mod,

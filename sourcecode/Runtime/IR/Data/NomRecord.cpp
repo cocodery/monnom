@@ -348,11 +348,7 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
     //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     for (auto &meth : Methods) {
-      if (NomNameRepository::Instance().GetNameID(meth->GetName()) % IMTsize ==
-          i) {
-        // std::cout << "Adding method " << meth->GetName() << " to IMT slot "
-        // << i
-        //           << std::endl;
+      if (meth->GetIMTIndex() == i) {
         BasicBlock *callBlock =
             BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
         BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
@@ -360,6 +356,10 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
         auto methodCallTag = NomRecordCallTag::GetCallTag(
             meth->GetName(), meth->GetDirectTypeParametersCount(),
             meth->GetArgumentCount());
+
+        // record call tag and its slot index
+        // std::cout << "Adding method " << methodCallTag->GetKey()
+        //           << " to IMT slot " << i << std::endl;
 
         auto lhs = builder->CreatePtrToInt(callTag, numtype(intptr_t));
         auto rhs = ConstantExpr::getPtrToInt(methodCallTag->GetLLVMElement(mod),

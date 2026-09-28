@@ -35,8 +35,8 @@ extern "C" DLLEXPORT intptr_t CPP_NOM_ReadFunCallTag(intptr_t funAddr) {
   auto it = map.find(funAddr);
   if (it != map.end()) {
     auto callTagAddr = it->second;
-    // std::cout << "Read  - Fun: " << funAddr << " | CallTag: " << callTagAddr
-    //           << std::endl;
+    std::cout << "Read  - Fun: " << funAddr << " | CallTag: " << callTagAddr
+              << std::endl;
     return callTagAddr;
   }
   throw std::exception();
@@ -58,8 +58,8 @@ extern "C" DLLEXPORT void CPP_NOM_WriteFunCallTag(intptr_t funAddr,
   auto &map = GetFunCallTagMap();
   auto it = map.find(funAddr);
   if (it == map.end()) { // for first time check
-    // std::cout << "Write - Fun: " << funAddr << " | CallTag: " << callTagAddr
-    //           << std::endl;
+    std::cout << "Write - Fun: " << funAddr << " | CallTag: " << callTagAddr
+              << std::endl;
     map[funAddr] = callTagAddr;
   } else if (it->second != callTagAddr) { // check value as key inserted before
     throw std::exception();
@@ -71,7 +71,7 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
   Function *ret = mod->getFunction("CPP_NOM_GetIMTTransition");
   if (ret == nullptr) {
     FunctionType *funType = FunctionType::get(
-        POINTERTYPE, {POINTERTYPE, INTTYPE, POINTERTYPE, POINTERTYPE}, false);
+        POINTERTYPE, {POINTERTYPE, INTTYPE, INTTYPE, POINTERTYPE}, false);
     ret = Function::Create(funType, Function::ExternalLinkage,
                            "CPP_NOM_GetIMTTransition", mod);
   }
@@ -80,13 +80,17 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
 
 extern "C" DLLEXPORT llvm::Function *
 CPP_NOM_GetIMTTransition(void *vtable, int64_t callTagAddr,
-                         void *callTagFunAddr, void *imtArray) {
+                         void *callTagFunObjAddr, void *imtArray) {
   // vtable for reassign IMT
-  // callTagAddr for
+  // callTagAddr for get interface method index in IMT
+  // callTagFunAddr for insert as branch condition
+  // imtArrary for copy & rewrite then install to vtable
   auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
+  auto callTagFunObj = reinterpret_cast<llvm::Function *>(callTagFunObjAddr);
 
-  // std::cout << callTag->GetKey() << std::endl;
-  // std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
+  std::cout << callTag->GetKey() << std::endl;
+  std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
+  // std::cout << callTagFunObj->getName().str() << std::endl;
 
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
   return nullptr;

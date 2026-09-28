@@ -2,8 +2,10 @@
 #include "CallingConvConf.h"
 #include "CompileEnv.h"
 #include "NomBuilder.h"
+#include "NomNameRepository.h"
 #include "NomRecord.h"
 #include "NomVMInterface.h"
+#include "RTCompileConfig.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
@@ -20,6 +22,10 @@ NomRecordMethod::NomRecordMethod(const NomRecord *container, std::string &name,
                         argTypes),
       Container(container),
       /*ArgumentTypes(argTypes),*/ ReturnType(returnType) {}
+
+const int NomRecordMethod::GetIMTIndex() const {
+  return NomNameRepository::Instance().GetNameID(GetName()) % IMTsize;
+}
 
 llvm::Function *NomRecordMethod::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {

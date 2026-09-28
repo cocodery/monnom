@@ -26,6 +26,7 @@ public:
   createLLVMElement(llvm::Module &mod,
                     llvm::GlobalValue::LinkageTypes linkage) const override;
   virtual llvm::Constant *findLLVMElement(llvm::Module &mod) const override;
+  std::string GetKey() const;
 };
 } // namespace Runtime
 } // namespace Nom

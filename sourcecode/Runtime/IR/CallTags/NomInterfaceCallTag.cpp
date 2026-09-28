@@ -22,6 +22,7 @@
 #include "StructuralValueHeader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
+#include <cstdint>
 #include <iostream>
 #include <unordered_map>
 
@@ -67,8 +68,11 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   Function *fun = Function::Create(GetIMTCastFunctionType(), linkage,
                                    "MONNOM_RT_ICT_" + key, mod);
-  fun->setPrefixData(
-      llvm::ConstantInt::get(INTTYPE, reinterpret_cast<intptr_t>(this), false));
+  fun->setPrefixData(ConstantArray::get(
+      ArrayType::get(INTTYPE, 2),
+      {llvm::ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(this), false),
+       llvm::ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(fun),
+                              false)}));
   fun->setCallingConv(NOMCC);
   BasicBlock *block = BasicBlock::Create(LLVMCONTEXT, "", fun);
 

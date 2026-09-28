@@ -1,5 +1,6 @@
 #pragma once
 #include "NomBuilder.h"
+#include "NomValue.h"
 #include "RTDescriptor.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Value.h"
@@ -30,6 +31,9 @@ public:
                                        llvm::Value *vtablePtr);
   static llvm::Value *GenerateReadInterfaceMethodTable(NomBuilder &builder,
                                                        llvm::Value *vtablePtr);
+  static void GenerateWriteInterfaceMethodTable(NomBuilder &builder,
+                                                llvm::Value *vtablePtr,
+                                                llvm::Value *imt);
   static llvm::Value *GenerateReadInterfaceMethodTableEntry(
       NomBuilder &builder, llvm::Value *vtablePtr, llvm::Constant *index);
   static llvm::Value *GenerateReadMethodTableEntry(NomBuilder &builder,
