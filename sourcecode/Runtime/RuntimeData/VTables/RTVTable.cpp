@@ -17,6 +17,7 @@
 #include "RTOutput.h"
 #include "RecordHeader.h"
 #include "RefValueHeader.h"
+#include <llvm/Support/AtomicOrdering.h>
 
 using namespace llvm;
 using namespace std;
@@ -35,24 +36,26 @@ llvm::StructType *RTVTable::GetLLVMType() {
                            IMTsize), // Interface method table
                    arrtype(GetDynamicDispatchListEntryType()->getPointerTo(),
                            IMTsize), // Dynamic dispatcher retrieval
-                   GetFieldReadFunctionType()->getPointerTo(), // field lookup
-                   GetFieldWriteFunctionType()->getPointerTo() // field store
-    );
+                   GetFieldReadFunctionType()->getPointerTo(),  // field lookup
+                   GetFieldWriteFunctionType()->getPointerTo(), // field store,
+                   INTTYPE);
   }
   return rtitt;
 }
 llvm::Constant *RTVTable::CreateConstant(RTDescriptorKind kind,
+                                         llvm::Constant *flags,
                                          llvm::Constant *interfaceMethodTable,
                                          llvm::Constant *dynamicDispatcherTable,
                                          llvm::Constant *fieldLookupFunction,
                                          llvm::Constant *fieldStoreFunction,
-                                         llvm::Constant *flags) {
+                                         llvm::Constant *nomObjPtr) {
   return ConstantStruct::get(
       GetLLVMType(), ConstantArray::get(arrtype(POINTERTYPE, 0), {}),
       MakeInt<RTDescriptorKind>(kind),
       ConstantExpr::getTruncOrBitCast(flags, numtype(int32_t)),
       interfaceMethodTable, dynamicDispatcherTable, fieldLookupFunction,
-      fieldStoreFunction);
+      fieldStoreFunction,
+      (nomObjPtr != nullptr) ? nomObjPtr : llvm::ConstantInt::get(INTTYPE, 0));
 }
 llvm::Value *RTVTable::GenerateReadKind(NomBuilder &builder,
                                         llvm::Value *vtablePtr) {
@@ -116,6 +119,13 @@ llvm::Value *RTVTable::GenerateReadWriteFieldFunction(NomBuilder &builder,
       builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
       MakeInt32(RTVTableFields::WriteField), "writeFieldFun",
       AtomicOrdering::NotAtomic);
+}
+llvm::Value *RTVTable::GenerateReadNomObjPtr(NomBuilder &builder,
+                                             llvm::Value *vtablePtr) {
+  return MakeInvariantLoad(
+      builder,
+      builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
+      MakeInt32(RTVTableFields::NomObjPtr), "", AtomicOrdering::NotAtomic);
 }
 llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
                                                          Value *refValue,

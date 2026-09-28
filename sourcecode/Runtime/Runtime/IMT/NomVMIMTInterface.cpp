@@ -2,14 +2,18 @@
 #include "AvailableExternally.h"
 #include "Defs.h"
 #include "NomInterfaceCallTag.h"
+#include "NomJIT.h"
 #include "NomMethod.h"
+#include "NomRecord.h"
 #include "RTVTable.h"
 #include <cstdint>
 #include <exception>
 #include <iostream>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Module.h>
+#include <string>
 #include <unordered_map>
 
 using namespace llvm;
@@ -71,27 +75,54 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
   Function *ret = mod->getFunction("CPP_NOM_GetIMTTransition");
   if (ret == nullptr) {
     FunctionType *funType = FunctionType::get(
-        POINTERTYPE, {POINTERTYPE, INTTYPE, INTTYPE, POINTERTYPE}, false);
+        POINTERTYPE, {INTTYPE, INTTYPE, INTTYPE, POINTERTYPE}, false);
     ret = Function::Create(funType, Function::ExternalLinkage,
                            "CPP_NOM_GetIMTTransition", mod);
   }
   return ret;
 }
 
-extern "C" DLLEXPORT llvm::Function *
-CPP_NOM_GetIMTTransition(void *vtable, int64_t callTagAddr,
-                         void *callTagFunObjAddr, void *imtArray) {
+extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *vTable,
+                                                    int64_t callTagAddr,
+                                                    void *nomRecordAddr,
+                                                    void *imtArray) {
   // vtable for reassign IMT
   // callTagAddr for get interface method index in IMT
   // callTagFunAddr for insert as branch condition
   // imtArrary for copy & rewrite then install to vtable
+  auto vtable = reinterpret_cast<RTVTable *>(vTable);
   auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
-  auto callTagFunObj = reinterpret_cast<llvm::Function *>(callTagFunObjAddr);
+  auto nomRecord = reinterpret_cast<NomRecord *>(nomRecordAddr);
 
-  std::cout << callTag->GetKey() << std::endl;
-  std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
-  // std::cout << callTagFunObj->getName().str() << std::endl;
+  // std::cout << callTag->GetKey() << std::endl;
+  // std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
+  // std::cout << nomRecord->GetName() << std::endl;
 
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
+
   return nullptr;
+
+  // // Build `i64 f() { return 5; }` in a fresh module, JIT it, and return the
+  // // native code address. The llvm::Function itself is freed once compiled.
+  // static int transitionCount = 0;
+  // std::string name =
+  //     "MONNOM_RT_IMT_TRANSITION_" + std::to_string(transitionCount++);
+
+  // auto &jit = NomJIT::Instance();
+  // auto mod = std::make_unique<Module>(name, LLVMCONTEXT);
+  // mod->setDataLayout(jit.getDataLayout());
+  // Function *fun = Function::Create(FunctionType::get(INTTYPE, false),
+  //                                  Function::ExternalLinkage, name,
+  //                                  mod.get());
+  // IRBuilder<> builder(BasicBlock::Create(LLVMCONTEXT, "", fun));
+  // builder.CreateRet(ConstantInt::get(INTTYPE, 5));
+
+  // if (jit.addModule(std::move(mod))) {
+  //   throw new std::exception();
+  // }
+  // auto sym = jit.lookup(name);
+  // if (!sym) {
+  //   throw sym.takeError();
+  // }
+  // return reinterpret_cast<void *>(sym->getAddress());
 }

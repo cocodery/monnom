@@ -18,6 +18,7 @@ extern "C" DLLEXPORT void CPP_NOM_WriteFunCallTag(intptr_t funAddr,
                                                   intptr_t callTagAddr);
 
 extern llvm::Function *GetIMTTransition(llvm::Module *mod);
-extern "C" DLLEXPORT llvm::Function *
-CPP_NOM_GetIMTTransition(void *vtable, int64_t callTagAddr,
-                         void *callTagFunObjAddr, void *imtArray);
+extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *vTable,
+                                                    int64_t callTagAddr,
+                                                    void *nomRecordAddr,
+                                                    void *imtArray);

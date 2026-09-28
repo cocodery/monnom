@@ -1,11 +1,14 @@
 #include "RTRecord.h"
 #include "CompileHelpers.h"
 #include "Context.h"
+#include "Defs.h"
 #include "NomInterface.h"
 #include "NomPartialApplication.h"
 #include "NomRecord.h"
 #include "RTSignature.h"
 #include "RTVTable.h"
+#include <cstdint>
+#include <llvm/IR/Constants.h>
 
 using namespace llvm;
 using namespace std;
@@ -32,9 +35,11 @@ RTRecord::CreateConstant(const NomRecord *record, llvm::Function *fieldRead,
                          llvm::Constant *dynamicDispatcherTable) {
   return ConstantStruct::get(
       GetLLVMType(),
-      RTVTable::CreateConstant(RTDescriptorKind::Record, interfaceMethodTable,
-                               dynamicDispatcherTable, fieldRead, fieldWrite,
-                               MakeInt32(record->GetHasRawInvoke() ? 1 : 0)),
+      RTVTable::CreateConstant(
+          RTDescriptorKind::Record,
+          MakeInt32(record->GetHasRawInvoke() ? 1 : 0), interfaceMethodTable,
+          dynamicDispatcherTable, fieldRead, fieldWrite,
+          llvm::ConstantInt::get(INTTYPE, reinterpret_cast<uint64_t>(record))),
       MakeInt<size_t>(record->Fields.size()),
       MakeInt<size_t>(record->GetTypeParametersCount()));
 }

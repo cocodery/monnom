@@ -125,12 +125,8 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
                                to_string(typeargcount) + "/" +
                                to_string(argcount),
                            mod);
-    fun->setPrefixData(ConstantArray::get(
-        ArrayType::get(INTTYPE, 2),
-        {llvm::ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(this),
-                                false),
-         llvm::ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(fun),
-                                false)}));
+    fun->setPrefixData(llvm::ConstantInt::get(
+        INTTYPE, reinterpret_cast<int64_t>(this), false));
     fun->setCallingConv(NOMCC);
 
     NomBuilder builder;
@@ -186,17 +182,16 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     //     GetReadFunCallTag(&mod),
     //     {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
 
-    auto PrefixDataType = ArrayType::get(INTTYPE, 2);
-    auto PrefixDataPtr = builder->CreateGEP(
-        PrefixDataType,
-        builder->CreatePointerCast(callTag, PrefixDataType->getPointerTo()),
-        MakeInt32(-1));
+    llvm::Value *vTable = builder->CreatePointerCast(vtable, INTTYPE);
 
     llvm::Value *callTagAddr = MakeInvariantLoad(
-        builder, builder->CreateStructGEP(PrefixDataType, PrefixDataPtr, 0));
+        builder,
+        builder->CreateGEP(
+            builder->CreatePointerCast(callTag, INTTYPE->getPointerTo()),
+            MakeInt32(-1)),
+        "", llvm::AtomicOrdering::NotAtomic);
 
-    llvm::Value *callTagFunObjAddr = MakeInvariantLoad(
-        builder, builder->CreateStructGEP(PrefixDataType, PrefixDataPtr, 1));
+    auto nomRecordAddr = RTVTable::GenerateReadNomObjPtr(builder, vtable);
 
     // TODO: Call the transition method
     // Arguments: RTVTable, InterfaceMethodTable, NomInterfaceCallTag
@@ -205,8 +200,19 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
 
     llvm::Value *imtEntry = builder->CreateCall(
         GetIMTTransition(&mod),
-        {builder->CreatePointerCast(vtable, POINTERTYPE), callTagAddr,
-         callTagFunObjAddr, builder->CreatePointerCast(imtArray, POINTERTYPE)});
+        {vTable, callTagAddr, nomRecordAddr,
+         builder->CreatePointerCast(imtArray, POINTERTYPE)});
+
+    // imtEntry is the native address of a JIT-compiled `i64 ()`; call it and
+    // print the returned value (mode 0 = integer)
+    // auto transitionFunType = FunctionType::get(INTTYPE, false);
+    // llvm::Value *transitionResult = builder->CreateCall(
+    //     transitionFunType,
+    //     builder->CreatePointerCast(imtEntry,
+    //                                transitionFunType->getPointerTo()),
+    //     {});
+    // builder->CreateCall(GetPrint(&mod),
+    //                     {transitionResult, ConstantInt::get(INTTYPE, 0)});
     //
 
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
