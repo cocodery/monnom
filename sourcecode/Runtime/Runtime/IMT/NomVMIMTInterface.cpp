@@ -83,7 +83,7 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
 }
 
 extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *vTable,
-                                                    int64_t callTagAddr,
+                                                    void *callTagAddr,
                                                     void *nomRecordAddr,
                                                     void *imtArray) {
   // vtable for reassign IMT

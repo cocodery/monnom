@@ -2,6 +2,7 @@
 
 #include "AvailableExternally.h"
 #include "DLLExport.h"
+#include "NomIMTUtils.h"
 #include "RTVTable.h"
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Module.h>
@@ -19,6 +20,6 @@ extern "C" DLLEXPORT void CPP_NOM_WriteFunCallTag(intptr_t funAddr,
 
 extern llvm::Function *GetIMTTransition(llvm::Module *mod);
 extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *vTable,
-                                                    int64_t callTagAddr,
+                                                    void *callTagAddr,
                                                     void *nomRecordAddr,
                                                     void *imtArray);
