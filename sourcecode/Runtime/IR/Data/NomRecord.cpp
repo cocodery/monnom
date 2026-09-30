@@ -99,7 +99,6 @@ NomRecord::createLLVMElement(llvm::Module &mod,
       ArrayRef<Constant *>(ddarr, IMTsize));
 
   auto imt = GetInterfaceTableLookup(mod, linkage);
-  NomIMTNode::CreateIMTNode(imt);
 
   auto constant = RTRecord::CreateConstant(
       this, GetDynamicFieldLookup(mod, linkage),

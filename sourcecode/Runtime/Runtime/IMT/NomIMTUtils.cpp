@@ -14,12 +14,13 @@
 namespace Nom {
 namespace Runtime {
 namespace IMTUtils {
-void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex) {
+void *CompileIMTEntryFunction(NomRecord *nomRecord,
+                              NomInterfaceCallTag *callTag, int imtIndex) {
   static int transitionCount = 0;
 
-  std::string name = "MONNOM_RT_RECORDIMT_TRANSITON_" +
-                     std::to_string(transitionCount) +
-                     *nomRecord->GetSymbolName() + "_" + std::to_string(imtIndex);
+  std::string name =
+      "MONNOM_RT_RECORDIMT_TRANSITON_" + std::to_string(transitionCount) +
+      *nomRecord->GetSymbolName() + "_" + std::to_string(imtIndex);
 
   auto &jit = NomJIT::Instance();
   auto mod = std::make_unique<llvm::Module>(name, LLVMCONTEXT);
@@ -36,7 +37,7 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex) {
   auto argarr = makealloca(Value *, 2 + RTConfig_NumberOfVarargsArguments);
   argarr[0] = argiter;
 
-  auto callTag = argiter;
+  auto argCallTag = argiter;
   argiter++;
   auto varargs = makealloca(Value *, RTConfig_NumberOfVarargsArguments + 1);
   for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
@@ -48,7 +49,6 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex) {
 
   for (auto &meth : nomRecord->Methods) {
     if (meth->GetIMTIndex() == imtIndex) {
-
     }
   }
 

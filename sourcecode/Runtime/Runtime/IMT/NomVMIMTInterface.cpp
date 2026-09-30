@@ -1,14 +1,16 @@
 #include "NomVMIMTInterface.h"
 #include "AvailableExternally.h"
 #include "Defs.h"
+#include "NomIMTUtils.h"
+#include "NomIMTransition.h"
 #include "NomInterfaceCallTag.h"
 #include "NomJIT.h"
 #include "NomMethod.h"
 #include "NomRecord.h"
-#include "RTVTable.h"
 #include <cstdint>
 #include <exception>
 #include <iostream>
+#include <llvm/IR/Constant.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/IRBuilder.h>
@@ -82,23 +84,33 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
   return ret;
 }
 
-extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *vTable,
+extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *vTableAddr,
                                                     void *callTagAddr,
                                                     void *nomRecordAddr,
-                                                    void *imtArray) {
-  // vtable for reassign IMT
+                                                    void *imtArrayAddr) {
+  // vTable for reassign IMT | might be useless?
   // callTagAddr for get interface method index in IMT
   // callTagFunAddr for insert as branch condition
-  // imtArrary for copy & rewrite then install to vtable
-  auto vtable = reinterpret_cast<RTVTable *>(vTable);
+  // imtArrary for copy & rewrite then install to vtable | might be useless?
+  auto vtable = reinterpret_cast<llvm::Constant *>(vTableAddr);
   auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
   auto nomRecord = reinterpret_cast<NomRecord *>(nomRecordAddr);
+  auto imtArray = reinterpret_cast<llvm::Constant *>(imtArrayAddr);
 
   // std::cout << callTag->GetKey() << std::endl;
   // std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
   // std::cout << nomRecord->GetName() << std::endl;
 
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
+
+  // TODO: fromEntry is the current entry at imtArray[imtIndex] (native array)
+  // void *fromEntry = nullptr;
+  // auto imtEntry =
+  //     CheckIMTransitionGraph(nomRecord, callTag, imtIndex, fromEntry);
+  // if (imtEntry == nullptr) {
+  //   imtEntry = IMTUntils::CompileIMTEntryFunction(nomRecord, callTag, imtIndex);
+  //   InsertIMTNode(nomRecord, callTag, imtIndex, fromEntry, imtEntry);
+  // }
 
   return nullptr;
 
