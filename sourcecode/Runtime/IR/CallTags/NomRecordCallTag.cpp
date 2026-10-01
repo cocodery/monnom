@@ -175,21 +175,21 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     // builder->CreateCall(GetPrint(&mod),
     //                     {builder->CreatePtrToInt(callTag, numtype(intptr_t)),
     //                      llvm::ConstantInt::get(INTTYPE, 0, false)});
-    // builder->CreateCall(GetPrint(&mod),
-    //                     {load, llvm::ConstantInt::get(INTTYPE, 0, false)});
 
     // llvm::Value *callTagAddr = builder->CreateCall(
     //     GetReadFunCallTag(&mod),
     //     {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
 
-    llvm::Value *vTable = builder->CreatePointerCast(vtable, INTTYPE);
+    auto vTable = builder->CreatePointerCast(vtable, INTTYPE);
 
-    llvm::Value *callTagAddr = MakeInvariantLoad(
+    auto callTagAddr = MakeInvariantLoad(
         builder,
         builder->CreateGEP(
             builder->CreatePointerCast(callTag, INTTYPE->getPointerTo()),
             MakeInt32(-1)),
         "", llvm::AtomicOrdering::NotAtomic);
+
+    auto callTagFunAddr = builder->CreatePtrToInt(callTag, INTTYPE);
 
     auto nomRecordAddr = RTVTable::GenerateReadNomObjPtr(builder, vtable);
 
@@ -199,9 +199,7 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     auto imtArray = RTVTable::GenerateReadInterfaceMethodTable(builder, vtable);
 
     llvm::Value *imtEntry = builder->CreateCall(
-        GetIMTTransition(&mod),
-        {vTable, callTagAddr, nomRecordAddr,
-         builder->CreatePointerCast(imtArray, POINTERTYPE)});
+        GetIMTTransition(&mod), {callTagAddr, callTagFunAddr, nomRecordAddr});
 
     // imtEntry is the native address of a JIT-compiled `i64 ()`; call it and
     // print the returned value (mode 0 = integer)

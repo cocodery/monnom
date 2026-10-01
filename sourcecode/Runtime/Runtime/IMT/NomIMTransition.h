@@ -27,38 +27,47 @@ namespace Runtime {
 class NomIMTNode;
 class NomIMTGraph;
 
-using IMTCallTagSet = std::set<const NomInterfaceCallTag *>;
+using IMTCallTagSet = std::list<std::pair<const NomInterfaceCallTag *, void *>>;
+using TransitionChain =
+    std::unordered_map<const NomInterfaceCallTag *, NomIMTNode *>;
 using IMTGraphs = std::unordered_map<const NomRecord *, NomIMTGraph *>;
-using IMTNodes = std::vector<NomIMTNode *>;
+using IMTNodes = std::vector<std::list<NomIMTNode *>>;
 
 class NomIMTNode {
   friend class NomIMTGraph;
 
 private:
-  const int imtIndex;
-  void *imtEntry;
-  const IMTCallTagSet callTags;
-  std::unordered_map<const NomInterfaceCallTag *, NomIMTNode *> transitions;
+  void *imtEntry;              // hold IMT entry function and locate node
+  IMTCallTagSet callTags;      // for build new IMT entry function
+  TransitionChain transitions; // for find next node if exists
 
 public:
   NomIMTNode(const NomIMTNode &) = delete;
   NomIMTNode &operator=(const NomIMTNode &) = delete;
+  explicit NomIMTNode(void *imtEntry);
+  explicit NomIMTNode(void *imtEntry, IMTCallTagSet callTags);
+
+  void *CheckTransition(const NomInterfaceCallTag *callTag);
+  void AddTransitionNode(const NomInterfaceCallTag *callTag, NomIMTNode *node);
+
+  static NomIMTNode *CreateTransitionNode(NomIMTNode *parent,
+                                          const NomInterfaceCallTag *callTag,
+                                          void *callTagFunAddr, void *imtEntry);
 };
 
 class NomIMTGraph {
 private:
   const NomRecord *record; // each record holds one graph
-  IMTNodes roots;          // root node - per IMT entry
-  IMTNodes nodes;          // all imt node
+  IMTNodes nodesPerEntry;  // all imt node under per slot
 
 public:
   NomIMTGraph(const NomIMTGraph &) = delete;
   NomIMTGraph &operator=(const NomIMTGraph &) = delete;
-
   explicit NomIMTGraph(const NomRecord *record);
 
-  static IMTGraphs &NomIMTGraphsforAll();
   static NomIMTGraph *GetIMTGraph(NomRecord *record);
+
+  NomIMTNode *CheckIMTNode(int imtIndex, void *imtEntry);
 };
 
 } // namespace Runtime
