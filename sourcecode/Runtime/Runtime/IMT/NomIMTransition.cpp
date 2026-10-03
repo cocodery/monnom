@@ -1,6 +1,7 @@
 #include "NomIMTransition.h"
 #include "RTCompileConfig.h"
 #include <algorithm>
+#include <cmath>
 #include <exception>
 
 namespace Nom {
@@ -14,6 +15,15 @@ NomIMTNode::NomIMTNode(void *imtEntry) : imtEntry(imtEntry) {
 NomIMTNode::NomIMTNode(void *imtEntry, IMTCallTagSet callTags)
     : imtEntry(imtEntry), callTags(callTags) {
   transitions = TransitionChain();
+}
+
+bool NomIMTNode::CheckNodeValidity(const NomInterfaceCallTag *callTag) {
+  for (auto [tag, addr] : callTags) {
+    if (tag == callTag) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void *NomIMTNode::CheckTransition(const NomInterfaceCallTag *callTag) {
@@ -42,6 +52,15 @@ NomIMTNode *NomIMTNode::CreateTransitionNode(NomIMTNode *parent,
   return imtNode;
 }
 
+/* --------------------------------------------------------------------------*/
+/* --------------------------------------------------------------------------*/
+/* --------------------------------------------------------------------------*/
+
+NomIMTGraph::NomIMTGraph(const NomRecord *record) : record(record) {
+  // create a vector of list which holds all nodes for each imtIndex slot
+  nodesPerEntry = IMTNodes(IMTsize, std::list<NomIMTNode *>());
+}
+
 NomIMTGraph *NomIMTGraph::GetIMTGraph(NomRecord *record) {
   static IMTGraphs imtGraphs = IMTGraphs();
   auto find = imtGraphs.find(record);
@@ -49,18 +68,12 @@ NomIMTGraph *NomIMTGraph::GetIMTGraph(NomRecord *record) {
   if (find != imtGraphs.end()) {
     return find->second;
   }
-
   auto imtGraph = new NomIMTGraph(record);
-
+  imtGraphs[record] = imtGraph;
   return imtGraph;
 }
 
-NomIMTGraph::NomIMTGraph(const NomRecord *record) : record(record) {
-  // create a vector of list which holds all nodes for each imtIndex slot
-  nodesPerEntry = IMTNodes(IMTsize, std::list<NomIMTNode *>());
-}
-
-NomIMTNode *NomIMTGraph::CheckIMTNode(int imtIndex, void *imtEntry) {
+NomIMTNode *NomIMTGraph::GetIMTNode(int imtIndex, void *imtEntry) {
   auto nodes = nodesPerEntry[imtIndex];
 
   if (nodes.empty()) {
@@ -78,6 +91,28 @@ NomIMTNode *NomIMTGraph::CheckIMTNode(int imtIndex, void *imtEntry) {
     }
   }
   throw std::exception();
+}
+
+void NomIMTGraph::GenerateTransitionRelation(int imtIndex, NomIMTNode *node) {
+  auto nodes = nodesPerEntry[imtIndex];
+  // Implementation for generating transition relations
+  auto size = node->callTags.size();
+  for (auto otherNode : nodes) {
+    // Ensure we are not comparing the same node
+    assert(otherNode != node && "Node should not transition to itself");
+    // check if satisfies the transition condition
+    auto otherSize = otherNode->callTags.size();
+    auto sizeDiff = otherSize - size;
+    if (sizeDiff == 1) {
+      // if the size difference is 1 the node can transition to the other
+      // node add the transition relation from the given node to the other node
+    } else if (sizeDiff == -1) {
+      // if the size difference is -1 the other node can transition to the given
+      // node add the transition relation from the other node to the given node
+    }
+  }
+  // Add the new node to the list of nodes for the given imtIndex
+  nodes.push_back(node);
 }
 } // namespace Runtime
 } // namespace Nom

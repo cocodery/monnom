@@ -196,10 +196,28 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     // TODO: Call the transition method
     // Arguments: RTVTable, InterfaceMethodTable, NomInterfaceCallTag
     // Return   : Return the updated IMT Entry
-    auto imtArray = RTVTable::GenerateReadInterfaceMethodTable(builder, vtable);
+    auto imtArray = builder->CreatePtrToInt(
+        RTVTable::GenerateReadInterfaceMethodTable(builder, vtable), INTTYPE);
+
+    // for (auto i = 0; i < IMTsize; i++) {
+    //   auto imtEntry = RTVTable::GenerateReadInterfaceMethodTableEntry(
+    //       builder, vtable, MakeInt32(i));
+    //   builder->CreateCall(
+    //       GetPrint(&mod),
+    //       {ConstantInt::get(INTTYPE,
+    //                         reinterpret_cast<uint64_t>(new std::string(
+    //                             "IMT Entry " + std::to_string(i) + ": ")),
+    //                         false),
+    //        llvm::ConstantInt::get(INTTYPE, 1, false)});
+    //   builder->CreateCall(GetPrint(&mod),
+    //                       {builder->CreatePtrToInt(imtEntry,
+    //                       numtype(intptr_t)),
+    //                        llvm::ConstantInt::get(INTTYPE, 0, false)});
+    // }
 
     llvm::Value *imtEntry = builder->CreateCall(
-        GetIMTTransition(&mod), {callTagAddr, callTagFunAddr, nomRecordAddr});
+        GetIMTTransition(&mod),
+        {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
 
     // imtEntry is the native address of a JIT-compiled `i64 ()`; call it and
     // print the returned value (mode 0 = integer)

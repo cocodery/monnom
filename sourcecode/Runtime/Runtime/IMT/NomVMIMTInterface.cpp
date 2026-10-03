@@ -76,8 +76,8 @@ extern "C" DLLEXPORT void CPP_NOM_WriteFunCallTag(intptr_t funAddr,
 llvm::Function *GetIMTTransition(llvm::Module *mod) {
   Function *ret = mod->getFunction("CPP_NOM_GetIMTTransition");
   if (ret == nullptr) {
-    FunctionType *funType =
-        FunctionType::get(POINTERTYPE, {INTTYPE, INTTYPE, INTTYPE}, false);
+    FunctionType *funType = FunctionType::get(
+        POINTERTYPE, {INTTYPE, INTTYPE, INTTYPE, INTTYPE}, false);
     ret = Function::Create(funType, Function::ExternalLinkage,
                            "CPP_NOM_GetIMTTransition", mod);
   }
@@ -86,39 +86,47 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
 
 extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
                                                     void *callTagFunAddr,
-                                                    void *nomRecordAddr) {
+                                                    void *nomRecordAddr,
+                                                    void **imtArray) {
   // callTagAddr for get interface method index in IMT
-  // callTagFunAddr for insert as branch condition
-  // nomRecordAddr for locate the IMTNode in the IMTGraph
   auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
+  // callTagFunAddr for insert as branch condition
+  // nomRecordAddr for locate the IMTGraph
   auto nomRecord = reinterpret_cast<NomRecord *>(nomRecordAddr);
+  // imtArray for get the current IMT entry function address
+  auto imtIndex = callTag->GetMethod()->GetIMTIndex();
+  auto imtEntry = *(imtArray + imtIndex);
 
   // std::cout << callTag->GetKey() << std::endl;
   // std::cout << callTag->GetMethod()->GetIMTIndex() << std::endl;
   // std::cout << nomRecord->GetName() << std::endl;
-
-  auto imtIndex = callTag->GetMethod()->GetIMTIndex();
+  // std::cout << "The " << imtIndex << "th IMT Entry of Record "
+  //           << nomRecord->GetName() << " is: " << imtEntry << std::endl;
 
   // get imtGraph for nomRecord
   auto imtGraph = NomIMTGraph::GetIMTGraph(nomRecord);
   // check if the imtGraph has the imtNode for the imtIndex
-  auto imtNode = imtGraph->CheckIMTNode(imtIndex, callTagFunAddr);
-  // check transition chain for the imtNode
-  auto transitCallTagFun = imtNode->CheckTransition(callTag);
+  // get the imtNode for the imtEntry under the imtIndex slot
+  auto imtNode = imtGraph->GetIMTNode(imtIndex, imtEntry);
 
-  void *imtEntry = nullptr;
-  if (transitCallTagFun != nullptr) {
-    imtEntry = transitCallTagFun;
+  void *newIMTEntry = nullptr;
+  if (imtNode->CheckNodeValidity(callTag)) {
+    // if the imtNode has the callTag, return the current imtEntry
+    // for example if a function under the imtIndex is called multiple times
+    // the imtNode will be reused and the imtEntry will be the same
+    newIMTEntry = imtEntry;
   } else {
-    // if the transition node is not found, compile a new entry function
-    imtEntry = IMTUntils::CompileIMTEntryFunction(nomRecord, callTag, imtIndex);
-    // create a new imtNode for the new entry function
-    // insert the new entry function into the transition chain
-    auto transitNode = NomIMTNode::CreateTransitionNode(
-        imtNode, callTag, callTagFunAddr, imtEntry);
+    // if the callTag is not in the imtNode
+    // the callTag is a new interface method for the imtNode
+    // create a new imtEntry for the new callTag
+    newIMTEntry = IMTUtils::CompileIMTEntryFunction(nomRecord, imtIndex,
+                                                    callTagFunAddr, imtNode);
+    auto newIMTNode = NomIMTNode::CreateTransitionNode(
+        imtNode, callTag, callTagFunAddr, newIMTEntry);
+    imtGraph->GenerateTransitionRelation(imtIndex, newIMTNode);
   }
 
-  return imtEntry;
+  return newIMTEntry;
 
   // // Build `i64 f() { return 5; }` in a fresh module, JIT it, and return the
   // // native code address. The llvm::Function itself is freed once compiled.

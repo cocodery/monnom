@@ -30,8 +30,6 @@ class NomIMTGraph;
 using IMTCallTagSet = std::list<std::pair<const NomInterfaceCallTag *, void *>>;
 using TransitionChain =
     std::unordered_map<const NomInterfaceCallTag *, NomIMTNode *>;
-using IMTGraphs = std::unordered_map<const NomRecord *, NomIMTGraph *>;
-using IMTNodes = std::vector<std::list<NomIMTNode *>>;
 
 class NomIMTNode {
   friend class NomIMTGraph;
@@ -47,6 +45,8 @@ public:
   explicit NomIMTNode(void *imtEntry);
   explicit NomIMTNode(void *imtEntry, IMTCallTagSet callTags);
 
+  bool CheckNodeValidity(const NomInterfaceCallTag *callTag);
+
   void *CheckTransition(const NomInterfaceCallTag *callTag);
   void AddTransitionNode(const NomInterfaceCallTag *callTag, NomIMTNode *node);
 
@@ -54,6 +54,13 @@ public:
                                           const NomInterfaceCallTag *callTag,
                                           void *callTagFunAddr, void *imtEntry);
 };
+
+/* --------------------------------------------------------------------------*/
+/* --------------------------------------------------------------------------*/
+/* --------------------------------------------------------------------------*/
+
+using IMTGraphs = std::unordered_map<const NomRecord *, NomIMTGraph *>;
+using IMTNodes = std::vector<std::list<NomIMTNode *>>;
 
 class NomIMTGraph {
 private:
@@ -67,7 +74,9 @@ public:
 
   static NomIMTGraph *GetIMTGraph(NomRecord *record);
 
-  NomIMTNode *CheckIMTNode(int imtIndex, void *imtEntry);
+  NomIMTNode *GetIMTNode(int imtIndex, void *imtEntry);
+
+  void GenerateTransitionRelation(int imtIndex, NomIMTNode *node);
 };
 
 } // namespace Runtime

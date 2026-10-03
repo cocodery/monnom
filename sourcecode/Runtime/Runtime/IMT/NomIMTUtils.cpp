@@ -14,13 +14,13 @@
 namespace Nom {
 namespace Runtime {
 namespace IMTUtils {
-void *CompileIMTEntryFunction(NomRecord *nomRecord,
-                              NomInterfaceCallTag *callTag, int imtIndex) {
+void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
+                              void *callTagFunAddr, NomIMTNode *imtNode) {
   static int transitionCount = 0;
 
-  std::string name =
-      "MONNOM_RT_RECORDIMT_TRANSITON_" + std::to_string(transitionCount) +
-      *nomRecord->GetSymbolName() + "_" + std::to_string(imtIndex);
+  std::string name = "MONNOM_RT_RECORDIMT_ " + *nomRecord->GetSymbolName() +
+                     "_" + std::to_string(imtIndex) + "_" +
+                     std::to_string(transitionCount++);
 
   auto &jit = NomJIT::Instance();
   auto mod = std::make_unique<llvm::Module>(name, LLVMCONTEXT);
@@ -29,6 +29,7 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord,
   llvm::Function *fun = Function::Create(
       GetIMTFunctionType(), llvm::Function::ExternalLinkage, name, mod.get());
   fun->setCallingConv(NOMCC);
+
   BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
   NomBuilder builder;
   builder->SetInsertPoint(startBlock);
@@ -47,12 +48,14 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord,
     argiter++;
   }
 
-  for (auto &meth : nomRecord->Methods) {
-    if (meth->GetIMTIndex() == imtIndex) {
-    }
+  if (jit.addModule(std::move(mod))) {
+    throw new std::exception();
   }
-
-  return nullptr;
+  auto sym = jit.lookup(name);
+  if (!sym) {
+    throw sym.takeError();
+  }
+  return reinterpret_cast<void *>(sym->getAddress());
 }
 } // namespace IMTUtils
 } // namespace Runtime
