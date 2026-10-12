@@ -52,7 +52,6 @@ NomIMTNode *NomIMTNode::CreateTransitionNode(NomIMTNode *parent,
   callTagSet.push_back(std::make_pair(callTag, callTagFunAddr));
 
   auto imtNode = new NomIMTNode(imtEntry, callTagSet);
-  parent->AddTransitionNode(callTag, imtNode);
 
   return imtNode;
 }
@@ -113,8 +112,9 @@ const NomInterfaceCallTag *NomIMTGraph::FindDiffCallTag(const NomIMTNode *from,
 
   // actually guaranteed
   assert(to->callTags.size() == from->callTags.size() + 1);
+  // find the only difference for the two sets
   const NomInterfaceCallTag *diff = nullptr;
-  for (auto [toTag, toAddr] : to->callTags) {
+  for (auto [toTag, _] : to->callTags) {
     auto found = std::find_if(
         from->callTags.begin(), from->callTags.end(),
         [toTag = toTag](const auto &pair) { return pair.first == toTag; });

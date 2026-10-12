@@ -123,8 +123,8 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
     // if the callTag is not in the imtNode
     // the callTag is a new interface method for the imtNode
     // create a new imtEntry for the new callTag
-    newIMTEntry = IMTUtils::CompileIMTEntryFunction(nomRecord, imtIndex,
-                                                    callTagFunAddr, imtNode);
+    newIMTEntry = IMTUtils::CompileIMTEntryFunction(
+        nomRecord, imtIndex, callTag, callTagFunAddr, imtNode);
     auto newIMTNode = NomIMTNode::CreateTransitionNode(
         imtNode, callTag, callTagFunAddr, newIMTEntry);
     imtGraph->GenerateTransitionRelation(imtIndex, newIMTNode);
