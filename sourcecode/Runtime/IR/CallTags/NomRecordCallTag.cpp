@@ -215,9 +215,9 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     //                        llvm::ConstantInt::get(INTTYPE, 0, false)});
     // }
 
-    llvm::Value *imtEntry = builder->CreateCall(
-        GetIMTTransition(&mod),
-        {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
+    // llvm::Value *imtEntry = builder->CreateCall(
+    //     GetIMTTransition(&mod),
+    //     {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
 
     // imtEntry is the native address of a JIT-compiled `i64 ()`; call it and
     // print the returned value (mode 0 = integer)

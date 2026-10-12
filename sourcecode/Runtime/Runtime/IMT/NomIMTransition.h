@@ -67,6 +67,9 @@ private:
   const NomRecord *record; // each record holds one graph
   IMTNodes nodesPerEntry;  // all imt node under per slot
 
+  static const NomInterfaceCallTag *FindDiffCallTag(const NomIMTNode *from,
+                                                    const NomIMTNode *to);
+
 public:
   NomIMTGraph(const NomIMTGraph &) = delete;
   NomIMTGraph &operator=(const NomIMTGraph &) = delete;

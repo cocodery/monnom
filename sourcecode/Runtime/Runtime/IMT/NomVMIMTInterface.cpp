@@ -115,6 +115,10 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
     // for example if a function under the imtIndex is called multiple times
     // the imtNode will be reused and the imtEntry will be the same
     newIMTEntry = imtEntry;
+  } else if (auto tmpEntry = imtNode->CheckTransition(callTag)) {
+    // if the callTag is in the imtNode's transition chain
+    // return the imtEntry of the new imtNode
+    newIMTEntry = tmpEntry;
   } else {
     // if the callTag is not in the imtNode
     // the callTag is a new interface method for the imtNode
