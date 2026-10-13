@@ -1,0 +1,50 @@
+interface IShape
+{
+	fun Area() : Int;
+	fun Perimeter() : Int;
+}
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		Int count = 10;
+		ArrayList<dyn> records = Main.MakeRecords(count);
+
+		Int total = 0;
+		Int i = 0;
+		while(i < count)
+		{
+			IShape s = records.Get(i);
+			total = total + s.Area();
+			total = total + s.Perimeter();
+			i = i + 1;
+		}
+		total.ToString().Print();
+
+		dyn other = new (Int w = 2, Int h = 5)
+		{
+			fun Area() : Int { return w * h; }
+			fun Perimeter() : Int { return 2 * (w + h); }
+		};
+		IShape os = other;
+		os.Area().ToString().Print();
+	}
+
+	public static fun MakeRecords(Int n) : ArrayList<dyn>
+	{
+		ArrayList<dyn> list = new ArrayList<dyn>();
+		Int i = 0;
+		while(i < n)
+		{
+			dyn r = new (Int w = i + 1, Int h = i + 2)
+			{
+				fun Area() : Int { return w * h; }
+				fun Perimeter() : Int { return 2 * (w + h); }
+			};
+			list.Add(r);
+			i = i + 1;
+		}
+		return list;
+	}
+}

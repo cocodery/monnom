@@ -219,8 +219,8 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     // later calls from interface call sites reach it directly. This call
     // still goes through dynamic dispatch below: the interface call-tag has
     // already packed the arguments, while IMT entries expect them unpacked.
-    // builder->CreateCall(GetIMTTransition(&mod),
-    //                     {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
+    builder->CreateCall(GetIMTTransition(&mod),
+                        {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
 
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
         builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,

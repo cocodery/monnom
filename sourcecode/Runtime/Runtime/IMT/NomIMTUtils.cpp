@@ -9,6 +9,7 @@
 #include "NomMethod.h"
 #include "NomRecordMethod.h"
 #include "NomSubstitutionContext.h"
+#include "NomVMInterface.h"
 #include "ObjectHeader.h"
 #include "RTCast.h"
 #include "RTCompileConfig.h"
@@ -183,6 +184,16 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
   BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
   NomBuilder builder;
   builder->SetInsertPoint(startBlock);
+
+  // builder->CreateCall(
+  //     GetPrint(mod.get()),
+  //     {ConstantInt::get(
+  //          INTTYPE,
+  //          reinterpret_cast<uint64_t>(new std::string(
+  //              "Enter IMT slot " + std::to_string(imtIndex) + " transition " +
+  //              std::to_string(transitionCount) + "\n")),
+  //          false),
+  //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
   auto argiter = fun->arg_begin();
   auto argarr = makealloca(Value *, 2 + RTConfig_NumberOfVarargsArguments);

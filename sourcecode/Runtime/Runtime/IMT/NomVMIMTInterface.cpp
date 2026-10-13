@@ -45,6 +45,14 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
   auto imtEntry = *(imtArray + imtIndex);
 
+  // std::cout << nomRecord->GetName() << ": imtArrary Addr " << imtArray
+  //           << std::endl;
+  // for (int i = 0; i < IMTsize; i++) {
+  //   std::cout << "The " << i << "th IMT Entry of Record "
+  //             << nomRecord->GetName() << " is: " << *(imtArray + i)
+  //             << std::endl;
+  // }
+
   // the record has no method for this call-tag (e.g. a field holding a
   // lambda): no IMT entry can handle it, so the caller falls back to
   // dynamic dispatch
@@ -69,15 +77,25 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
     // if the imtNode has the callTag, return the current imtEntry
     // for example if a function under the imtIndex is called multiple times
     // the imtNode will be reused and the imtEntry will be the same
+    // std::cout << "The callTag " << callTag->GetKey()
+    //           << " is already in the imtNode, return the current imtEntry "
+    //           << imtEntry << std::endl;
     newIMTEntry = imtEntry;
   } else if (auto tmpEntry = imtNode->CheckTransition(callTag)) {
     // if the callTag is in the imtNode's transition chain
     // return the imtEntry of the new imtNode
+    // std::cout
+    //     << "The callTag " << callTag->GetKey()
+    //     << " is in the imtNode's transition chain, return the new imtEntry "
+    //     << tmpEntry << std::endl;
     newIMTEntry = tmpEntry;
   } else {
     // if the callTag is not in the imtNode
     // the callTag is a new interface method for the imtNode
     // create a new imtEntry for the new callTag
+    // std::cout << "The callTag " << callTag->GetKey()
+    //           << " is not in the imtNode, create a new imtEntry for it"
+    //           << std::endl;
     newIMTEntry = IMTUtils::CompileIMTEntryFunction(
         nomRecord, imtIndex, callTag, callTagFunAddr, imtNode);
     auto newIMTNode = NomIMTNode::CreateTransitionNode(
