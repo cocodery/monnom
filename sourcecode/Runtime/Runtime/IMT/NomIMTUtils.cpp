@@ -164,9 +164,10 @@ static void GenerateCallTagBranch(NomBuilder &builder, NomRecord *nomRecord,
   builder->SetInsertPoint(nextBlock);
 }
 
-void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
-                              const NomInterfaceCallTag *callTag,
-                              void *callTagFunAddr, NomIMTNode *imtNode) {
+std::unique_ptr<Module> BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
+                                            const NomInterfaceCallTag *callTag,
+                                            void *callTagFunAddr,
+                                            NomIMTNode *imtNode) {
   static int transitionCount = 0;
 
   std::string name = "MONNOM_RT_RECORDIMT_" + *nomRecord->GetSymbolName() +
@@ -190,8 +191,8 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
   //     {ConstantInt::get(
   //          INTTYPE,
   //          reinterpret_cast<uint64_t>(new std::string(
-  //              "Enter IMT slot " + std::to_string(imtIndex) + " transition " +
-  //              std::to_string(transitionCount) + "\n")),
+  //              "Enter IMT slot " + std::to_string(imtIndex) + " transition "
+  //              + std::to_string(transitionCount) + "\n")),
   //          false),
   //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
@@ -243,7 +244,17 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
     std::cout.flush();
     throw new std::exception();
   }
+  return mod;
+}
 
+void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
+                              const NomInterfaceCallTag *callTag,
+                              void *callTagFunAddr, NomIMTNode *imtNode) {
+  auto mod = BuildIMTEntryModule(nomRecord, imtIndex, callTag, callTagFunAddr,
+                                 imtNode);
+  std::string name = mod->getModuleIdentifier();
+
+  auto &jit = NomJIT::Instance();
   if (auto err = jit.addModule(std::move(mod))) {
     logAllUnhandledErrors(std::move(err), errs(),
                           "Could not add IMT entry " + name + ": ");

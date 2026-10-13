@@ -81,6 +81,11 @@ public:
     // llvm::orc::ThreadSafeModule(std::move(M), Ctx));
   }
 
+  // Adds an already compiled object, bypassing the IR optimization layer.
+  llvm::Error addObjectFile(std::unique_ptr<llvm::MemoryBuffer> Obj) {
+    return lljit->addObjectFile(std::move(Obj));
+  }
+
   llvm::Expected<llvm::JITEvaluatedSymbol> lookup(llvm::StringRef Name) {
     return lljit->lookup(Name);
     // return ES.lookup({ &MainJD }, Mangle(Name.str()));

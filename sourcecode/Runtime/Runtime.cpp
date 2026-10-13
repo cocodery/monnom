@@ -21,6 +21,7 @@
 #include "NomClass.h"
 #include "NomClassType.h"
 #include "NomConstants.h"
+#include "NomIMTAsyncCompiler.h"
 #include "NomInstruction.h"
 #include "NomJIT.h"
 #include "NomModule.h"
@@ -229,14 +230,18 @@ int main(int argc, char **args) {
   initializeWriteBitcodePassPass(Registry);
 
   initLibrary();
+  int result;
   if (argc == 1) {
-    return test();
+    result = test();
   } else {
     // std::vector<std::string> argvec;
     // for (int i = 1; i < argc; i++)
     //{
     //	argvec.push_back(args[i]);
     // }
-    return run(NomApplicationArgs);
+    result = run(NomApplicationArgs);
   }
+  // stop the background IMT compiler before static destructors run
+  Nom::Runtime::IMTUtils::ShutdownIMTCompiler();
+  return result;
 }

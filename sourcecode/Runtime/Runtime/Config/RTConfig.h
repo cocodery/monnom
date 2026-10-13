@@ -20,6 +20,7 @@ extern std::vector<std::string> NomApplicationArgs;
 extern bool NomRuntimeStopAtEnd;
 extern int NomWarmupRuns;
 extern bool RTConfig_AdditionalOptPasses;
+extern bool RTConfig_AsyncIMTCompile;
 extern std::ostream *RT_debugout;
 
 namespace Nom {

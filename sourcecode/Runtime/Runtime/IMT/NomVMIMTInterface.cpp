@@ -1,6 +1,7 @@
 #include "NomVMIMTInterface.h"
 #include "AvailableExternally.h"
 #include "Defs.h"
+#include "NomIMTAsyncCompiler.h"
 #include "NomIMTUtils.h"
 #include "NomIMTransition.h"
 #include "NomInterfaceCallTag.h"
@@ -36,6 +37,10 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
                                                     void *callTagFunAddr,
                                                     void *nomRecordAddr,
                                                     void **imtArray) {
+  // install entries compiled in the background since the last fallback
+  // first, so the slot read below is current
+  IMTUtils::InstallFinishedIMTEntries();
+
   // callTagAddr for get interface method index in IMT
   auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
   // callTagFunAddr for insert as branch condition
@@ -89,6 +94,18 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
     //     << " is in the imtNode's transition chain, return the new imtEntry "
     //     << tmpEntry << std::endl;
     newIMTEntry = tmpEntry;
+  } else if (IMTUtils::IsIMTEntryPending(imtGraph, imtIndex)) {
+    // an entry for this slot is still compiling; leave the slot alone and
+    // let this call go through dynamic dispatch. A fallback after the
+    // compile finishes installs the entry, and a later one extends it
+    // with this call-tag if it doesn't cover it.
+    return nullptr;
+  } else if (IMTUtils::UseAsyncIMTCompile()) {
+    // compile in the background while this call goes on to dynamic dispatch
+    IMTUtils::CompileIMTEntryFunctionAsync(nomRecord, imtGraph, imtIndex,
+                                           callTag, callTagFunAddr, imtNode,
+                                           imtArray);
+    return nullptr;
   } else {
     // if the callTag is not in the imtNode
     // the callTag is a new interface method for the imtNode

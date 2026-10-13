@@ -1,6 +1,7 @@
 #include "RTOutput.h"
 #include "CastStats.h"
 #include "CompileHelpers.h"
+#include "NomIMTAsyncCompiler.h"
 #include "NomNameRepository.h"
 #include <iostream>
 
@@ -84,6 +85,7 @@ extern "C" DLLEXPORT void *NOM_RT_Fail(const char *errstr) {
   std::cout.flush();
   RT_debugout->flush();
   RT_NOM_STATS_Print(3);
+  Nom::Runtime::IMTUtils::ShutdownIMTCompiler();
   exit(1);
   return nullptr;
 }
