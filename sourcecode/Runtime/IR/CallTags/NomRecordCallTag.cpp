@@ -215,21 +215,12 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     //                        llvm::ConstantInt::get(INTTYPE, 0, false)});
     // }
 
-    // llvm::Value *imtEntry = builder->CreateCall(
-    //     GetIMTTransition(&mod),
-    //     {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
-
-    // imtEntry is the native address of a JIT-compiled `i64 ()`; call it and
-    // print the returned value (mode 0 = integer)
-    // auto transitionFunType = FunctionType::get(INTTYPE, false);
-    // llvm::Value *transitionResult = builder->CreateCall(
-    //     transitionFunType,
-    //     builder->CreatePointerCast(imtEntry,
-    //                                transitionFunType->getPointerTo()),
-    //     {});
-    // builder->CreateCall(GetPrint(&mod),
-    //                     {transitionResult, ConstantInt::get(INTTYPE, 0)});
-    //
+    // Installs an IMT entry covering this call-tag into the record's IMT, so
+    // later calls from interface call sites reach it directly. This call
+    // still goes through dynamic dispatch below: the interface call-tag has
+    // already packed the arguments, while IMT entries expect them unpacked.
+    // builder->CreateCall(GetIMTTransition(&mod),
+    //                     {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
 
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
         builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,

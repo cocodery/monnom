@@ -46,7 +46,8 @@ public:
   explicit NomIMTNode(void *imtEntry, IMTCallTagSet callTags);
 
   bool CheckNodeValidity(const NomInterfaceCallTag *callTag);
-  const IMTCallTagSet &GetCallTags() const { return callTags; }
+  inline void *GetIMTEntry() const { return imtEntry; }
+  inline const IMTCallTagSet &GetCallTags() const { return callTags; }
 
   void *CheckTransition(const NomInterfaceCallTag *callTag);
   void AddTransitionNode(const NomInterfaceCallTag *callTag, NomIMTNode *node);

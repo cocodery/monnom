@@ -80,8 +80,9 @@ NomRecord::createLLVMElement(llvm::Module &mod,
       StructType::get(LLVMCONTEXT, {arrtype(inttype(64), hasRawInvoke ? 1 : 0),
                                     RTRecord::GetLLVMType(), ddstructType});
   Constant *pushArr[1] = {MakeUInt(64, 0)};
+  // not constant: the IMT inside is patched at runtime by IMT transitions
   GlobalVariable *gv =
-      new GlobalVariable(mod, gvartype, true, linkage, nullptr,
+      new GlobalVariable(mod, gvartype, false, linkage, nullptr,
                          "RT_NOM_STRUCTDESC_" + to_string(StructID));
   gv->setAlignment(Align(256));
   auto ddtable = GetDynamicDispatcherLookup(mod, linkage, ddstructType);

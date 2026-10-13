@@ -360,9 +360,14 @@ NomInterface::createLLVMElement(llvm::Module &mod,
     auto retgvar =
         new GlobalVariable(mod, gvartype, true, linkage, nullptr, lookupName);
     ret = retgvar;
+    // Only the main module exports the alias; other modules (e.g. IMT
+    // entries compiled at runtime) keep a private copy to avoid a
+    // duplicate definition in the JIT.
     llvm::GlobalAlias *gvar_alias = GlobalAlias::create(
         RTInterface::GetLLVMType(), 0,
-        GlobalValue::LinkageTypes::ExternalLinkage,
+        linkage == GlobalValue::LinkageTypes::ExternalLinkage
+            ? GlobalValue::LinkageTypes::ExternalLinkage
+            : GlobalValue::LinkageTypes::PrivateLinkage,
         "NOM_ALIAS_" + this->GetName()->ToStdString(), &mod);
     auto flags = RTInterfaceFlags::IsInterface;
     llvm::Constant *signature = nullptr;
