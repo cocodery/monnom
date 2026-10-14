@@ -18,7 +18,7 @@ NomIMTNode::NomIMTNode(void *imtEntry, IMTCallTagSet callTags)
 }
 
 bool NomIMTNode::CheckNodeValidity(const NomInterfaceCallTag *callTag) {
-  // check if the callTag exists in the callTags list
+  // check if the callTag exists in the callTags list of current IMTNode
   for (auto [tag, addr] : callTags) {
     if (tag == callTag) {
       return true;

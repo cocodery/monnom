@@ -245,7 +245,7 @@ void parseArguments(int argc, char **args) {
           RTConfig_RunUnncessesaryCallTagChecks = true;
         } else if (strncmp(args[argpos], "--lambdaoffsetdeopt", 32) == 0) {
           RTConfig_UseLambdaOffset = false;
-        } else if (strncmp(args[argpos], "--syncimtcompile", 24) == 0) {
+        } else if (strncmp(args[argpos], "--sync", 24) == 0) {
           RTConfig_AsyncIMTCompile = false;
         } else if (strncmp(args[argpos], "--varargscount", 24) == 0) {
           argpos++;

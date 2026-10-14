@@ -23,6 +23,7 @@ using namespace llvm;
 using namespace Nom::Runtime;
 
 llvm::Function *GetIMTTransition(llvm::Module *mod) {
+  // only called in record-call-tag fallback path
   Function *ret = mod->getFunction("CPP_NOM_GetIMTTransition");
   if (ret == nullptr) {
     FunctionType *funType = FunctionType::get(
@@ -46,7 +47,7 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
   // callTagFunAddr for insert as branch condition
   // nomRecordAddr for locate the IMTGraph
   auto nomRecord = reinterpret_cast<NomRecord *>(nomRecordAddr);
-  // imtArray for get the current IMT entry function address
+  // imtArray for get the current IMT entry and update the new IMT entry
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
   auto imtEntry = *(imtArray + imtIndex);
 
@@ -58,10 +59,10 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
   //             << std::endl;
   // }
 
-  // the record has no method for this call-tag (e.g. a field holding a
-  // lambda): no IMT entry can handle it, so the caller falls back to
-  // dynamic dispatch
-  if (IMTUtils::LookupCallTagMethodAddr(nomRecord, callTag) == nullptr) {
+  // the record has no method for this call-tag
+  // no IMT entry can handle it so the caller falls back to dynamic dispatch
+  // either a lambda field holds the method or not exist at all
+  if (IMTUtils::CheckCallTagMethodExist(nomRecord, callTag) == false) {
     return nullptr;
   }
 
