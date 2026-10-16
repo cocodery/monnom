@@ -19,9 +19,6 @@ public:
                                             int typeargcount, int argcount);
   ~NomRecordCallTag();
   // Inherited via AvailableExternally
-  llvm::Constant *
-  createLLVMElement2(llvm::Module &mod,
-                     llvm::GlobalValue::LinkageTypes linkage) const;
   virtual llvm::Constant *
   createLLVMElement(llvm::Module &mod,
                     llvm::GlobalValue::LinkageTypes linkage) const override;

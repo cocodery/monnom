@@ -21,6 +21,7 @@ extern bool NomRuntimeStopAtEnd;
 extern int NomWarmupRuns;
 extern bool RTConfig_AdditionalOptPasses;
 extern bool RTConfig_AsyncIMTCompile;
+extern bool RTConfig_EnableTransition;
 extern std::ostream *RT_debugout;
 
 namespace Nom {

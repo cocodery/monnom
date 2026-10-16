@@ -347,97 +347,104 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
     //                       false),
     //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
-    for (auto &meth : Methods) {
-      if (meth->GetIMTIndex() == i) {
-        BasicBlock *callBlock =
-            BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
-        BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
+    // as we dont use the very original design
+    // no record call-tag will reach the IMT entry function
+    // we could simply dont generate code for them
+    // for (auto &meth : Methods) {
+    //   if (meth->GetIMTIndex() == i) {
+    //     BasicBlock *callBlock =
+    //         BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
+    //     BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
 
-        auto methodCallTag = NomRecordCallTag::GetCallTag(
-            meth->GetName(), meth->GetDirectTypeParametersCount(),
-            meth->GetArgumentCount());
+    //     auto methodCallTag = NomRecordCallTag::GetCallTag(
+    //         meth->GetName(), meth->GetDirectTypeParametersCount(),
+    //         meth->GetArgumentCount());
 
-        // record call tag and its slot index
-        // std::cout << "Adding method " << methodCallTag->GetKey()
-        //           << " to IMT slot " << i << std::endl;
+    //     // record call tag and its slot index
+    //     // std::cout << "Adding method " << methodCallTag->GetKey()
+    //     //           << " to IMT slot " << i << std::endl;
 
-        auto lhs = builder->CreatePtrToInt(callTag, numtype(intptr_t));
-        auto rhs = ConstantExpr::getPtrToInt(methodCallTag->GetLLVMElement(mod),
-                                             numtype(intptr_t));
+    //     auto lhs = builder->CreatePtrToInt(callTag, numtype(intptr_t));
+    //     auto rhs =
+    //     ConstantExpr::getPtrToInt(methodCallTag->GetLLVMElement(mod),
+    //                                          numtype(intptr_t));
 
-        // builder->CreateCall(GetPrint(&mod),
-        //                     {lhs, llvm::ConstantInt::get(INTTYPE, 0,
-        //                     false)});
+    //     // builder->CreateCall(GetPrint(&mod),
+    //     //                     {lhs, llvm::ConstantInt::get(INTTYPE, 0,
+    //     //                     false)});
 
-        // builder->CreateCall(GetPrint(&mod),
-        //                     {rhs, llvm::ConstantInt::get(INTTYPE, 0,
-        //                     false)});
+    //     // builder->CreateCall(GetPrint(&mod),
+    //     //                     {rhs, llvm::ConstantInt::get(INTTYPE, 0,
+    //     //                     false)});
 
-        auto callTagMatch = builder->CreateICmpEQ(lhs, rhs, "callTagMatch");
-        builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
-                                 {callTagMatch, MakeUInt(1, 1)});
-        builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
-                              GetLikelyFirstBranchMetadata());
-        builder->SetInsertPoint(callBlock);
+    //     auto callTagMatch = builder->CreateICmpEQ(lhs, rhs, "callTagMatch");
+    //     builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+    //                              {callTagMatch, MakeUInt(1, 1)});
+    //     builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
+    //                           GetLikelyFirstBranchMetadata());
+    //     builder->SetInsertPoint(callBlock);
 
-        // builder->CreateCall(
-        //     GetPrint(&mod),
-        //     {ConstantInt::get(
-        //          INTTYPE,
-        //          reinterpret_cast<uint64_t>(new std::string(
-        //              "Calling record method: " + meth->GetName() + "\n")),
-        //          false),
-        //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+    //     // builder->CreateCall(
+    //     //     GetPrint(&mod),
+    //     //     {ConstantInt::get(
+    //     //          INTTYPE,
+    //     //          reinterpret_cast<uint64_t>(new std::string(
+    //     //              "Calling record method: " + meth->GetName() + "\n")),
+    //     //          false),
+    //     //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
-        auto implFunctionType = meth->GetLLVMFunctionType();
-        auto paramCount = implFunctionType->getNumParams();
-        auto argsarr = makealloca(Value *, paramCount);
+    //     auto implFunctionType = meth->GetLLVMFunctionType();
+    //     auto paramCount = implFunctionType->getNumParams();
+    //     auto argsarr = makealloca(Value *, paramCount);
 
-        NomSubstitutionContextMemberContext nscmc(meth);
-        CastedValueCompileEnv cvce = CastedValueCompileEnv(
-            meth->GetDirectTypeParameters(), this->GetAllTypeParameters(), fun,
-            2, paramCount,
-            ObjectHeader::GeneratePointerToTypeArguments(builder, varargs[0]));
+    //     NomSubstitutionContextMemberContext nscmc(meth);
+    //     CastedValueCompileEnv cvce = CastedValueCompileEnv(
+    //         meth->GetDirectTypeParameters(), this->GetAllTypeParameters(),
+    //         fun, 2, paramCount,
+    //         ObjectHeader::GeneratePointerToTypeArguments(builder,
+    //         varargs[0]));
 
-        for (decltype(paramCount) j = 0; j < paramCount; j++) {
-          Value *curArg = nullptr;
-          if (j < RTConfig_NumberOfVarargsArguments ||
-              RTConfig_NumberOfVarargsArguments + 1 == paramCount) {
-            curArg = varargs[j];
-          } else {
-            curArg = MakeInvariantLoad(
-                builder,
-                builder->CreateGEP(
-                    varargs[RTConfig_NumberOfVarargsArguments],
-                    MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
-                "varArg", AtomicOrdering::NotAtomic);
-          }
-          auto expectedType = implFunctionType->getParamType(j);
-          if (j >= meth->GetDirectTypeParametersCount()) {
-            curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
-            if (j > meth->GetDirectTypeParametersCount()) {
-              curArg = RTCast::GenerateCast(
-                  builder, &cvce, curArg,
-                  meth->GetArgumentTypes(
-                      &nscmc)[j - (meth->GetDirectTypeParametersCount() + 1)]);
-            }
-          }
-          curArg = EnsurePackedUnpacked(builder, curArg, expectedType);
-          argsarr[j] = curArg;
-        }
-        auto callResult = builder->CreateCall(
-            implFunctionType,
-            meth->GetLLVMElement(mod), // NomRecordMethod::GetLLVMElement(mod),
-            ArrayRef<Value *>(argsarr, paramCount), meth->GetQName());
-        callResult->setCallingConv(NOMCC);
-        auto actualResult = EnsurePackedUnpacked(
-            builder, EnsurePackedUnpacked(builder, callResult, REFTYPE),
-            POINTERTYPE);
-        builder->CreateRet(actualResult);
+    //     for (decltype(paramCount) j = 0; j < paramCount; j++) {
+    //       Value *curArg = nullptr;
+    //       if (j < RTConfig_NumberOfVarargsArguments ||
+    //           RTConfig_NumberOfVarargsArguments + 1 == paramCount) {
+    //         curArg = varargs[j];
+    //       } else {
+    //         curArg = MakeInvariantLoad(
+    //             builder,
+    //             builder->CreateGEP(
+    //                 varargs[RTConfig_NumberOfVarargsArguments],
+    //                 MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
+    //             "varArg", AtomicOrdering::NotAtomic);
+    //       }
+    //       auto expectedType = implFunctionType->getParamType(j);
+    //       if (j >= meth->GetDirectTypeParametersCount()) {
+    //         curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
+    //         if (j > meth->GetDirectTypeParametersCount()) {
+    //           curArg = RTCast::GenerateCast(
+    //               builder, &cvce, curArg,
+    //               meth->GetArgumentTypes(
+    //                   &nscmc)[j - (meth->GetDirectTypeParametersCount() +
+    //                   1)]);
+    //         }
+    //       }
+    //       curArg = EnsurePackedUnpacked(builder, curArg, expectedType);
+    //       argsarr[j] = curArg;
+    //     }
+    //     auto callResult = builder->CreateCall(
+    //         implFunctionType,
+    //         meth->GetLLVMElement(mod), //
+    //         NomRecordMethod::GetLLVMElement(mod), ArrayRef<Value *>(argsarr,
+    //         paramCount), meth->GetQName());
+    //     callResult->setCallingConv(NOMCC);
+    //     auto actualResult = EnsurePackedUnpacked(
+    //         builder, EnsurePackedUnpacked(builder, callResult, REFTYPE),
+    //         POINTERTYPE);
+    //     builder->CreateRet(actualResult);
 
-        builder->SetInsertPoint(nextBlock);
-      }
-    }
+    //     builder->SetInsertPoint(nextBlock);
+    //   }
+    // }
 
     // builder->CreateCall(
     //     GetPrint(&mod),

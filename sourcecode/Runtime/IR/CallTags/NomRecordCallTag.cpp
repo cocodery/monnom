@@ -11,6 +11,7 @@
 #include "NomVMIMTInterface.h"
 #include "NomVMInterface.h"
 #include "RTCompileConfig.h"
+#include "RTConfig.h"
 #include "RTVTable.h"
 #include "RefValueHeader.h"
 #include "llvm/IR/Verifier.h"
@@ -70,50 +71,6 @@ const NomRecordCallTag *NomRecordCallTag::GetCallTag(const std::string &name,
   return callTags[key];
 }
 NomRecordCallTag::~NomRecordCallTag() {}
-llvm::Constant *NomRecordCallTag::createLLVMElement2(
-    llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
-  Function *fun =
-      mod.getFunction("MONNOM_RT_RCT_" + name + "/" + to_string(typeargcount) +
-                      "/" + to_string(argcount));
-  if (fun == nullptr) {
-    fun = Function::Create(GetIMTFunctionType(), linkage,
-                           "MONNOM_RT_RCT_" + name + "/" +
-                               to_string(typeargcount) + "/" +
-                               to_string(argcount),
-                           mod);
-    fun->setCallingConv(NOMCC);
-
-    NomBuilder builder;
-
-    BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
-    builder->SetInsertPoint(startBlock);
-
-    auto argiter = fun->arg_begin();
-    auto callTag = argiter; // the target interface call tag of the call
-    argiter++;
-    auto receiver = (NomValue)argiter; // the receiver of the call
-    argiter++;
-
-    auto vtable = RefValueHeader::GenerateReadVTablePointer(
-        builder, receiver); // RTVTable
-    // auto imt_entry = RTVTable::GenerateReadInterfaceMethodTableEntry(
-    //     builder, vtable,
-    //     MakeInt32((NomString(name).HashCode() + (GetOffset() * 4177)) %
-    //               IMTsize)); // IMTEntry
-
-    llvm::raw_os_ostream out(std::cout);
-    if (verifyFunction(*fun, &out)) {
-      out.flush();
-      std::cout << "Could not verify Record Call Tag function ";
-      std::cout << name << "/" << typeargcount << "/" << argcount;
-      fun->print(out);
-      out.flush();
-      std::cout.flush();
-      throw new std::exception();
-    }
-  }
-  return fun;
-}
 llvm::Constant *NomRecordCallTag::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   Function *fun =
@@ -180,47 +137,39 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     //     GetReadFunCallTag(&mod),
     //     {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
 
-    auto vTable = builder->CreatePointerCast(vtable, INTTYPE);
+    if (RTConfig_EnableTransition) {
+      auto callTagAddr = MakeInvariantLoad(
+          builder,
+          builder->CreateGEP(
+              builder->CreatePointerCast(callTag, INTTYPE->getPointerTo()),
+              MakeInt32(-1)),
+          "", llvm::AtomicOrdering::NotAtomic);
 
-    auto callTagAddr = MakeInvariantLoad(
-        builder,
-        builder->CreateGEP(
-            builder->CreatePointerCast(callTag, INTTYPE->getPointerTo()),
-            MakeInt32(-1)),
-        "", llvm::AtomicOrdering::NotAtomic);
+      auto callTagFunAddr = builder->CreatePtrToInt(callTag, INTTYPE);
 
-    auto callTagFunAddr = builder->CreatePtrToInt(callTag, INTTYPE);
+      auto nomRecordAddr = RTVTable::GenerateReadNomObjPtr(builder, vtable);
 
-    auto nomRecordAddr = RTVTable::GenerateReadNomObjPtr(builder, vtable);
+      auto imtArray = builder->CreatePtrToInt(
+          RTVTable::GenerateReadInterfaceMethodTable(builder, vtable), INTTYPE);
 
-    // TODO: Call the transition method
-    // Arguments: RTVTable, InterfaceMethodTable, NomInterfaceCallTag
-    // Return   : Return the updated IMT Entry
-    auto imtArray = builder->CreatePtrToInt(
-        RTVTable::GenerateReadInterfaceMethodTable(builder, vtable), INTTYPE);
-
-    // for (auto i = 0; i < IMTsize; i++) {
-    //   auto imtEntry = RTVTable::GenerateReadInterfaceMethodTableEntry(
-    //       builder, vtable, MakeInt32(i));
-    //   builder->CreateCall(
-    //       GetPrint(&mod),
-    //       {ConstantInt::get(INTTYPE,
-    //                         reinterpret_cast<uint64_t>(new std::string(
-    //                             "IMT Entry " + std::to_string(i) + ": ")),
-    //                         false),
-    //        llvm::ConstantInt::get(INTTYPE, 1, false)});
-    //   builder->CreateCall(GetPrint(&mod),
-    //                       {builder->CreatePtrToInt(imtEntry,
-    //                       numtype(intptr_t)),
-    //                        llvm::ConstantInt::get(INTTYPE, 0, false)});
-    // }
-
-    // Installs an IMT entry covering this call-tag into the record's IMT, so
-    // later calls from interface call sites reach it directly. This call
-    // still goes through dynamic dispatch below: the interface call-tag has
-    // already packed the arguments, while IMT entries expect them unpacked.
-    builder->CreateCall(GetIMTTransition(&mod),
-                        {callTagAddr, callTagFunAddr, nomRecordAddr, imtArray});
+      // for (auto i = 0; i < IMTsize; i++) {
+      //   auto imtEntry = RTVTable::GenerateReadInterfaceMethodTableEntry(
+      //       builder, vtable, MakeInt32(i));
+      //   builder->CreateCall(
+      //       GetPrint(&mod),
+      //       {ConstantInt::get(INTTYPE,
+      //                         reinterpret_cast<uint64_t>(new std::string(
+      //                             "IMT Entry " + std::to_string(i) + ": ")),
+      //                         false),
+      //        llvm::ConstantInt::get(INTTYPE, 1, false)});
+      //   builder->CreateCall(GetPrint(&mod),
+      //                       {builder->CreatePtrToInt(imtEntry,
+      //                       numtype(intptr_t)),
+      //                        llvm::ConstantInt::get(INTTYPE, 0, false)});
+      // }
+      builder->CreateCall(GetIMTTransition(&mod), {callTagAddr, callTagFunAddr,
+                                                   nomRecordAddr, imtArray});
+    }
 
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
         builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,

@@ -28,7 +28,7 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
   if (ret == nullptr) {
     FunctionType *funType = FunctionType::get(
         POINTERTYPE, {INTTYPE, INTTYPE, INTTYPE, INTTYPE}, false);
-    ret = Function::Create(funType, Function::AvailableExternallyLinkage,
+    ret = Function::Create(funType, Function::ExternalLinkage,
                            "CPP_NOM_GetIMTTransition", mod);
   }
   return ret;

@@ -29,6 +29,7 @@ class Main
 		};
 		IShape os = other;
 		os.Area().ToString().Print();
+		"\n".Print();
 	}
 
 	public static fun MakeRecords(Int n) : ArrayList<dyn>

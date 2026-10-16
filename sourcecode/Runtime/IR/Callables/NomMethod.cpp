@@ -117,7 +117,10 @@ llvm::Function *NomMethodInternal::createLLVMElement(
   BasicBlock *forwardblock =
       BasicBlock::Create(LLVMCONTEXT, GetName() + "start", wfun);
   builder->SetInsertPoint(forwardblock);
-  auto ufun = Function::Create(funtype, linkage, GetQName(), &mod);
+  // the C++ implementation is only declared here, and a declaration must
+  // have external linkage whatever linkage the forwarder gets
+  auto ufun = Function::Create(funtype, GlobalValue::ExternalLinkage,
+                               GetQName(), &mod);
   ufun->setCallingConv(llvm::CallingConv::C);
 
   auto ftnumparams = funtype->getNumParams();

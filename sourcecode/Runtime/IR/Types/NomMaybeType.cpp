@@ -241,6 +241,8 @@ bool NomMaybeType::ContainsVariableIndex(int index) const {
 using namespace Nom::Runtime;
 
 extern "C" intptr_t NOM_RTInstantiateMaybe(intptr_t ptype) {
+  // the background IMT compiler may be instantiating types too
+  auto lock = NomJIT::Instance().getContextLock();
   NomTypeRef tp = reinterpret_cast<NomTypeRef>(ptype);
   return NomMaybeType::GetMaybeType(tp)->GetRTElement();
 }

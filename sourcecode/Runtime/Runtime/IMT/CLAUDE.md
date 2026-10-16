@@ -11,7 +11,7 @@ The compile helpers are in `Nom::Runtime::IMTUtils`.
 
 | File | Contents |
 |------|----------|
-| `NomVMIMTInterface.h/.cpp` | `extern "C"` bridges called from JIT'd code, plus the `Get*` helpers that declare them in an LLVM module |
+| `NomVMIMTInterface.h/.cpp` | `extern "C"` bridge called from JIT'd code, plus `GetIMTTransition`, which declares it in an LLVM module |
 | `NomIMTransition.h/.cpp` | `NomIMTNode` and `NomIMTGraph`: the transition data structures |
 | `NomIMTUtils.h/.cpp` | `BuildIMTEntryModule`, which builds a new IMT entry's IR, and `CompileIMTEntryFunction`, which builds and JIT-compiles it synchronously |
 | `NomIMTAsyncCompiler.h/.cpp` | Background compilation of IMT entries, the default mode |
@@ -20,20 +20,31 @@ The build picks up sources with `GLOB_RECURSE`, and `CMakeLists.txt` already lis
 
 ## Runtime flow
 
+IMT transitions are off by default. `nom --trans` turns them on (`RTConfig_EnableTransition`); without it the record call-tag never calls the bridge, and nothing in this folder runs.
+
 When an interface call reaches a dynamic object whose IMT slot does not cover the call-tag, the call falls through to the record call-tag. JIT'd code in `NomRecordCallTag::createLLVMElement` (`IR/CallTags/NomRecordCallTag.cpp`) then calls `CPP_NOM_GetIMTTransition`, and afterwards serves the call itself through `GenerateFindDynamicDispatcherPair`. The triggering call always goes through dynamic dispatch, because the interface call-tag has already packed its arguments and IMT entries expect them unpacked. The bridge only prepares the IMT for later calls:
 
 1. Installs any entries the background compiler has finished (`InstallFinishedIMTEntries`), so the slot it reads next is current.
 2. Gets `imtIndex` from `callTag->GetMethod()->GetIMTIndex()` and reads the current entry from `imtArray[imtIndex]`.
-3. Returns early if the record has no method for the call-tag (`LookupCallTagMethodAddr` is null, e.g. a field holding a lambda).
+3. Returns early if the record has no method for the call-tag (`CheckCallTagMethodExist` is false, e.g. a field holding a lambda).
 4. Gets the record's graph with `NomIMTGraph::GetIMTGraph(record)` and the node for the current entry with `GetIMTNode(imtIndex, imtEntry)`. The first lookup for a slot creates its root node.
-5. Picks one of the cases listed under `CPP_NOM_GetIMTTransition` below: hit, known transition, pending, or miss.
+5. Handles one of the cases below.
+
+| Case | Test | Action |
+|------|------|--------|
+| Hit | `CheckNodeValidity` | Leaves the slot as it is. |
+| Known transition | `CheckTransition` | Writes the child's entry into `imtArray[imtIndex]`; compiles nothing. |
+| Pending | `IsIMTEntryPending` | Returns `nullptr` and leaves the slot alone. A later fallback installs the finished entry, and extends it if it still doesn't cover this call-tag. |
+| Miss, async (default) | `UseAsyncIMTCompile` | Queues the build with `CompileIMTEntryFunctionAsync` and returns `nullptr`. |
+| Miss, sync | otherwise | `CompileIMTEntryFunction`, then `CreateTransitionNode` and `GenerateTransitionRelation`, then writes the new entry into the slot. |
+
+The node is always found from the slot's **current** contents, not from whichever entry the call passed through. So a miss on an installed entry builds the child under that entry's node.
 
 All objects created at one construction site share one `NomRecord`, and so one vtable, one `imtArray` and one graph. Installing an entry therefore speeds up every object from that site at once. `experiments/monnom/imtshare` checks this.
 
 ### Arguments to the bridge
 
-The JIT'd caller passes four `i64` values, and the C++ side receives them
-as `void *`:
+`GetIMTTransition(mod)` declares the bridge with four `i64` parameters and a pointer return value, which the caller ignores. The C++ side receives them as `void *`:
 
 | Arg | Built in `NomRecordCallTag.cpp` as | Meaning |
 |-----|-------------------------------------|---------|
@@ -42,175 +53,71 @@ as `void *`:
 | `nomRecordAddr` | `RTVTable::GenerateReadNomObjPtr` | the `NomRecord *` that owns the graph |
 | `imtArray` | `RTVTable::GenerateReadInterfaceMethodTable` | the record's IMT, an array of `IMTsize` entries |
 
-If you change the signature, update the C function, the `FunctionType` in
-`GetIMTTransition()`, and the call site, and keep all three in sync.
+If you change the signature, update the C function, the `FunctionType` in `GetIMTTransition()`, and the call site, and keep all three in sync.
 
-## Method reference
+## Generated IMT entries
 
-This section lists `CPP_NOM_GetIMTTransition` and the methods it calls, in call order.
+The record's original entry for each slot (`IR/Data/NomRecord.cpp`) becomes the root node of that slot. It has branches only for **record** call-tags, and otherwise must-tail-calls the incoming call-tag.
 
-### `CPP_NOM_GetIMTTransition` (`NomVMIMTInterface.cpp`)
+`BuildIMTEntryModule` builds one entry function named `MONNOM_RT_RECORDIMT_<record>_<slot>_<n>`, where `n` is a global counter. The module has the same name; read it back with `mod->getModuleIdentifier()`. The function has the IMT function type (`GetIMTFunctionType()`) and the `NOMCC` calling convention.
 
-```cpp
-extern "C" void *CPP_NOM_GetIMTTransition(void *callTagAddr,
-                                          void *callTagFunAddr,
-                                          void *nomRecordAddr,
-                                          void **imtArray);
-```
+- **Branches:** one compare-and-branch per call-tag, first the new one and then the parent node's. Each compares the incoming call-tag with that tag's function address. Every call-tag must have a record method; `GenerateCallTagBranch` asserts this.
+- **On a match:** it calls the record method directly. The address comes from the `LookupRecordMethodAddr` cache. Before the call it packs primitive arguments and casts arguments to the method's parameter types. Afterwards it converts the result to the interface method's representation.
+- **No match:** it must-tail-calls the incoming call-tag (`argCallTag`), which leads to the record call-tag and the bridge.
 
-This is the bridge that JIT'd code calls on the fallback path. After the steps in "Runtime flow", it handles one of four cases:
+Only **interface** call-tags reach IMT slots. The only IMT-slot call site is `Instructions/CallCheckedInstanceMethod.cpp`, which passes an ICT. The ICT calls the record call-tag directly, not through the slot. The commented-out code in `NomInterfaceCallTag.cpp` that dispatched RCTs through the slot is the original design, and it is no longer used. That is why the no-match path can skip the parent chain: it would only repeat branches that already failed, and the root's RCT branches never match. **If RCTs are ever dispatched through IMT slots again, the no-match path must call the parent entry instead**, because the bridge casts `callTagAddr` to `NomInterfaceCallTag *`.
 
-- **Hit:** the node already covers the call-tag (`CheckNodeValidity`). The slot is left as it is.
-- **Known transition:** the node already has a transition for the call-tag (`CheckTransition`). It writes the child's entry into `imtArray[imtIndex]` and compiles nothing.
-- **Pending:** an entry for this slot is still compiling in the background (`IsIMTEntryPending`). It returns `nullptr` and leaves the slot alone. A fallback after that compile finishes installs the entry, and a later fallback extends it with this call-tag if it still isn't covered.
-- **Miss, async (default):** it hands the work to `CompileIMTEntryFunctionAsync` and returns `nullptr` right away.
-- **Miss, sync:** it compiles with `CompileIMTEntryFunction`, creates the child with `CreateTransitionNode`, adds it to the graph with `GenerateTransitionRelation`, and writes the new entry into `imtArray[imtIndex]`.
+The sync path verifies the function and throws if verification fails; the async path does not verify.
 
-The caller ignores the return value. LLVM declares the function through `GetIMTTransition(mod)`, with four `i64` parameters and a pointer return value.
+## Methods
 
-### `NomIMTGraph::GetIMTGraph` (static)
+**`NomIMTGraph::GetIMTGraph(record)`** (static): returns the record's graph, creating it on first use. Graphs live in a function-static map for the whole process. Each graph has one node list per IMT slot.
 
-```cpp
-static NomIMTGraph *GetIMTGraph(NomRecord *record);
-```
+**`NomIMTGraph::GetIMTNode(imtIndex, imtEntry)`**: returns the node in the slot whose `imtEntry` matches. If the slot has no nodes, it creates a root node (no call-tags, no transitions) and returns it. If no node matches, it throws `std::exception`; that can only happen if something outside this folder wrote the slot.
 
-This returns the graph for `record`, creating one on first use. Graphs are kept in a function-static `IMTGraphs` map (`NomRecord * → NomIMTGraph *`) and live for the whole process. The constructor gives the graph one empty node list for each of the `IMTsize` slots. Since each construction site has its own `NomRecord`, keying by record gives one graph per construction site.
+**`NomIMTNode::CheckNodeValidity(callTag)`**: true if `callTag` is in the node's `callTags`. The search is linear and compares pointers.
 
-### `NomIMTGraph::GetIMTNode`
+**`NomIMTNode::CheckTransition(callTag)`**: the target node's entry if the node has an edge for `callTag`, otherwise `nullptr`. Together with the node check, this means an entry is compiled only once per (node, call-tag) pair.
 
-```cpp
-NomIMTNode *GetIMTNode(int imtIndex, void *imtEntry);
-```
+**`NomIMTNode::CreateTransitionNode(parent, callTag, callTagFunAddr, imtEntry)`** (static): returns a new node with the parent's call-tags plus `(callTag, callTagFunAddr)`. It does not add the parent → child edge; `GenerateTransitionRelation` does.
 
-This returns the node in slot `imtIndex` whose `imtEntry` equals the given entry.
+**`NomIMTGraph::GenerateTransitionRelation(imtIndex, node)`**: compares `node` with every node already in the slot:
+- If `node` has one fewer call-tag, it adds `node → other`.
+- If `node` has one more call-tag, it adds `other → node`. This is how the parent → child edge is created.
+- Otherwise it adds nothing.
 
-- If the slot has no nodes yet, it creates a root node for `imtEntry` with no call-tags and no transitions. It then adds that node to the slot and returns it.
-- If the slot has nodes but none matches, it throws `std::exception`. That can only happen if something other than this folder wrote the slot.
+Each edge is labelled with the tag from `FindDiffCallTag`, and is added only if the source has no edge for that tag yet. It then appends `node` to the slot. The extra edges let objects that reach the same call-tag set in different orders share a node. For example, if `{a}` → `{a, b}` exists and `{b}` is created later, it adds `{b}` → `{a, b}` under `a`.
 
-### `NomIMTNode::CheckNodeValidity`
+**`NomIMTGraph::FindDiffCallTag(from, to)`** (private static): the single tag that is in `to` but not in `from`, or `nullptr` if more than one differs (e.g. `{a}` and `{b, c}`). It asserts that `to` has exactly one more tag than `from`. Tags are compared by pointer.
 
-```cpp
-bool CheckNodeValidity(const NomInterfaceCallTag *callTag);
-```
+**`IMTUtils::CompileIMTEntryFunction`** (sync): builds the module under the context lock, adds it to `NomJIT` through the normal optimization layer, and returns the entry's address. It throws if adding or looking up fails.
 
-This returns `true` if `callTag` is in the node's `callTags` list, meaning this node's entry already handles that call-tag. The check is a linear search that compares pointers.
+**`IMTUtils::CompileIMTEntryFunctionAsync`**: on the main thread it copies the record, slot, call-tag and the node's call-tags into a job, queues it, and marks the slot pending. The worker then:
+1. Under the context lock, builds the module with `BuildIMTEntryModule`, serializes it to bitcode, and frees it.
+2. Without the lock, parses the bitcode into a private `LLVMContext`.
+3. Optimizes it with a trimmed copy of `NomJIT::optimizeModule`: `PassManagerBuilder` at `NomOptLevel`, tail-call elimination and `RTConfig_AdditionalOptPasses`, with no debug or profiling instrumentation.
+4. Generates an object with its own `TargetMachine`.
 
-### `NomIMTNode::CheckTransition`
-
-```cpp
-void *CheckTransition(const NomInterfaceCallTag *callTag);
-```
-
-This looks up `callTag` in the node's `transitions` map. It returns the target node's `imtEntry` if there is an edge for that call-tag, and `nullptr` otherwise. The bridge calls it when `CheckNodeValidity` fails, so an entry is compiled only once per (node, call-tag) pair.
-
-### `IMTUtils::BuildIMTEntryModule` (`NomIMTUtils.cpp`)
-
-```cpp
-std::unique_ptr<llvm::Module> BuildIMTEntryModule(
-    NomRecord *nomRecord, int imtIndex, const NomInterfaceCallTag *callTag,
-    void *callTagFunAddr, NomIMTNode *imtNode);
-```
-
-This builds a module holding one IMT entry function that covers `imtNode`'s call-tags plus `callTag`. The module and the function share the name `MONNOM_RT_RECORDIMT_<record>_<slot>_<n>`, where `n` is a global counter. Read it back with `mod->getModuleIdentifier()`. The function has the IMT function type (`GetIMTFunctionType()`) and the `NOMCC` calling convention.
-
-The generated function works like this:
-
-- **Branches:** one compare-and-branch for each call-tag, first the parent node's tags and then the new one. Each compares the incoming call-tag with that tag's function address.
-- **On a match:** it calls the record method directly. The address comes from `LookupRecordMethodAddr`, which is cached. Before the call it packs primitive arguments, casts arguments to the method's parameter types, and converts the result back to the interface method's representation. A call-tag the record has no method for gets no branch.
-- **No match:** it must-tail-calls the parent node's entry, which ends at the record's original entry and from there at the call-tag itself.
-
-It verifies the function and throws if verification fails. It uses the shared `LLVMCONTEXT` and calls `NomJIT::lookup`, so it must run on the main thread.
-
-### `IMTUtils::CompileIMTEntryFunction` (`NomIMTUtils.cpp`)
-
-```cpp
-void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
-                              const NomInterfaceCallTag *callTag,
-                              void *callTagFunAddr, NomIMTNode *imtNode);
-```
-
-This is the synchronous path. It calls `BuildIMTEntryModule`, adds the module to `NomJIT` (through the JIT's normal optimization layer), looks up the symbol, and returns the entry's native address. It throws if adding or looking up fails.
-
-### `IMTUtils::CompileIMTEntryFunctionAsync` (`NomIMTAsyncCompiler.cpp`)
-
-```cpp
-void CompileIMTEntryFunctionAsync(NomRecord *nomRecord,
-                                  NomIMTGraph *imtGraph, int imtIndex,
-                                  const NomInterfaceCallTag *callTag,
-                                  void *callTagFunAddr,
-                                  NomIMTNode *imtNode, void **imtArray);
-```
-
-This is the asynchronous path. It calls `BuildIMTEntryModule` on the main thread, serializes the module to bitcode, queues the job, and marks the slot as pending. The worker thread then works on the job:
-
-- It parses the bitcode into its own private `LLVMContext`.
-- It optimizes the module with a trimmed copy of `NomJIT::optimizeModule`: the `PassManagerBuilder` passes at `NomOptLevel`, tail-call elimination, and `RTConfig_AdditionalOptPasses`, but none of the debug or profiling instrumentation.
-- It generates an object with its own `TargetMachine`.
-
-The main thread and the worker share no LLVM objects.
-
-### `IMTUtils::InstallFinishedIMTEntries` (`NomIMTAsyncCompiler.cpp`)
-
-The bridge calls this first thing. For each finished job it does the following:
-
-1. Clears the slot's pending mark.
-2. Adds the object to the JIT with `NomJIT::addObjectFile` and looks up the entry.
-3. Creates the child with `CreateTransitionNode`, adds it with `GenerateTransitionRelation`, and writes the entry into `imtArray[imtIndex]`.
+**`IMTUtils::InstallFinishedIMTEntries`**: for each finished job, it does the following on the main thread:
+1. Clears the pending mark.
+2. Adds the object with `NomJIT::addObjectFile` and looks up the entry.
+3. Creates the child node, links it into the graph, and writes the entry into the slot.
 
 It throws if compiling, linking or the lookup failed.
 
-### `IMTUtils::UseAsyncIMTCompile` and `ShutdownIMTCompiler`
+**`IMTUtils::UseAsyncIMTCompile`**: false if the runtime was started with `--sync` (`RTConfig_AsyncIMTCompile`). It is also false when instrumentation that `optimizeModule` adds to modules in the shared context is on: verbose output, `-d`/`-d0`/`-d1`, `NomStatsLevel > 1`, or function timing level 3 (`-d2`).
 
-`UseAsyncIMTCompile()` returns `false` in two cases, and the bridge then uses the sync path:
-
-- The runtime was started with `--syncimtcompile`.
-- Instrumentation is enabled that `optimizeModule` adds to modules in the shared context: verbose output, `-d`/`-d0`/`-d1`, `NomStatsLevel > 1`, or function timing level 3 (`-d2`).
-
-`ShutdownIMTCompiler()` drops queued jobs, waits for the job being compiled, and joins the worker. `main` (`Runtime.cpp`) and `NOM_RT_Fail` (`RTOutput.cpp`) call it before exiting. Any new exit path that can run while the worker is alive must call it too. The compiler object is heap-allocated and never destroyed on purpose. Joining the worker from a static destructor can hang, because LLVM function-local statics that the worker first touched are destroyed before it.
-
-### `NomIMTNode::CreateTransitionNode` (static)
-
-```cpp
-static NomIMTNode *CreateTransitionNode(NomIMTNode *parent,
-                                        const NomInterfaceCallTag *callTag,
-                                        void *callTagFunAddr,
-                                        void *imtEntry);
-```
-
-This creates the node that a newly compiled entry represents. It copies the parent's `callTags`, appends `(callTag, callTagFunAddr)`, and returns a new node with `imtEntry` and the extended list. It does not link the parent to the child; `GenerateTransitionRelation` adds that edge.
-
-### `NomIMTGraph::GenerateTransitionRelation`
-
-```cpp
-void GenerateTransitionRelation(int imtIndex, NomIMTNode *node);
-```
-
-This builds transition relations between `node` and the existing nodes in slot `imtIndex`. It checks every node already in the slot and compares the sizes of the two call-tag sets:
-
-- **`node` has one fewer call-tag:** `node` can transition to the other node. It finds the call-tag that differs with `FindDiffCallTag(node, other)` and adds `node → other` under that tag with `AddTransitionNode`.
-- **`node` has one more call-tag:** the other node can transition to `node`. It finds the differing tag with `FindDiffCallTag(other, node)` and adds `other → node`. The parent → child edge for a new node is created here.
-- **Any other size difference:** no relation is added.
-
-An edge is added only when the source node has no transition for that call-tag yet, so existing edges are never overwritten. Finally it appends `node` to the slot's node list, so `GetIMTNode` can find it by its entry later.
-
-These extra edges let objects that reach the same call-tag set in different orders share a node. For example, if `{a}` → `{a, b}` already exists and `{b}` is created later, this adds `{b}` → `{a, b}` under `a`. A later `a` call on a `{b}` object then reuses the `{a, b}` entry instead of compiling a duplicate.
-
-### `NomIMTGraph::FindDiffCallTag` (private static)
-
-```cpp
-static const NomInterfaceCallTag *FindDiffCallTag(const NomIMTNode *from,
-                                                  const NomIMTNode *to);
-```
-
-This returns the call-tag that `from` would take to transition to `to`: the single tag that is in `to->callTags` but not in `from->callTags`. It returns `nullptr` when `to`'s set is not exactly `from`'s set plus one tag. That covers both a size difference other than one and sets of the right sizes that diverge (for example `{a}` and `{b, c}`). Call-tags are compared by pointer.
+**`IMTUtils::ShutdownIMTCompiler`**: drops queued jobs, waits for the job being compiled, and joins the worker. `main` (`Runtime.cpp`) and `NOM_RT_Fail` (`RTOutput.cpp`) call it before exiting. Any new exit path that can run while the worker is alive must call it too. The compiler object is heap-allocated and deliberately never destroyed, because joining the worker from a static destructor can hang: LLVM function-local statics that the worker first touched are destroyed before it.
 
 ## Invariants
 
 Keep these true when changing the code:
 
-- **Threads.** JIT'd code, the bridge, the graphs and the nodes all run on the main thread only. The static maps are not locked. The worker touches nothing but its own job, its private `LLVMContext` and its `TargetMachine`. Never give it anything from `LLVMCONTEXT`, a graph or a node. It must not allocate from the Boehm GC heap either, because the GC does not know about it.
+- **Threads.** JIT'd code, the bridge, the graphs and the nodes run on the main thread only; never give the worker a graph or a node. The worker builds IR in `LLVMCONTEXT` and reads and extends the runtime's type data, always under `NomJIT::getContextLock()`. Anything else that does either while the worker may run must hold that lock too. ORC takes it when compiling IR modules, and so do `NOM_RTInstantiateClass` and `NOM_RTInstantiateMaybe`. A new runtime entry point that instantiates types or builds IR must take it as well. The worker registers itself with the Boehm GC, because building IR can allocate from the GC heap.
+- **No JIT calls under the context lock.** `BuildIMTEntryModule` gets method addresses only from the `LookupRecordMethodAddr` cache. The bridge fills that cache (`CheckCallTagMethodExist`) before any entry covering that call-tag is built.
 - **Slots.** Only this folder writes `imtArray` slots, and only on the main thread. Each slot has at most one async job at a time, and the bridge leaves a pending slot alone. So when a job is installed, the slot still holds the entry of the node the job extends.
-- **Memory.** Nodes and graphs are allocated with plain `new` (not GC) and live for the whole process. Compiled entries embed raw node entry and method addresses.
+- **Call-tags in slots.** Only interface call-tags reach IMT slots (see "Generated IMT entries").
+- **Memory.** Nodes and graphs are allocated with plain `new` (not GC) and live for the whole process. Compiled entries embed raw method and call-tag addresses.
 
 ## Testing
 
@@ -220,12 +127,14 @@ Build following the root CLAUDE.md, then run the IMT test case:
 source setpath.sh   # from repo root
 cd experiments/monnom/imtshare
 nomc --project IMTShare --path .
-nom IMTShare                    # async (default)
-nom --syncimtcompile IMTShare   # sync
+nom --trans IMTShare          # async (default)
+nom --trans --sync IMTShare   # sync
 ```
 
-Both should print `680`, `440` and `10`. `String.Print` writes no newline, so the numbers may run into LLVM's "Global is external…" warnings. Don't filter the output with `grep -v` on those lines, or the numbers disappear with them.
+Both should print exactly `68010` and a newline (`680` then `10`; `String.Print` writes no separator), and nothing else. Any LLVM verifier message ("Global is external…", "Alias must point to a definition") means generated IR is invalid. Only the sync path verifies IMT entries, so such a message can make the two modes' output differ.
 
-In this test the program finishes before any background compile does, so in async mode every call takes the fallback path. That is expected. To see entries being installed, raise `count` in a scratch copy of `Main.mn` to around 200000, or run a longer benchmark such as `experiments/monnom/sort/.BM_IISSSCC` (`nom Sort`). Its timed section is about 2 ms async and about 30 ms with `--syncimtcompile`.
+In this test the program finishes before any background compile does, so in async mode every call takes the fallback path. To see entries being installed, raise `count` in a scratch copy of `Main.mn` to around 200000; the output should then be `2666786667600000` followed by `10`. A longer benchmark such as `experiments/monnom/sort/.BM_IISSSCC` also installs entries; run `nom --trans Sort` from inside that folder.
+
+Without `--trans` every run takes plain dynamic dispatch, so a test that passes without it says nothing about this folder.
 
 Check that you are running the binary you just built (`sourcecode/Runtime/nom`).

@@ -18,11 +18,13 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/raw_ostream.h"
+#include <atomic>
 #include <iostream>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -54,14 +56,22 @@ static NomRecordMethod *LookupRecordMethod(const NomRecord *nomRecord,
   return nullptr;
 }
 
+// Main thread and background compiler both read this cache. The bridge
+// fills it (CheckCallTagMethodExist) for every call-tag before an entry
+// covering that call-tag is built, so the background compiler only ever
+// hits it and never calls into the JIT while holding the context lock.
 static void *LookupRecordMethodAddr(const NomRecordMethod *meth) {
   // use a static map to cache the addresses of record methods
   // so we don't have to look them up in the JIT every time
   static std::unordered_map<const NomRecordMethod *, void *> addrMap;
+  static std::mutex addrMapMutex;
   // check if the address of the record method is already in the map
-  auto it = addrMap.find(meth);
-  if (it != addrMap.end()) {
-    return it->second;
+  {
+    std::lock_guard<std::mutex> lock(addrMapMutex);
+    auto it = addrMap.find(meth);
+    if (it != addrMap.end()) {
+      return it->second;
+    }
   }
   // if the address not in the map look it up in the JIT and add it to the map
   auto &jit = NomJIT::Instance();
@@ -76,6 +86,7 @@ static void *LookupRecordMethodAddr(const NomRecordMethod *meth) {
   }
   // get the address of the record method and add it to the map
   auto addr = reinterpret_cast<void *>(sym->getAddress());
+  std::lock_guard<std::mutex> lock(addrMapMutex);
   addrMap[meth] = addr;
   return addr;
 }
@@ -90,10 +101,9 @@ bool CheckCallTagMethodExist(const NomRecord *nomRecord,
   return false;
 }
 
-// Reads the IMT entry argument at position `pos` (0 is the receiver). The
-// first RTConfig_NumberOfVarargsArguments positions are passed in
-// registers; if there are more, the last register points to an array
-// holding the rest.
+// Reads the IMT entry argument at position `pos` (0 is the receiver)
+// The first RTConfig_NumberOfVarargsArguments positions are passed in registers
+// if there are more, the last register points to an array holding the rest
 static Value *ReadIMTArgument(NomBuilder &builder, Value **varargs,
                               unsigned int pos, unsigned int paramCount) {
   const unsigned int regCount = RTConfig_NumberOfVarargsArguments;
@@ -128,19 +138,21 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
                            {callTagMatch, MakeUInt(1, 1)});
   builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
                         GetLikelyFirstBranchMetadata());
-
   builder->SetInsertPoint(callBlock);
 
-  // why cannot replace callTag->GetMethod() to meth
-  auto ifaceFunctionType = callTag->GetMethod()->GetLLVMFunctionType();
-
+  // same as how record IMT entry build
   auto implFunctionType = meth->GetLLVMFunctionType();
   auto paramCount = implFunctionType->getNumParams();
-  auto targCount = meth->GetDirectTypeParametersCount();
+  auto argsarr = makealloca(Value *, paramCount);
+
   auto methodPtr = builder->CreateIntToPtr(
       ConstantInt::get(numtype(intptr_t), reinterpret_cast<intptr_t>(
                                               LookupRecordMethodAddr(meth))),
       implFunctionType->getPointerTo());
+  // although the method is still called under the record signature discipline
+  // the argument types need to read from it
+  auto ifaceFunctionType = callTag->GetMethod()->GetLLVMFunctionType();
+  auto targCount = meth->GetDirectTypeParametersCount();
 
   NomSubstitutionContextMemberContext nscmc(meth);
   CastedValueCompileEnv cvce = CastedValueCompileEnv(
@@ -148,11 +160,10 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
       2, paramCount,
       ObjectHeader::GeneratePointerToTypeArguments(builder, varargs[0]));
 
-  auto argsarr = makealloca(Value *, paramCount);
   for (decltype(paramCount) j = 0; j < paramCount; j++) {
     Value *curArg = ReadIMTArgument(builder, varargs, j, paramCount);
-    // Interface call sites pass primitive arguments unpacked; pack them
-    // as NomInterfaceCallTag would before the record method sees them.
+    // Interface call sites pass primitive arguments unpacked
+    // pack them as NomInterfaceCallTag would before the record method sees them
     if (j < ifaceFunctionType->getNumParams()) {
       auto ifaceType = ifaceFunctionType->getParamType(j);
       if (ifaceType != REFTYPE && ifaceType != TYPETYPE) {
@@ -176,21 +187,20 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
                                         ArrayRef<Value *>(argsarr, paramCount),
                                         meth->GetQName());
   callResult->setCallingConv(NOMCC);
-  // Return in the interface method's representation, as
-  // NomInterfaceCallTag does.
-  auto refResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
-  auto ifaceResult = EnsurePackedUnpacked(builder, refResult,
-                                          ifaceFunctionType->getReturnType());
-  builder->CreateRet(EnsurePackedUnpacked(builder, ifaceResult, POINTERTYPE));
+  // Return in the interface method's representation as NomInterfaceCallTag does
+  auto actualResult = EnsurePackedUnpacked(
+      builder, EnsurePackedUnpacked(builder, callResult, REFTYPE),
+      ifaceFunctionType->getReturnType());
+  builder->CreateRet(EnsurePackedUnpacked(builder, actualResult, POINTERTYPE));
 
   builder->SetInsertPoint(nextBlock);
 }
 
-std::unique_ptr<Module> BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
-                                            const NomInterfaceCallTag *callTag,
-                                            void *callTagFunAddr,
-                                            NomIMTNode *imtNode) {
-  static int transitionCount = 0;
+std::unique_ptr<Module>
+BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
+                    const NomInterfaceCallTag *callTag, void *callTagFunAddr,
+                    const IMTCallTagSet &parentCallTags) {
+  static std::atomic<int> transitionCount{0};
 
   std::string name = "MONNOM_RT_RECORDIMT_" + *nomRecord->GetSymbolName() +
                      "_" + std::to_string(imtIndex) + "_" +
@@ -236,26 +246,16 @@ std::unique_ptr<Module> BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
   GenerateCallTagBranch(builder, fun, nomRecord, argCallTag, varargs, callTag,
                         callTagFunAddr);
   // Call-tags the parent node already handles
-  for (auto &[parentTag, parentTagFunAddr] : imtNode->GetCallTags()) {
+  for (auto &[parentTag, parentTagFunAddr] : parentCallTags) {
     GenerateCallTagBranch(builder, fun, nomRecord, argCallTag, varargs,
                           parentTag, parentTagFunAddr);
   }
 
-  // I think this path should never be taken
-  // this would only happen if the ICT not exists in the IMT
-  // but the interface call process on record is to check the ICT in the IMT
-  // if the ICT exists in the IMT as long as we compile the IMT entry
-  // otherwise the ICT calls the RCT then it compiles and calls the IMT entry
-
-  // wait for new IMT entry if fallback it still need to call the ICT
-  // otherwise it would be a longer loop?
-  // we definitely can recursively call parent's IMT until reaches the root
+  // No call-tag matched call the call-tag itself
   auto tagCall = builder->CreateCall(
       GetIMTFunctionType(),
-      builder->CreateIntToPtr(
-          ConstantInt::get(numtype(intptr_t),
-                           reinterpret_cast<intptr_t>(argCallTag)),
-          GetIMTFunctionType()->getPointerTo()),
+      builder->CreatePointerCast(argCallTag,
+                                 GetIMTFunctionType()->getPointerTo()),
       ArrayRef<Value *>(argarr, 2 + RTConfig_NumberOfVarargsArguments));
   tagCall->setCallingConv(NOMCC);
   tagCall->setTailCallKind(CallInst::TailCallKind::TCK_MustTail);
@@ -276,11 +276,15 @@ std::unique_ptr<Module> BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
 void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
                               const NomInterfaceCallTag *callTag,
                               void *callTagFunAddr, NomIMTNode *imtNode) {
-  auto mod = BuildIMTEntryModule(nomRecord, imtIndex, callTag, callTagFunAddr,
-                                 imtNode);
+  auto &jit = NomJIT::Instance();
+  std::unique_ptr<Module> mod;
+  {
+    auto lock = jit.getContextLock();
+    mod = BuildIMTEntryModule(nomRecord, imtIndex, callTag, callTagFunAddr,
+                              imtNode->GetCallTags());
+  }
   std::string name = mod->getModuleIdentifier();
 
-  auto &jit = NomJIT::Instance();
   if (auto err = jit.addModule(std::move(mod))) {
     logAllUnhandledErrors(std::move(err), errs(),
                           "Could not add IMT entry " + name + ": ");
