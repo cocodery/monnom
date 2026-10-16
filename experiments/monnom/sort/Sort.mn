@@ -24,7 +24,9 @@ class Sort
 			IIterator<Int> upper = hiIter.Clone();
 			IIterator<Int> lower= loIter.Clone();
 			Int losize = Partition(lower, upper, hi-lo);
-			QuicksortRec(loIter, upper, lo, lo + losize-1);
+			IIterator<Int> leftHi = lower.Clone();
+			leftHi.MovePrev();
+			QuicksortRec(loIter, leftHi, lo, lo + losize - 1);
 			QuicksortRec(lower, hiIter, lo + losize, hi);
 		}
 	}
@@ -35,13 +37,13 @@ class Sort
 		Int losize=0;
 		while(true)
 		{
-			while(loIter.Current() < pivot)
+			while(loIter.Current() < pivot && distance >= 0)
 			{
 				loIter.MoveNext();
 				distance=distance-1;
 				losize=losize+1;
 			}
-			while(hiIter.Current() > pivot)
+			while(hiIter.Current() > pivot && distance >= 0)
 			{
 				hiIter.MovePrev();
 				distance=distance-1;
