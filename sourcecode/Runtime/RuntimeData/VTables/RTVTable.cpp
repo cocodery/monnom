@@ -85,13 +85,18 @@ void RTVTable::GenerateWriteInterfaceMethodTable(NomBuilder &builder,
 }
 llvm::Value *RTVTable::GenerateReadInterfaceMethodTableEntry(
     NomBuilder &builder, llvm::Value *vtablePtr, llvm::Constant *index) {
-  return MakeInvariantLoad(
-      builder,
-      builder->CreateGEP(
-          builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
-          {MakeInt32(0), MakeInt32(RTVTableFields::InterfaceMethodTable),
-           index}),
-      "IMTEntry", AtomicOrdering::NotAtomic);
+  auto entryPtr = builder->CreateGEP(
+      builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
+      {MakeInt32(0), MakeInt32(RTVTableFields::InterfaceMethodTable), index});
+  // IMT transitions rewrite slots at run time. An invariant load would let
+  // LLVM hoist the slot out of loops or merge it with an earlier read, so
+  // a loop that started before its entry was installed would keep calling
+  // the old entry, falling back on every call.
+  if (RTConfig_EnableTransition) {
+    return builder->CreateLoad(entryPtr, "IMTEntry");
+  }
+  return MakeInvariantLoad(builder, entryPtr, "IMTEntry",
+                           AtomicOrdering::NotAtomic);
 }
 llvm::Value *RTVTable::GenerateReadMethodTableEntry(NomBuilder &builder,
                                                     llvm::Value *vtablePtr,

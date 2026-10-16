@@ -24,9 +24,7 @@
 #include <llvm/IR/Function.h>
 #include <llvm/IR/GlobalValue.h>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <unordered_map>
 
 using namespace llvm;
 namespace Nom {
@@ -56,24 +54,18 @@ static NomRecordMethod *LookupRecordMethod(const NomRecord *nomRecord,
   return nullptr;
 }
 
-// Main thread and background compiler both read this cache. The bridge
-// fills it (CheckCallTagMethodExist) for every call-tag before an entry
-// covering that call-tag is built, so the background compiler only ever
+// Main thread and background compiler both read this cache (meth->CompiledAddr)
+// The main thread fills it (CacheRecordMethodAddr) for every call-tag before
+// an entry covering that call-tag is built, so BuildIMTEntryModule only ever
 // hits it and never calls into the JIT while holding the context lock.
+// Relaxed is enough: the main thread stores an address before it submits
+// any job that uses it, and the job queue's mutex orders that store before
+// the worker's load. The worker only embeds the address, never runs it.
 static void *LookupRecordMethodAddr(const NomRecordMethod *meth) {
-  // use a static map to cache the addresses of record methods
-  // so we don't have to look them up in the JIT every time
-  static std::unordered_map<const NomRecordMethod *, void *> addrMap;
-  static std::mutex addrMapMutex;
-  // check if the address of the record method is already in the map
-  {
-    std::lock_guard<std::mutex> lock(addrMapMutex);
-    auto it = addrMap.find(meth);
-    if (it != addrMap.end()) {
-      return it->second;
-    }
+  if (auto addr = meth->CompiledAddr.load(std::memory_order_relaxed)) {
+    return addr;
   }
-  // if the address not in the map look it up in the JIT and add it to the map
+  // not cached yet: look it up in the JIT
   auto &jit = NomJIT::Instance();
   auto sym = jit.lookup(*meth->GetSymbolName());
   if (!sym) {
@@ -84,21 +76,22 @@ static void *LookupRecordMethodAddr(const NomRecordMethod *meth) {
                               *meth->GetSymbolName() + ": ");
     throw new std::exception();
   }
-  // get the address of the record method and add it to the map
+  // only the main thread gets here so no other thread races this store
   auto addr = reinterpret_cast<void *>(sym->getAddress());
-  std::lock_guard<std::mutex> lock(addrMapMutex);
-  addrMap[meth] = addr;
+  meth->CompiledAddr.store(addr, std::memory_order_relaxed);
   return addr;
 }
 
+// The record's methods are compiled before
+// its address is looked up only when an entry is about to be built
 bool CheckCallTagMethodExist(const NomRecord *nomRecord,
                              const NomInterfaceCallTag *callTag) {
-  // I think normally once the RecordMethod exists the address should exist too
-  // but just in case check both
-  if (auto meth = LookupRecordMethod(nomRecord, callTag)) {
-    return LookupRecordMethodAddr(meth) != nullptr;
-  }
-  return false;
+  return LookupRecordMethod(nomRecord, callTag) != nullptr;
+}
+
+void CacheRecordMethodAddr(const NomRecord *nomRecord,
+                           const NomInterfaceCallTag *callTag) {
+  LookupRecordMethodAddr(LookupRecordMethod(nomRecord, callTag));
 }
 
 // Reads the IMT entry argument at position `pos` (0 is the receiver)
@@ -277,6 +270,7 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
                               const NomInterfaceCallTag *callTag,
                               void *callTagFunAddr, NomIMTNode *imtNode) {
   auto &jit = NomJIT::Instance();
+  CacheRecordMethodAddr(nomRecord, callTag);
   std::unique_ptr<Module> mod;
   {
     auto lock = jit.getContextLock();

@@ -1,5 +1,6 @@
 #pragma once
 #include "NomCallable.h"
+#include <atomic>
 
 namespace Nom {
 namespace Runtime {
@@ -10,6 +11,10 @@ public:
   const NomRecord *Container;
   // ConstantID ArgumentTypes;
   ConstantID ReturnType;
+
+  // JIT address of this method cached by IMTUtils::LookupRecordMethodAddr
+  // Atomic because the background IMT compiler reads it
+  mutable std::atomic<void *> CompiledAddr{nullptr};
 
   NomRecordMethod(const NomRecord *container, std::string &name,
                   std::string &qname, ConstantID typeParameters,

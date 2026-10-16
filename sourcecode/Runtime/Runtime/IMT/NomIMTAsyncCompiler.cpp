@@ -18,6 +18,7 @@
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/IPO/PassManagerBuilder.h"
 #include "llvm/Transforms/Scalar.h"
+#include <atomic>
 #include <condition_variable>
 #include <cstdlib>
 #include <deque>
@@ -73,6 +74,9 @@ private:
   std::deque<std::unique_ptr<IMTCompileJob>> queued;
   std::deque<std::unique_ptr<IMTCompileJob>> finished;
   bool stopping = false;
+  // !finished.empty(), written under mutex but read without it, so the
+  // bridge can skip the lock when nothing is ready to install
+  std::atomic<bool> hasFinished{false};
 
   // main thread only: slots with a job queued, compiling or finished but
   // not yet installed
@@ -172,6 +176,7 @@ void IMTAsyncCompiler::Run() {
     }
     std::lock_guard<std::mutex> lock(mutex);
     finished.push_back(std::move(job));
+    hasFinished.store(true, std::memory_order_release);
   }
 }
 
@@ -253,13 +258,16 @@ void IMTAsyncCompiler::Submit(std::unique_ptr<IMTCompileJob> job) {
 }
 
 void IMTAsyncCompiler::InstallFinished() {
+  // Called on every fallback, so the common case (nothing finished) takes
+  // no lock. A stale false only delays installing to the next fallback.
+  if (!hasFinished.load(std::memory_order_acquire)) {
+    return;
+  }
   std::deque<std::unique_ptr<IMTCompileJob>> done;
   {
     std::lock_guard<std::mutex> lock(mutex);
-    if (finished.empty()) {
-      return;
-    }
     done.swap(finished);
+    hasFinished.store(false, std::memory_order_relaxed);
   }
 
   auto &jit = NomJIT::Instance();
@@ -301,6 +309,8 @@ void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
                                   const NomInterfaceCallTag *callTag,
                                   void *callTagFunAddr, NomIMTNode *imtNode,
                                   void **imtArray) {
+  // the parent's call-tags were cached when their entries were built
+  CacheRecordMethodAddr(nomRecord, callTag);
   auto job = std::make_unique<IMTCompileJob>();
   job->nomRecord = nomRecord;
   job->imtIndex = imtIndex;

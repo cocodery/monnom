@@ -12,16 +12,15 @@ class Module;
 namespace Nom {
 namespace Runtime {
 namespace IMTUtils {
+// Whether the record has a method for callTag's interface method
 bool CheckCallTagMethodExist(const NomRecord *nomRecord,
                              const NomInterfaceCallTag *callTag);
-// Builds the IR for an IMT entry covering the parent node's call-tags plus
-// callTag; calls it doesn't cover go on to the call-tag itself. The module
-// and its entry function share one name, read back with
-// getModuleIdentifier(). Uses the
-// shared LLVMCONTEXT and the runtime's type data, so the caller must hold
-// NomJIT::getContextLock() if the background compiler may run. Every method
-// address it needs must already be cached (see CheckCallTagMethodExist), since
-// it must not call into the JIT while holding that lock.
+// Caches the JIT address of the record's method for callTag
+// The method must exist (CheckCallTagMethodExist).
+void CacheRecordMethodAddr(const NomRecord *nomRecord,
+                           const NomInterfaceCallTag *callTag);
+// Builds the IR for an IMT entry covering the parent CallTags plus callTag
+// address it needs must already be cached (see CacheRecordMethodAddr)
 std::unique_ptr<llvm::Module>
 BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
                     const NomInterfaceCallTag *callTag, void *callTagFunAddr,
