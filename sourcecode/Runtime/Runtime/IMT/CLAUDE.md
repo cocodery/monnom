@@ -26,15 +26,16 @@ When an interface call reaches a dynamic object whose IMT slot does not cover th
 
 1. Installs any entries the background compiler has finished (`InstallFinishedIMTEntries`), so the slot it reads next is current.
 2. Gets `imtIndex` from `callTag->GetMethod()->GetIMTIndex()` and reads the current entry from `imtArray[imtIndex]`.
-3. Returns early if the record has no method for the call-tag (`CheckCallTagMethodExist` is false, e.g. a field holding a lambda).
-4. Gets the record's graph with `NomIMTGraph::GetIMTGraph(record)` and the node for the current entry with `GetIMTNode(imtIndex, imtEntry)`. The first lookup for a slot creates its root node.
-5. Handles one of the cases below.
+3. Gets the record's graph with `NomIMTGraph::GetIMTGraph(record)`.
+4. Returns `nullptr` and leaves the slot alone if a job for the slot is pending (`IsIMTEntryPending`). A later fallback installs the finished entry, and extends it if it still doesn't cover this call-tag. This is checked first because every call to the slot falls back until the entry is installed.
+5. Returns early if the record has no method for the call-tag (`CheckCallTagMethodExist` is false, e.g. a field holding a lambda).
+6. Gets the node for the current entry with `GetIMTNode(imtIndex, imtEntry)`. The first lookup for a slot creates its root node.
+7. Handles one of the cases below.
 
 | Case | Test | Action |
 |------|------|--------|
 | Hit | `CheckNodeValidity` | Leaves the slot as it is. |
 | Known transition | `CheckTransition` | Writes the child's entry into `imtArray[imtIndex]`; compiles nothing. |
-| Pending | `IsIMTEntryPending` | Returns `nullptr` and leaves the slot alone. A later fallback installs the finished entry, and extends it if it still doesn't cover this call-tag. |
 | Miss, async (default) | `UseAsyncIMTCompile` | Queues the build with `CompileIMTEntryFunctionAsync` and returns `nullptr`. |
 | Miss, sync | otherwise | `CompileIMTEntryFunction`, then `CreateTransitionNode` and `GenerateTransitionRelation`, then writes the new entry into the slot. |
 
@@ -71,7 +72,7 @@ The sync path verifies the function and throws if verification fails; the async 
 
 ## Methods
 
-**`NomIMTGraph::GetIMTGraph(record)`** (static): returns the record's graph, creating it on first use. Graphs live in a function-static map for the whole process. Each graph has one node list per IMT slot.
+**`NomIMTGraph::GetIMTGraph(record)`** (static): returns the record's graph, creating it on first use. The graph is stored in `NomRecord::IMTGraph` and lives for the whole process. Each graph has one node list per IMT slot.
 
 **`NomIMTGraph::GetIMTNode(imtIndex, imtEntry)`**: returns the node in the slot whose `imtEntry` matches. If the slot has no nodes, it creates a root node (no call-tags, no transitions) and returns it. If no node matches, it throws `std::exception`; that can only happen if something outside this folder wrote the slot.
 

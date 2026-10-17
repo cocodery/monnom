@@ -61,7 +61,6 @@ public:
 /* --------------------------------------------------------------------------*/
 /* --------------------------------------------------------------------------*/
 
-using IMTGraphs = std::unordered_map<const NomRecord *, NomIMTGraph *>;
 using IMTNodes = std::vector<std::list<NomIMTNode *>>;
 
 class NomIMTGraph {

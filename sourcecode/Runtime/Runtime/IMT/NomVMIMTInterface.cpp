@@ -60,6 +60,17 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
   //             << std::endl;
   // }
 
+  // get imtGraph for nomRecord
+  auto imtGraph = NomIMTGraph::GetIMTGraph(nomRecord);
+
+  // an entry for this slot is still compiling
+  // leave the slot alone and let this call go through dynamic dispatch
+  if (IMTUtils::IsIMTEntryPending(imtGraph, imtIndex)) {
+    // std::cout << "The worker thread still work on the compilation" <<
+    // std::endl;
+    return nullptr;
+  }
+
   // the record has no method for this call-tag
   // no IMT entry can handle it so the caller falls back to dynamic dispatch
   // either a lambda field holds the method or not exist at all
@@ -73,8 +84,6 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
   // std::cout << "The " << imtIndex << "th IMT Entry of Record "
   //           << nomRecord->GetName() << " is: " << imtEntry << std::endl;
 
-  // get imtGraph for nomRecord
-  auto imtGraph = NomIMTGraph::GetIMTGraph(nomRecord);
   // check if the imtGraph has the imtNode for the imtIndex
   // get the imtNode for the imtEntry under the imtIndex slot
   auto imtNode = imtGraph->GetIMTNode(imtIndex, imtEntry);
@@ -96,14 +105,6 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
     //     << " is in the imtNode's transition chain, return the new imtEntry "
     //     << tmpEntry << std::endl;
     newIMTEntry = tmpEntry;
-  } else if (IMTUtils::IsIMTEntryPending(imtGraph, imtIndex)) {
-    // an entry for this slot is still compiling; leave the slot alone and
-    // let this call go through dynamic dispatch. A fallback after the
-    // compile finishes installs the entry, and a later one extends it
-    // with this call-tag if it doesn't cover it.
-    // std::cout << "The worker thread still work on the compilation" <<
-    // std::endl;
-    return nullptr;
   } else if (IMTUtils::UseAsyncIMTCompile()) {
     // compile in the background while this call goes on to dynamic dispatch
     // std::cout << "The callTag " << callTag->GetKey()

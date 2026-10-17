@@ -14,6 +14,7 @@
 #include "RTCast.h"
 #include "RTCompileConfig.h"
 #include "TypeOperations.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/raw_os_ostream.h"
@@ -54,6 +55,22 @@ static NomRecordMethod *LookupRecordMethod(const NomRecord *nomRecord,
   return nullptr;
 }
 
+// LookupRecordMethod memoized per (record, call-tag)
+static NomRecordMethod *
+LookupRecordMethodCached(const NomRecord *nomRecord,
+                         const NomInterfaceCallTag *callTag) {
+  static DenseMap<std::pair<const NomRecord *, const NomInterfaceCallTag *>,
+                  NomRecordMethod *>
+      cache;
+  auto [iter, inserted] = cache.try_emplace({nomRecord, callTag}, nullptr);
+  if (inserted) {
+    auto addr = LookupRecordMethod(nomRecord, callTag);
+    iter->second = addr;
+    return addr;
+  }
+  return iter->second;
+}
+
 // Main thread and background compiler both read this cache (meth->CompiledAddr)
 // The main thread fills it (CacheRecordMethodAddr) for every call-tag before
 // an entry covering that call-tag is built, so BuildIMTEntryModule only ever
@@ -86,12 +103,12 @@ static void *LookupRecordMethodAddr(const NomRecordMethod *meth) {
 // its address is looked up only when an entry is about to be built
 bool CheckCallTagMethodExist(const NomRecord *nomRecord,
                              const NomInterfaceCallTag *callTag) {
-  return LookupRecordMethod(nomRecord, callTag) != nullptr;
+  return LookupRecordMethodCached(nomRecord, callTag) != nullptr;
 }
 
 void CacheRecordMethodAddr(const NomRecord *nomRecord,
                            const NomInterfaceCallTag *callTag) {
-  LookupRecordMethodAddr(LookupRecordMethod(nomRecord, callTag));
+  LookupRecordMethodAddr(LookupRecordMethodCached(nomRecord, callTag));
 }
 
 // Reads the IMT entry argument at position `pos` (0 is the receiver)

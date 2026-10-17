@@ -67,17 +67,11 @@ NomIMTGraph::NomIMTGraph(const NomRecord *record) : record(record) {
 
 NomIMTGraph *NomIMTGraph::GetIMTGraph(NomRecord *record) {
   // return the imtGraph for the given record if it exists
-  // otherwise create a new one
-  // TODO: per record, change to per contruction-site for share
-  static IMTGraphs imtGraphs = IMTGraphs();
-  auto find = imtGraphs.find(record);
-
-  if (find != imtGraphs.end()) {
-    return find->second;
+  // otherwise create a new one and store it in the record
+  if (record->IMTGraph == nullptr) {
+    record->IMTGraph = new NomIMTGraph(record);
   }
-  auto imtGraph = new NomIMTGraph(record);
-  imtGraphs[record] = imtGraph;
-  return imtGraph;
+  return record->IMTGraph;
 }
 
 NomIMTNode *NomIMTGraph::GetIMTNode(int imtIndex, void *imtEntry) {
