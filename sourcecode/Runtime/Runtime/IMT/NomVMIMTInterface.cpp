@@ -38,6 +38,7 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
                                                     void *callTagFunAddr,
                                                     void *nomRecordAddr,
                                                     void **imtArray) {
+  // std::cout << "Enter IMT Entry Compilcation" << std::endl;
   // install entries compiled in the background since the last fallback
   // first, so the slot read below is current
   IMTUtils::InstallFinishedIMTEntries();
@@ -100,28 +101,32 @@ extern "C" DLLEXPORT void *CPP_NOM_GetIMTTransition(void *callTagAddr,
     // let this call go through dynamic dispatch. A fallback after the
     // compile finishes installs the entry, and a later one extends it
     // with this call-tag if it doesn't cover it.
+    // std::cout << "The worker thread still work on the compilation" <<
+    // std::endl;
     return nullptr;
   } else if (IMTUtils::UseAsyncIMTCompile()) {
     // compile in the background while this call goes on to dynamic dispatch
+    // std::cout << "The callTag " << callTag->GetKey()
+    //           << " async compile a new imtEntry for it" << std::endl;
     IMTUtils::CompileIMTEntryFunctionAsync(nomRecord, imtGraph, imtIndex,
-                                           callTag, callTagFunAddr, imtNode,
-                                           imtArray);
+                                           imtEntry, callTag, callTagFunAddr,
+                                           imtNode, imtArray);
     return nullptr;
   } else {
     // if the callTag is not in the imtNode
     // the callTag is a new interface method for the imtNode
     // create a new imtEntry for the new callTag
     // std::cout << "The callTag " << callTag->GetKey()
-    //           << " is not in the imtNode, create a new imtEntry for it"
-    //           << std::endl;
+    //           << " sync compile a new imtEntry for it" << std::endl;
     newIMTEntry = IMTUtils::CompileIMTEntryFunction(
         nomRecord, imtIndex, callTag, callTagFunAddr, imtNode);
     auto newIMTNode = NomIMTNode::CreateTransitionNode(
         imtNode, callTag, callTagFunAddr, newIMTEntry);
     imtGraph->GenerateTransitionRelation(imtIndex, newIMTNode);
   }
-
   // install the entry so later calls through the IMT reach it directly
+  // std::cout << "Assign new entry " << newIMTEntry << " to slot " << imtIndex
+  //           << " over oringal entry " << imtEntry << std::endl;
   imtArray[imtIndex] = newIMTEntry;
 
   return newIMTEntry;

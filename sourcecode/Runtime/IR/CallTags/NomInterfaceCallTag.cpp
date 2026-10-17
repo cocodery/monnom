@@ -165,9 +165,8 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     // builder->CreateCall(
     //     GetPrint(&mod),
     //     {ConstantInt::get(INTTYPE,
-    //                       reinterpret_cast<uint64_t>(new std::string(
-    //                           "Call Record Call-Tag in Interface Call \
-    //                           Tag\n")),
+    //                       reinterpret_cast<uint64_t>(
+    //                           new std::string("Call RCT in ICT\n")),
     //                       false),
     //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 

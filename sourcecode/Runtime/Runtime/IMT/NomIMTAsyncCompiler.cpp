@@ -49,6 +49,7 @@ struct IMTCompileJob {
   NomRecord *nomRecord;
   int imtIndex;
   const NomInterfaceCallTag *callTag;
+  void *imtEntry; // only for debug log
   void *callTagFunAddr;
   IMTCallTagSet parentCallTags; // a copy of the extended node's call-tags
 
@@ -60,6 +61,15 @@ struct IMTCompileJob {
   NomIMTGraph *imtGraph;
   NomIMTNode *imtNode; // the node the new entry extends
   void **imtArray;
+
+  IMTCompileJob(NomRecord *nomRecord, int imtIndex, void *imtEntry,
+                const NomInterfaceCallTag *callTag, void *callTagFunAddr,
+                IMTCallTagSet parentCallTags, NomIMTGraph *imtGraph,
+                NomIMTNode *imtNode, void **imtArray)
+      : nomRecord(nomRecord), imtIndex(imtIndex), callTag(callTag),
+        imtEntry(imtEntry), callTagFunAddr(callTagFunAddr),
+        parentCallTags(std::move(parentCallTags)), imtGraph(imtGraph),
+        imtNode(imtNode), imtArray(imtArray) {}
 };
 
 // Builds, optimizes and code-generates IMT entries on a worker thread
@@ -294,6 +304,10 @@ void IMTAsyncCompiler::InstallFinished() {
     auto newIMTNode = NomIMTNode::CreateTransitionNode(
         job->imtNode, job->callTag, job->callTagFunAddr, newIMTEntry);
     job->imtGraph->GenerateTransitionRelation(job->imtIndex, newIMTNode);
+
+    // std::cout << "Assign new entry " << newIMTEntry << " to slot "
+    //           << job->imtIndex << " over oringal entry " << job->imtEntry
+    //           << std::endl;
     job->imtArray[job->imtIndex] = newIMTEntry;
   }
 }
@@ -305,22 +319,15 @@ bool UseAsyncIMTCompile() {
 }
 
 void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
-                                  int imtIndex,
+                                  int imtIndex, void *imtEntry,
                                   const NomInterfaceCallTag *callTag,
                                   void *callTagFunAddr, NomIMTNode *imtNode,
                                   void **imtArray) {
   // the parent's call-tags were cached when their entries were built
   CacheRecordMethodAddr(nomRecord, callTag);
-  auto job = std::make_unique<IMTCompileJob>();
-  job->nomRecord = nomRecord;
-  job->imtIndex = imtIndex;
-  job->callTag = callTag;
-  job->callTagFunAddr = callTagFunAddr;
-  job->parentCallTags = imtNode->GetCallTags();
-  job->imtGraph = imtGraph;
-  job->imtNode = imtNode;
-  job->imtArray = imtArray;
-
+  auto job = std::make_unique<IMTCompileJob>(
+      nomRecord, imtIndex, imtEntry, callTag, callTagFunAddr,
+      imtNode->GetCallTags(), imtGraph, imtNode, imtArray);
   IMTAsyncCompiler::Instance().Submit(std::move(job));
 }
 

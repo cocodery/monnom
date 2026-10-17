@@ -15,7 +15,7 @@ bool UseAsyncIMTCompile();
 // Queues a new IMT entry on the background thread
 // A later InstallFinishedIMTEntries call installs the entry into imtArray
 void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
-                                  int imtIndex,
+                                  int imtIndex, void *imtEntry,
                                   const NomInterfaceCallTag *callTag,
                                   void *callTagFunAddr, NomIMTNode *imtNode,
                                   void **imtArray);

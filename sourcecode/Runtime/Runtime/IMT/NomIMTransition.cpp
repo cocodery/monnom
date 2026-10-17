@@ -85,7 +85,7 @@ NomIMTNode *NomIMTGraph::GetIMTNode(int imtIndex, void *imtEntry) {
   // check if the list is empty if so create a new node and add it to the list
   // if the list is not empty check if the imtEntry exists in the list
   // if it exists return the node otherwise throw an exception
-  auto nodes = nodesPerEntry[imtIndex];
+  auto &nodes = nodesPerEntry[imtIndex];
 
   if (nodes.empty()) {
     // if the list is empty, create a new node and add it to the list
