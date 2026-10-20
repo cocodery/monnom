@@ -223,8 +223,10 @@ llvm::Constant *NomInterface::GetSuperInstances(
     }
     pos++;
   }
-  auto selfInterface =
-      mod.getNamedAlias("NOM_ALIAS_" + this->GetName()->ToStdString());
+  // auto selfInterface =
+  //     mod.getNamedAlias("NOM_ALIAS_" + this->GetName()->ToStdString());
+  auto selfInterface = ConstantExpr::getPointerCast(
+      gvar, RTInterface::GetLLVMType()->getPointerTo());
   {
     size_t instasize = GetTypeParametersCount();
     llvm::Constant **instaArgBuf = makealloca(llvm::Constant *, instasize);
@@ -360,10 +362,16 @@ NomInterface::createLLVMElement(llvm::Module &mod,
     auto retgvar =
         new GlobalVariable(mod, gvartype, true, linkage, nullptr, lookupName);
     ret = retgvar;
-    llvm::GlobalAlias *gvar_alias = GlobalAlias::create(
-        RTInterface::GetLLVMType(), 0,
-        GlobalValue::LinkageTypes::ExternalLinkage,
-        "NOM_ALIAS_" + this->GetName()->ToStdString(), &mod);
+    // Only the main module exports the alias. Other modules (e.g. IMT
+    // entries compiled at runtime) get none: theirs would be a duplicate
+    // definition in the JIT, and an alias may not point to their
+    // available_externally copy.
+    llvm::GlobalAlias *gvar_alias = nullptr;
+    if (linkage == GlobalValue::LinkageTypes::ExternalLinkage) {
+      gvar_alias = GlobalAlias::create(
+          RTInterface::GetLLVMType(), 0, linkage,
+          "NOM_ALIAS_" + this->GetName()->ToStdString(), &mod);
+    }
     auto flags = RTInterfaceFlags::IsInterface;
     llvm::Constant *signature = nullptr;
     if (Methods.size() == 1 && Methods[0]->GetName().empty()) {
@@ -385,8 +393,10 @@ NomInterface::createLLVMElement(llvm::Module &mod,
         GetCastFunction(mod, linkage));
     retgvar->setInitializer(ConstantStruct::get(gvartype, {cnst, superInsts}));
 
-    gvar_alias->setAliasee(ConstantExpr::getPointerCast(
-        ret, RTInterface::GetLLVMType()->getPointerTo()));
+    if (gvar_alias != nullptr) {
+      gvar_alias->setAliasee(ConstantExpr::getPointerCast(
+          ret, RTInterface::GetLLVMType()->getPointerTo()));
+    }
 
     RegisterGlobalForAddressLookup(lookupName);
   }
@@ -635,7 +645,7 @@ llvm::Constant *NomInterface::GetCheckReturnTypeFunction(
   SmallVector<pair<NomInterfaceCallTag *, NomMethodTableEntry *>, 8> crtPairs;
 
   for (auto meth : MethodTable) {
-    NomInterfaceCallTag *nmk = NomInterfaceCallTag::GetMethodKey(meth->Method);
+    NomInterfaceCallTag *nmk = NomInterfaceCallTag::GetCallTag(meth->Method);
 
     bool found = false;
     for (auto &pair : crtPairs) {

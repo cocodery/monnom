@@ -6,7 +6,7 @@
 namespace Nom {
 namespace Runtime {
 class NomMethod;
-class NomInterfaceCallTag : public AvailableExternally<llvm::Function> {
+class NomInterfaceCallTag : public CallTagExternally {
 private:
   std::string key;
   const NomMethod *method;
@@ -19,12 +19,13 @@ private:
 public:
   NomInterfaceCallTag(NomInterfaceCallTag &other) = delete;
   NomInterfaceCallTag(NomInterfaceCallTag &&other) = delete;
-  static NomInterfaceCallTag *GetMethodKey(const NomMethod *method);
+  static NomInterfaceCallTag *GetCallTag(const NomMethod *method);
   // Inherited via AvailableExternally
-  virtual llvm::Function *
+  virtual llvm::Constant *
   createLLVMElement(llvm::Module &mod,
                     llvm::GlobalValue::LinkageTypes linkage) const override;
-  virtual llvm::Function *findLLVMElement(llvm::Module &mod) const override;
+  virtual llvm::Constant *findLLVMElement(llvm::Module &mod) const override;
+  const std::string &GetKey() const { return key; }
   const NomMethod *GetMethod() const { return method; }
 };
 } // namespace Runtime

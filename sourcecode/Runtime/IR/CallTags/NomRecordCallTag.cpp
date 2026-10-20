@@ -1,16 +1,25 @@
 #include "NomRecordCallTag.h"
+#include "AvailableExternally.h"
 #include "CallingConvConf.h"
 #include "CompileHelpers.h"
+#include "Defs.h"
 #include "IMT.h"
+#include "NomInterfaceCallTag.h"
 #include "NomLambdaCallTag.h"
 #include "NomNameRepository.h"
 #include "NomString.h"
+#include "NomVMIMTInterface.h"
+#include "NomVMInterface.h"
 #include "RTCompileConfig.h"
+#include "RTConfig.h"
 #include "RTVTable.h"
 #include "RefValueHeader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
+#include <cstdint>
 #include <iostream>
+#include <llvm/IR/Constant.h>
+#include <llvm/Support/AtomicOrdering.h>
 #include <unordered_map>
 
 using namespace std;
@@ -73,12 +82,24 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
                                to_string(typeargcount) + "/" +
                                to_string(argcount),
                            mod);
+    fun->setPrefixData(llvm::ConstantInt::get(
+        INTTYPE, reinterpret_cast<int64_t>(this), false));
     fun->setCallingConv(NOMCC);
 
     NomBuilder builder;
 
     BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
     builder->SetInsertPoint(startBlock);
+
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(
+    //          INTTYPE,
+    //          reinterpret_cast<uint64_t>(new std::string(
+    //              "Call record call tag: /" + to_string(typeargcount) + "/" +
+    //              to_string(argcount) + " in RCT-fun\n")),
+    //          false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     auto argiter = fun->arg_begin();
     auto callTag = argiter;
@@ -96,6 +117,60 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
       argiter++;
     }
     auto vtable = RefValueHeader::GenerateReadVTablePointer(builder, receiver);
+
+    //
+    // callTag is runtime potnier to the function header not the llvm::Function
+    // DONE: use the callTag to find the NomCallTag object
+
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "CallTagFun & PrefixData-CallTagObject\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+    // builder->CreateCall(GetPrint(&mod),
+    //                     {builder->CreatePtrToInt(callTag, numtype(intptr_t)),
+    //                      llvm::ConstantInt::get(INTTYPE, 0, false)});
+
+    // llvm::Value *callTagAddr = builder->CreateCall(
+    //     GetReadFunCallTag(&mod),
+    //     {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
+
+    if (RTConfig_EnableTransition) {
+      auto callTagAddr = MakeInvariantLoad(
+          builder,
+          builder->CreateGEP(
+              builder->CreatePointerCast(callTag, INTTYPE->getPointerTo()),
+              MakeInt32(-1)),
+          "", llvm::AtomicOrdering::NotAtomic);
+
+      auto callTagFunAddr = builder->CreatePtrToInt(callTag, INTTYPE);
+
+      auto nomRecordAddr = RTVTable::GenerateReadNomObjPtr(builder, vtable);
+
+      auto imtArray = builder->CreatePtrToInt(
+          RTVTable::GenerateReadInterfaceMethodTable(builder, vtable), INTTYPE);
+
+      // for (auto i = 0; i < IMTsize; i++) {
+      //   auto imtEntry = RTVTable::GenerateReadInterfaceMethodTableEntry(
+      //       builder, vtable, MakeInt32(i));
+      //   builder->CreateCall(
+      //       GetPrint(&mod),
+      //       {ConstantInt::get(INTTYPE,
+      //                         reinterpret_cast<uint64_t>(new std::string(
+      //                             "IMT Entry " + std::to_string(i) + ": ")),
+      //                         false),
+      //        llvm::ConstantInt::get(INTTYPE, 1, false)});
+      //   builder->CreateCall(GetPrint(&mod),
+      //                       {builder->CreatePtrToInt(imtEntry,
+      //                       numtype(intptr_t)),
+      //                        llvm::ConstantInt::get(INTTYPE, 0, false)});
+      // }
+      builder->CreateCall(GetIMTTransition(&mod), {callTagAddr, callTagFunAddr,
+                                                   nomRecordAddr, imtArray});
+    }
+
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
         builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,
         NomNameRepository::Instance().GetNameID(name));
@@ -129,6 +204,10 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
 llvm::Constant *NomRecordCallTag::findLLVMElement(llvm::Module &mod) const {
   return mod.getFunction("MONNOM_RT_RCT_" + name + "/" +
                          to_string(typeargcount) + "/" + to_string(argcount));
+}
+std::string NomRecordCallTag::GetKey() const {
+  return name + "/" + std::to_string(typeargcount) + "/" +
+         std::to_string(argcount);
 }
 } // namespace Runtime
 } // namespace Nom

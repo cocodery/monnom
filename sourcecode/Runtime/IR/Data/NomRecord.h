@@ -9,12 +9,15 @@ class NomField;
 class NomRecordMethod;
 class NomRecordField;
 class NomSubstitutionContext;
+class NomIMTGraph;
 class NomRecord : public NomCallableLoaded {
 public:
   const ConstantID StructID;
   std::vector<NomRecordField *> Fields;
   std::vector<NomRecordMethod *> Methods;
   const RegIndex EndArgRegisterCount;
+
+  NomIMTGraph *IMTGraph = nullptr;
 
   NomRecord(ConstantID structID, NomMemberContext *context,
             ConstantID closureTypeParams, RegIndex registerCount,

@@ -10,6 +10,7 @@
 #include "NomClassType.h"
 #include "NomDynamicType.h"
 #include "NomField.h"
+#include "NomIMTransition.h"
 #include "NomLambdaCallTag.h"
 #include "NomMemberContext.h"
 #include "NomNameRepository.h"
@@ -79,8 +80,9 @@ NomRecord::createLLVMElement(llvm::Module &mod,
       StructType::get(LLVMCONTEXT, {arrtype(inttype(64), hasRawInvoke ? 1 : 0),
                                     RTRecord::GetLLVMType(), ddstructType});
   Constant *pushArr[1] = {MakeUInt(64, 0)};
+  // not constant: the IMT inside is patched at runtime by IMT transitions
   GlobalVariable *gv =
-      new GlobalVariable(mod, gvartype, true, linkage, nullptr,
+      new GlobalVariable(mod, gvartype, false, linkage, nullptr,
                          "RT_NOM_STRUCTDESC_" + to_string(StructID));
   gv->setAlignment(Align(256));
   auto ddtable = GetDynamicDispatcherLookup(mod, linkage, ddstructType);
@@ -97,10 +99,11 @@ NomRecord::createLLVMElement(llvm::Module &mod,
       arrtype(GetDynamicDispatchListEntryType()->getPointerTo(), IMTsize),
       ArrayRef<Constant *>(ddarr, IMTsize));
 
+  auto imt = GetInterfaceTableLookup(mod, linkage);
+
   auto constant = RTRecord::CreateConstant(
       this, GetDynamicFieldLookup(mod, linkage),
-      GetDynamicFieldStore(mod, linkage), GetInterfaceTableLookup(mod, linkage),
-      ddreftable);
+      GetDynamicFieldStore(mod, linkage), imt, ddreftable);
   gv->setInitializer(ConstantStruct::get(
       gvartype,
       {ConstantArray::get(arrtype(inttype(64), hasRawInvoke ? 1 : 0),
@@ -200,9 +203,14 @@ llvm::Function *NomRecord::GetDynamicFieldLookup(
                            // values are always supposed to be packed
     }
     builder->SetInsertPoint(notfound);
-    static const char *lookupfailstr =
-        "Could not find any fields with matching name!";
-    CreateDummyReturn(builder, fun);
+
+    // static const char *lookupfailstr =
+    //     "Could not find any fields with matching name!";
+    // CreateDummyReturn(builder, fun);
+    auto returnVal =
+        RecordHeader::GenerateReadDictField(builder, thisarg, namearg);
+    builder->CreateRet(returnVal);
+
     llvm::raw_os_ostream out(std::cout);
     if (verifyFunction(*fun, &out)) {
       out.flush();
@@ -273,9 +281,12 @@ NomRecord::GetDynamicFieldStore(llvm::Module &mod,
       builder->CreateRetVoid();
     }
     builder->SetInsertPoint(notfound);
-    static const char *lookupfailstr =
-        "Could not find any fields with matching name!";
-    CreateDummyReturn(builder, fun);
+
+    // static const char *lookupfailstr =
+    //     "Could not find any fields with matching name!";
+    // CreateDummyReturn(builder, fun);
+    RecordHeader::GenerateWriteDictField(builder, thisarg, namearg, newValue);
+    builder->CreateRetVoid();
 
     builder->SetInsertPoint(errorBlock);
     static const char *generic_errorMessage = "Trying to write invalid value!";
@@ -312,6 +323,8 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
     NomBuilder builder;
     builder->SetInsertPoint(startBlock);
 
+    // std::cout << fun->getName().str() << std::endl;
+
     auto argiter = fun->arg_begin();
     auto argarr = makealloca(Value *, 2 + RTConfig_NumberOfVarargsArguments);
     argarr[0] = argiter;
@@ -326,79 +339,130 @@ llvm::Constant *NomRecord::GetInterfaceTableLookup(
       argiter++;
     }
 
-    for (auto &meth : Methods) {
-      if (NomNameRepository::Instance().GetNameID(meth->GetName()) % IMTsize ==
-          i) {
-        BasicBlock *callBlock =
-            BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
-        BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "Enter IMT slot " + std::to_string(i) + "\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
-        auto methodCallTag = NomRecordCallTag::GetCallTag(
-            meth->GetName(), meth->GetDirectTypeParametersCount(),
-            meth->GetArgumentCount());
+    // as we dont use the very original design
+    // no record call-tag will reach the IMT entry function
+    // we could simply dont generate code for them
+    // for (auto &meth : Methods) {
+    //   if (meth->GetIMTIndex() == i) {
+    //     BasicBlock *callBlock =
+    //         BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
+    //     BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
 
-        auto callTagMatch = builder->CreateICmpEQ(
-            builder->CreatePtrToInt(callTag, numtype(intptr_t)),
-            ConstantExpr::getPtrToInt(methodCallTag->GetLLVMElement(mod),
-                                      numtype(intptr_t)),
-            "callTagMatch");
-        builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
-                                 {callTagMatch, MakeUInt(1, 1)});
-        builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
-                              GetLikelyFirstBranchMetadata());
-        builder->SetInsertPoint(callBlock);
+    //     auto methodCallTag = NomRecordCallTag::GetCallTag(
+    //         meth->GetName(), meth->GetDirectTypeParametersCount(),
+    //         meth->GetArgumentCount());
 
-        auto implFunctionType = meth->GetLLVMFunctionType();
-        auto paramCount = implFunctionType->getNumParams();
-        auto argsarr = makealloca(Value *, paramCount);
+    //     // record call tag and its slot index
+    //     // std::cout << "Adding method " << methodCallTag->GetKey()
+    //     //           << " to IMT slot " << i << std::endl;
 
-        NomSubstitutionContextMemberContext nscmc(meth);
-        CastedValueCompileEnv cvce = CastedValueCompileEnv(
-            meth->GetDirectTypeParameters(), this->GetAllTypeParameters(), fun,
-            2, paramCount,
-            ObjectHeader::GeneratePointerToTypeArguments(builder, varargs[0]));
+    //     auto lhs = builder->CreatePtrToInt(callTag, numtype(intptr_t));
+    //     auto rhs =
+    //     ConstantExpr::getPtrToInt(methodCallTag->GetLLVMElement(mod),
+    //                                          numtype(intptr_t));
 
-        for (decltype(paramCount) j = 0; j < paramCount; j++) {
-          Value *curArg = nullptr;
-          if (j < RTConfig_NumberOfVarargsArguments ||
-              RTConfig_NumberOfVarargsArguments + 1 == paramCount) {
-            curArg = varargs[j];
-          } else {
-            curArg = MakeInvariantLoad(
-                builder,
-                builder->CreateGEP(
-                    varargs[RTConfig_NumberOfVarargsArguments],
-                    MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
-                "varArg", AtomicOrdering::NotAtomic);
-          }
-          auto expectedType = implFunctionType->getParamType(j);
-          if (j >= meth->GetDirectTypeParametersCount()) {
-            curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
-            if (j > meth->GetDirectTypeParametersCount()) {
-              curArg = RTCast::GenerateCast(
-                  builder, &cvce, curArg,
-                  meth->GetArgumentTypes(
-                      &nscmc)[j - (meth->GetDirectTypeParametersCount() + 1)]);
-            }
-          }
-          curArg = EnsurePackedUnpacked(builder, curArg, expectedType);
-          argsarr[j] = curArg;
-        }
-        auto callResult = builder->CreateCall(
-            implFunctionType, meth->GetLLVMElement(mod),
-            ArrayRef<Value *>(argsarr, paramCount), meth->GetQName());
-        callResult->setCallingConv(NOMCC);
-        auto actualResult = EnsurePackedUnpacked(
-            builder, EnsurePackedUnpacked(builder, callResult, REFTYPE),
-            POINTERTYPE);
-        builder->CreateRet(actualResult);
+    //     // builder->CreateCall(GetPrint(&mod),
+    //     //                     {lhs, llvm::ConstantInt::get(INTTYPE, 0,
+    //     //                     false)});
 
-        builder->SetInsertPoint(nextBlock);
-      }
-    }
+    //     // builder->CreateCall(GetPrint(&mod),
+    //     //                     {rhs, llvm::ConstantInt::get(INTTYPE, 0,
+    //     //                     false)});
+
+    //     auto callTagMatch = builder->CreateICmpEQ(lhs, rhs, "callTagMatch");
+    //     builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+    //                              {callTagMatch, MakeUInt(1, 1)});
+    //     builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
+    //                           GetLikelyFirstBranchMetadata());
+    //     builder->SetInsertPoint(callBlock);
+
+    //     // builder->CreateCall(
+    //     //     GetPrint(&mod),
+    //     //     {ConstantInt::get(
+    //     //          INTTYPE,
+    //     //          reinterpret_cast<uint64_t>(new std::string(
+    //     //              "Calling record method: " + meth->GetName() + "\n")),
+    //     //          false),
+    //     //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+
+    //     auto implFunctionType = meth->GetLLVMFunctionType();
+    //     auto paramCount = implFunctionType->getNumParams();
+    //     auto argsarr = makealloca(Value *, paramCount);
+
+    //     NomSubstitutionContextMemberContext nscmc(meth);
+    //     CastedValueCompileEnv cvce = CastedValueCompileEnv(
+    //         meth->GetDirectTypeParameters(), this->GetAllTypeParameters(),
+    //         fun, 2, paramCount,
+    //         ObjectHeader::GeneratePointerToTypeArguments(builder,
+    //         varargs[0]));
+
+    //     for (decltype(paramCount) j = 0; j < paramCount; j++) {
+    //       Value *curArg = nullptr;
+    //       if (j < RTConfig_NumberOfVarargsArguments ||
+    //           RTConfig_NumberOfVarargsArguments + 1 == paramCount) {
+    //         curArg = varargs[j];
+    //       } else {
+    //         curArg = MakeInvariantLoad(
+    //             builder,
+    //             builder->CreateGEP(
+    //                 varargs[RTConfig_NumberOfVarargsArguments],
+    //                 MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
+    //             "varArg", AtomicOrdering::NotAtomic);
+    //       }
+    //       auto expectedType = implFunctionType->getParamType(j);
+    //       if (j >= meth->GetDirectTypeParametersCount()) {
+    //         curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
+    //         if (j > meth->GetDirectTypeParametersCount()) {
+    //           curArg = RTCast::GenerateCast(
+    //               builder, &cvce, curArg,
+    //               meth->GetArgumentTypes(
+    //                   &nscmc)[j - (meth->GetDirectTypeParametersCount() +
+    //                   1)]);
+    //         }
+    //       }
+    //       curArg = EnsurePackedUnpacked(builder, curArg, expectedType);
+    //       argsarr[j] = curArg;
+    //     }
+    //     auto callResult = builder->CreateCall(
+    //         implFunctionType,
+    //         meth->GetLLVMElement(mod), //
+    //         NomRecordMethod::GetLLVMElement(mod), ArrayRef<Value *>(argsarr,
+    //         paramCount), meth->GetQName());
+    //     callResult->setCallingConv(NOMCC);
+    //     auto actualResult = EnsurePackedUnpacked(
+    //         builder, EnsurePackedUnpacked(builder, callResult, REFTYPE),
+    //         POINTERTYPE);
+    //     builder->CreateRet(actualResult);
+
+    //     builder->SetInsertPoint(nextBlock);
+    //   }
+    // }
+
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "No matching method found in IMT slot " +
+    //                           std::to_string(i) + "\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
 
     auto callTagFun = builder->CreatePointerCast(
         callTag, GetIMTCastFunctionType()->getPointerTo());
+
+    // builder->CreateCall(GetPrint(&mod),
+    //                     {builder->CreatePtrToInt(callTagFun,
+    //                     numtype(intptr_t)),
+    //                      llvm::ConstantInt::get(INTTYPE, 0, false)});
+
     auto tagCall = builder->CreateCall(
         GetIMTCastFunctionType(), callTagFun,
         ArrayRef<Value *>(argarr, 2 + RTConfig_NumberOfVarargsArguments));

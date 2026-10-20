@@ -15,6 +15,7 @@
 #include "RTCast.h"
 #include "RTClassType.h"
 #include "RTCompileConfig.h"
+#include "RTConfig.h"
 #include "RTInterface.h"
 #include "RTOutput.h"
 #include "RTVTable.h"
@@ -22,6 +23,7 @@
 #include "StructuralValueHeader.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
+#include <cstdint>
 #include <iostream>
 #include <unordered_map>
 
@@ -36,8 +38,7 @@ NomInterfaceCallTag::NomInterfaceCallTag(
   this->key = key;
   this->argTRTs = argTRTs;
 }
-NomInterfaceCallTag *
-NomInterfaceCallTag::GetMethodKey(const NomMethod *method) {
+NomInterfaceCallTag *NomInterfaceCallTag::GetCallTag(const NomMethod *method) {
   static unordered_map<string, NomInterfaceCallTag *> methodKeys;
 
   std::string key = *method->GetSymbolName();
@@ -64,10 +65,12 @@ NomInterfaceCallTag::GetMethodKey(const NomMethod *method) {
     return nmk;
   }
 }
-llvm::Function *NomInterfaceCallTag::createLLVMElement(
+llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   Function *fun = Function::Create(GetIMTCastFunctionType(), linkage,
                                    "MONNOM_RT_ICT_" + key, mod);
+  fun->setPrefixData(
+      llvm::ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(this), false));
   fun->setCallingConv(NOMCC);
   BasicBlock *block = BasicBlock::Create(LLVMCONTEXT, "", fun);
 
@@ -77,9 +80,19 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   Value **argbuf = makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
   NomBuilder builder;
   builder->SetInsertPoint(block);
+
+  //   builder->CreateCall(
+  //       GetPrint(&mod),
+  //       {ConstantInt::get(INTTYPE,
+  //                         reinterpret_cast<uint64_t>(new std::string(
+  //                             "Call interface call tag: " + key + "\n")),
+  //                         false),
+  //        llvm::ConstantInt::get(INTTYPE, 1, false)});
+
   argbuf++;
 
   auto fargs = fun->arg_begin();
+  argbuf[0] = fargs;
   fargs++;           // ignore first argument, which is just this function
   argbuf[1] = fargs; // receiver; we know this is not a primitive value, as such
                      // a value would never call the method key
@@ -129,6 +142,14 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   }
   Value *actualResult = nullptr;
   if (method->GetName().empty() && NomLambdaOptimizationLevel > 0) {
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "Call Lambda Call-Tag in Interface Call \
+    //                           Tag\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
     argbuf[0] = builder->CreatePointerCast(
         NomLambdaCallTag::GetCallTag(targcount, argTRTs.size())
             ->GetLLVMElement(mod),
@@ -142,19 +163,42 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
     callResult->setCallingConv(NOMCC);
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   } else {
-    argbuf[0] = builder->CreatePointerCast(
+    // builder->CreateCall(
+    //     GetPrint(&mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(
+    //                           new std::string("Call RCT in ICT\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+
+    auto callTag = builder->CreatePointerCast(
         NomRecordCallTag::GetCallTag(this->method->GetName(), targcount,
                                      argTRTs.size())
             ->GetLLVMElement(mod),
         POINTERTYPE);
-    auto receiver = builder->CreatePointerCast(argbuf[1], REFTYPE);
-    auto vtable = RefValueHeader::GenerateReadVTablePointer(builder, receiver);
-    auto dispatcher = RTVTable::GenerateReadInterfaceMethodTableEntry(
-        builder, vtable, MakeInt32(name % IMTsize));
+
+    // std::cout << NomRecordCallTag::GetCallTag(this->method->GetName(),
+    //                                           targcount, argTRTs.size())
+    //           << " | " << callTag << " " <<
+    //           NomRecordCallTag::GetCallTag(this->method->GetName(),
+    //           targcount,
+    //                                  argTRTs.size())
+    //         ->GetLLVMElement(mod) << std::endl;
+
+    // argbuf[0] = callTag;
+    // auto receiver = builder->CreatePointerCast(argbuf[1], REFTYPE);
+    // auto vtable = RefValueHeader::GenerateReadVTablePointer(builder,
+    // receiver); auto callee = RTVTable::GenerateReadInterfaceMethodTableEntry(
+    //     builder, vtable, MakeInt32(name % IMTsize));
+
+    auto callee = builder->CreatePointerCast(
+        callTag, GetIMTCastFunctionType()->getPointerTo());
+
     auto callResult = builder->CreateCall(
-        GetIMTFunctionType(), dispatcher,
+        GetIMTFunctionType(), callee,
         ArrayRef<Value *>(argbuf, 2 + RTConfig_NumberOfVarargsArguments),
         method->GetQName());
+
     callResult->setCallingConv(NOMCC);
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   }
@@ -173,7 +217,9 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
       simpleReturnType = true;
     }
   }
-  if ((!RTConfig_OmitCallTagCasts) || simpleReturnType) {
+  if (((!RTConfig_OmitCallTagCasts) || simpleReturnType) &&
+      !(RTConfig_EnableTransition &&
+        calledFunctionType->getReturnType() == REFTYPE)) {
     auto structCastType =
         StructuralValueHeader::GenerateReadCastData(builder, argbuf[1]);
     auto structCastTypeAsInt =
@@ -324,7 +370,7 @@ llvm::Function *NomInterfaceCallTag::createLLVMElement(
   }
   return fun;
 }
-llvm::Function *NomInterfaceCallTag::findLLVMElement(llvm::Module &mod) const {
+llvm::Constant *NomInterfaceCallTag::findLLVMElement(llvm::Module &mod) const {
   return mod.getFunction("MONNOM_RT_ICT_" + key);
 }
 } // namespace Runtime
