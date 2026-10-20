@@ -297,7 +297,9 @@ Runtime/instructions/*.d
 *compiled*
 benchmark
 *.png
+!monnombuild/nomc
 !monnombuild/nombench
+!monnombuild/nomproj
 
 *.aux
 *.bbl
@@ -321,7 +323,7 @@ a.out
 experiments/higgs/higgscheck/tscontracts/tests
 
 ## new added
-.vscode/
+!.vscode/
 .cache/
 build/
 *.sln
@@ -329,3 +331,4 @@ build/
 *.fdb_latexmk
 *.fls
 *.gz
+*.txt
