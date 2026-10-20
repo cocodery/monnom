@@ -1,0 +1,45 @@
+class Shape
+{
+	public Int W;
+	public Fun<Int,Int> Scale;
+	public constructor(Int w)
+	{
+		W = w;
+		Scale = k => k * w;
+	}
+	public fun Area() : Int { return W * W; }
+}
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		Shape s = new Shape(3);
+		s.Area().ToString().Print();
+		"\n".Print();
+		s.Scale(4).ToString().Print();
+		"\n".Print();
+
+		# overwrite a lambda field constructed in constructor
+		# but this is not allowed for record
+		s.Scale = k => k + 1000;
+		s.Scale(4).ToString().Print();
+		"\n".Print();
+
+		dyn d = new Shape(3);
+		# Scale is now in the dictionary of Shape
+		s.Scale(4).ToString().Print();
+		"\n".Print();
+		d.Scale = k => k + 2000;
+		d.Scale(4).ToString().Print();
+		"\n".Print();
+
+		dyn r = new (Fun<Int,Int> Scale = k => k * 10) { };
+		r.Scale(4).ToString().Print();
+		"\n".Print();
+
+		r.Scale = k => k * 100;
+		r.Scale(4).ToString().Print();
+		"\n".Print();
+	}
+}

@@ -1,0 +1,55 @@
+class Main
+{
+	public static fun Main() : Void
+	{
+		# support lambda field and function co-exists when declare
+		# but lambda field is shadowed by the function
+		dyn both = new (Int w = 3, Area = () => 100)
+		{
+			fun Area() : Int { return w * w; }
+		};
+		both.Area().ToString().Print();
+		" Done for Area\n".Print();
+
+		# support add lambda field at runtime
+		# but still shadowed by function
+		dyn assigned = new (Int w = 3)
+		{
+			fun Area() : Int { return w * w; }
+		};
+		assigned.Area().ToString().Print();
+		"\n".Print();
+		assigned.Area = () => 100;
+		assigned.Area().ToString().Print();
+		" Done for assigned\n".Print();
+
+		# support change lambda field
+		# and even reassign it to a integer
+		dyn expand = new {};
+		expand.Scale = k => k * 10;
+		expand.Scale(4).ToString().Print();
+		"\n".Print();
+		expand.Scale = k => k + 6;
+		expand.Scale(4).ToString().Print();
+		"\n".Print();
+		expand.Scale = 6;
+		expand.Scale.ToString().Print();
+		" Done for expand\n".Print();
+
+		# declared lambda field cannot be reassigned
+		# but you could assign it to a integer
+		dyn field = new (Scale = k => k * 10) { };
+		field.Scale(4).ToString().Print();
+		"\n".Print();
+		field.Scale = 6;
+		field.Scale.ToString().Print();
+		"\n".Print();
+		# Below is not allowed
+		field.Scale = k => k + 6;
+		field.Scale(4).ToString().Print();
+		" Done for field\n".Print();
+
+		# As for the reason I think because normal field
+		# and dictionary field are stored in different part
+	}
+}
