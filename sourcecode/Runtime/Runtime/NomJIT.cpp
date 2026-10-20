@@ -2,6 +2,7 @@
 #include "CastStats.h"
 #include "CompileHelpers.h"
 #include "FunctionTimings.h"
+#include "NomIMTUtils.h"
 #include "NomJITLight.h"
 #include "NomNameRepository.h"
 #include "NomVMInterface.h"
@@ -212,7 +213,10 @@ NomJIT::optimizeModule(ThreadSafeModule TSM,
       }
     }
 
-    if (NomOptLevel > 0) {
+    if (NomOptLevel > 0 && IMTUtils::IsIMTEntryModule(M)) {
+      // IMT entries compiled synchronously
+      IMTUtils::OptimizeIMTEntryModule(M);
+    } else if (NomOptLevel > 0) {
       if (NomVerbose) {
         basic_ofstream<char> pobof(NomPath + "//llvmirPO.lli");
         llvm::raw_os_ostream pofout(pobof);
@@ -254,7 +258,8 @@ NomJIT::optimizeModule(ThreadSafeModule TSM,
       FPM->add(createConstantPropagationPass());
       FPM->add(createPartiallyInlineLibCallsPass());*/
       FPM->add(createTailCallEliminationPass());
-      pmb.populateLTOPassManager(*MPM);
+      // LTO is slow and the output codes are similar
+      // pmb.populateLTOPassManager(*MPM);
 
       FPM->add(createLoopUnrollPass(2, false, false, -1, -1, -1, -1, -1, 2));
       FPM->add(createLoopUnswitchPass());

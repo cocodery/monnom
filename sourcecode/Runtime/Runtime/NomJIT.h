@@ -75,10 +75,24 @@ public:
 
   llvm::LLVMContext &getContext() { return *Ctx.getContext(); }
 
+  // The lock guarding the shared context, and with it the compile-time
+  // runtime state (types, methods) that IR generation reads and extends.
+  // ORC takes it while compiling IR modules; it is recursive. Code that
+  // generates IR or instantiates types while the background IMT compiler
+  // may be running must hold it.
+  llvm::orc::ThreadSafeContext::Lock getContextLock() const {
+    return Ctx.getLock();
+  }
+
   llvm::Error addModule(std::unique_ptr<llvm::Module> M) {
     return lljit->addIRModule(llvm::orc::ThreadSafeModule(std::move(M), Ctx));
     // return OptimizeLayer.add(MainJD,
     // llvm::orc::ThreadSafeModule(std::move(M), Ctx));
+  }
+
+  // Adds an already compiled object, bypassing the IR optimization layer.
+  llvm::Error addObjectFile(std::unique_ptr<llvm::MemoryBuffer> Obj) {
+    return lljit->addObjectFile(std::move(Obj));
   }
 
   llvm::Expected<llvm::JITEvaluatedSymbol> lookup(llvm::StringRef Name) {
