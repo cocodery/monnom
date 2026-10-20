@@ -1,5 +1,6 @@
 #pragma once
 #include "NomBuilder.h"
+#include "NomValue.h"
 #include "RTDescriptor.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Value.h"
@@ -13,21 +14,28 @@ enum class RTVTableFields : unsigned char {
   InterfaceMethodTable = 3,
   DynamicDispatcherTable = 4,
   ReadField = 5,
-  WriteField = 6
+  WriteField = 6,
+  NomObjPtr = 7
 };
 class RTVTable {
 public:
   static llvm::StructType *GetLLVMType();
 
   static llvm::Constant *CreateConstant(RTDescriptorKind kind,
+                                        llvm::Constant *flags,
                                         llvm::Constant *interfaceMethodTable,
                                         llvm::Constant *dynamicDispatcherTable,
                                         llvm::Constant *fieldLookupFunction,
                                         llvm::Constant *fieldStoreFunction,
-                                        llvm::Constant *flags);
+                                        llvm::Constant *nomObjPtr = nullptr);
 
   static llvm::Value *GenerateReadKind(NomBuilder &builder,
                                        llvm::Value *vtablePtr);
+  static llvm::Value *GenerateReadInterfaceMethodTable(NomBuilder &builder,
+                                                       llvm::Value *vtablePtr);
+  static void GenerateWriteInterfaceMethodTable(NomBuilder &builder,
+                                                llvm::Value *vtablePtr,
+                                                llvm::Value *imt);
   static llvm::Value *GenerateReadInterfaceMethodTableEntry(
       NomBuilder &builder, llvm::Value *vtablePtr, llvm::Constant *index);
   static llvm::Value *GenerateReadMethodTableEntry(NomBuilder &builder,
@@ -37,6 +45,8 @@ public:
                                                     llvm::Value *vtablePtr);
   static llvm::Value *GenerateReadWriteFieldFunction(NomBuilder &builder,
                                                      llvm::Value *vtablePtr);
+  static llvm::Value *GenerateReadNomObjPtr(NomBuilder &builder,
+                                            llvm::Value *vtablePtr);
 
   static llvm::Value *GenerateHasRawInvoke(NomBuilder &builder,
                                            llvm::Value *vtablePtr);

@@ -93,9 +93,10 @@ llvm::Constant *RTClass::CreateConstant(
         llvm::ConstantStruct::get(
             GetLLVMType(),
             RTVTable::CreateConstant(
-                RTDescriptorKind::Class, interfaceMethodTable,
-                dynamicDispatcherTableReferences, fieldRead, fieldWrite,
-                MakeInt32(irptr->GetHasRawInvoke() ? 1 : 0)),
+                RTDescriptorKind::Class,
+                MakeInt32(irptr->GetHasRawInvoke() ? 1 : 0),
+                interfaceMethodTable, dynamicDispatcherTableReferences,
+                fieldRead, fieldWrite),
             RTInterface::CreateConstant(
                 irptr, RTInterfaceFlags::None, typeArgCount, superClassCount,
                 superInterfaceCount, ptrToClassInstantiations,
@@ -137,9 +138,10 @@ llvm::Constant *RTClass::CreateConstant(
         llvm::ConstantStruct::get(
             GetLLVMType(),
             RTVTable::CreateConstant(
-                RTDescriptorKind::Class, interfaceMethodTable,
-                dynamicDispatcherTableReferences, fieldRead, fieldWrite,
-                MakeInt32(irptr->GetHasRawInvoke() ? 1 : 0)),
+                RTDescriptorKind::Class,
+                MakeInt32(irptr->GetHasRawInvoke() ? 1 : 0),
+                interfaceMethodTable, dynamicDispatcherTableReferences,
+                fieldRead, fieldWrite),
             RTInterface::CreateConstant(
                 irptr, RTInterfaceFlags::None, typeArgCount, superClassCount,
                 superInterfaceCount, ptrToClassInstantiations,

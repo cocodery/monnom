@@ -17,6 +17,7 @@
 #include "RTOutput.h"
 #include "RecordHeader.h"
 #include "RefValueHeader.h"
+#include <llvm/Support/AtomicOrdering.h>
 
 using namespace llvm;
 using namespace std;
@@ -35,24 +36,26 @@ llvm::StructType *RTVTable::GetLLVMType() {
                            IMTsize), // Interface method table
                    arrtype(GetDynamicDispatchListEntryType()->getPointerTo(),
                            IMTsize), // Dynamic dispatcher retrieval
-                   GetFieldReadFunctionType()->getPointerTo(), // field lookup
-                   GetFieldWriteFunctionType()->getPointerTo() // field store
-    );
+                   GetFieldReadFunctionType()->getPointerTo(),  // field lookup
+                   GetFieldWriteFunctionType()->getPointerTo(), // field store,
+                   INTTYPE);
   }
   return rtitt;
 }
 llvm::Constant *RTVTable::CreateConstant(RTDescriptorKind kind,
+                                         llvm::Constant *flags,
                                          llvm::Constant *interfaceMethodTable,
                                          llvm::Constant *dynamicDispatcherTable,
                                          llvm::Constant *fieldLookupFunction,
                                          llvm::Constant *fieldStoreFunction,
-                                         llvm::Constant *flags) {
+                                         llvm::Constant *nomObjPtr) {
   return ConstantStruct::get(
       GetLLVMType(), ConstantArray::get(arrtype(POINTERTYPE, 0), {}),
       MakeInt<RTDescriptorKind>(kind),
       ConstantExpr::getTruncOrBitCast(flags, numtype(int32_t)),
       interfaceMethodTable, dynamicDispatcherTable, fieldLookupFunction,
-      fieldStoreFunction);
+      fieldStoreFunction,
+      (nomObjPtr != nullptr) ? nomObjPtr : llvm::ConstantInt::get(INTTYPE, 0));
 }
 llvm::Value *RTVTable::GenerateReadKind(NomBuilder &builder,
                                         llvm::Value *vtablePtr) {
@@ -61,15 +64,39 @@ llvm::Value *RTVTable::GenerateReadKind(NomBuilder &builder,
       builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
       MakeInt32(RTVTableFields::Kind), "VTableKind", AtomicOrdering::NotAtomic);
 }
-llvm::Value *RTVTable::GenerateReadInterfaceMethodTableEntry(
-    NomBuilder &builder, llvm::Value *vtablePtr, llvm::Constant *index) {
-  return MakeInvariantLoad(
+llvm::Value *
+RTVTable::GenerateReadInterfaceMethodTable(NomBuilder &builder,
+                                           llvm::Value *vtablePtr) {
+  return builder->CreateGEP(
+      builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
+      {MakeInt32(0), MakeInt32(RTVTableFields::InterfaceMethodTable)});
+}
+void RTVTable::GenerateWriteInterfaceMethodTable(NomBuilder &builder,
+                                                 llvm::Value *vtablePtr,
+                                                 llvm::Value *imt) {
+  MakeInvariantStore(
       builder,
+      builder->CreatePointerCast(
+          imt, arrtype(GetIMTFunctionType()->getPointerTo(), IMTsize)),
       builder->CreateGEP(
           builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
-          {MakeInt32(0), MakeInt32(RTVTableFields::InterfaceMethodTable),
-           index}),
-      "IMTEntry", AtomicOrdering::NotAtomic);
+          {MakeInt32(0), MakeInt32(RTVTableFields::InterfaceMethodTable)}),
+      AtomicOrdering::NotAtomic);
+}
+llvm::Value *RTVTable::GenerateReadInterfaceMethodTableEntry(
+    NomBuilder &builder, llvm::Value *vtablePtr, llvm::Constant *index) {
+  auto entryPtr = builder->CreateGEP(
+      builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
+      {MakeInt32(0), MakeInt32(RTVTableFields::InterfaceMethodTable), index});
+  // IMT transitions rewrite slots at run time. An invariant load would let
+  // LLVM hoist the slot out of loops or merge it with an earlier read, so
+  // a loop that started before its entry was installed would keep calling
+  // the old entry, falling back on every call.
+  if (RTConfig_EnableTransition) {
+    return builder->CreateLoad(entryPtr, "IMTEntry");
+  }
+  return MakeInvariantLoad(builder, entryPtr, "IMTEntry",
+                           AtomicOrdering::NotAtomic);
 }
 llvm::Value *RTVTable::GenerateReadMethodTableEntry(NomBuilder &builder,
                                                     llvm::Value *vtablePtr,
@@ -97,6 +124,13 @@ llvm::Value *RTVTable::GenerateReadWriteFieldFunction(NomBuilder &builder,
       builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
       MakeInt32(RTVTableFields::WriteField), "writeFieldFun",
       AtomicOrdering::NotAtomic);
+}
+llvm::Value *RTVTable::GenerateReadNomObjPtr(NomBuilder &builder,
+                                             llvm::Value *vtablePtr) {
+  return MakeInvariantLoad(
+      builder,
+      builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
+      MakeInt32(RTVTableFields::NomObjPtr), "", AtomicOrdering::NotAtomic);
 }
 llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
                                                          Value *refValue,
@@ -279,8 +313,14 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
       BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Match$Field", fun);
   BasicBlock *loopMatchMethodBlock =
       BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Match$Method", fun);
+  //   BasicBlock *loopDictionaryBlock =
+  //       RTOutput_Fail::GenerateFailUnimplementedBlock(builder);
   BasicBlock *loopDictionaryBlock =
-      RTOutput_Fail::GenerateFailUnimplementedBlock(builder);
+      BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$IsRecord", fun);
+  BasicBlock *loopRecordDictionaryBlock =
+      BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Dictionary", fun);
+  BasicBlock *errorBlock =
+      RTOutput_Fail::GenerateFailOutputBlock(builder, "No such method!");
   BasicBlock *checkLambdaExistsBlock =
       BasicBlock::Create(LLVMCONTEXT, "checkLambdaExists", fun);
   BasicBlock *outBlock = BasicBlock::Create(LLVMCONTEXT, "DDLookup$out", fun);
@@ -349,7 +389,7 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
                                    "but value has no lambda method!";
   BasicBlock *noLambdaBlock =
       RTOutput_Fail::GenerateFailOutputBlock(builder, noLambdaMsg);
-  auto fieldValuePHI = builder->CreatePHI(REFTYPE, 2, "fieldValue");
+  auto fieldValuePHI = builder->CreatePHI(REFTYPE, 3, "fieldValue");
   auto hasLambda = GenerateHasRawInvoke(
       builder,
       RefValueHeader::GenerateReadVTablePointer(builder, fieldValuePHI));
@@ -371,6 +411,22 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
         {1});
     outPHI->addIncoming(retval, builder->GetInsertBlock());
     builder->CreateBr(outBlock);
+  }
+
+  builder->SetInsertPoint(loopDictionaryBlock);
+  {
+    auto kind = GenerateReadKind(builder, vtablePtr);
+    auto isRecord = builder->CreateICmpEQ(
+        kind, MakeIntLike(kind, (uint64_t)RTDescriptorKind::Record));
+    builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                             {isRecord, MakeUInt(1, 1)});
+    builder->CreateCondBr(isRecord, loopRecordDictionaryBlock, errorBlock);
+
+    builder->SetInsertPoint(loopRecordDictionaryBlock);
+    auto dfield = builder->CreatePointerCast(
+        RecordHeader::GenerateReadDictField(builder, refValue, name), REFTYPE);
+    fieldValuePHI->addIncoming(dfield, builder->GetInsertBlock());
+    builder->CreateBr(checkLambdaExistsBlock);
   }
 
   builder->SetInsertPoint(loopMatchFieldBlock);

@@ -27,9 +27,9 @@ llvm::Constant *RTLambda::CreateConstant(const NomLambda *lambda,
                                          llvm::Function *fieldWrite) {
   return ConstantStruct::get(
       GetLLVMType(),
-      {RTVTable::CreateConstant(RTDescriptorKind::Lambda, interfaceMethodTable,
-                                dynamicDispatcherTable, fieldRead, fieldWrite,
-                                MakeInt32(1))});
+      {RTVTable::CreateConstant(RTDescriptorKind::Lambda, MakeInt32(1),
+                                interfaceMethodTable, dynamicDispatcherTable,
+                                fieldRead, fieldWrite)});
 }
 } // namespace Runtime
 } // namespace Nom

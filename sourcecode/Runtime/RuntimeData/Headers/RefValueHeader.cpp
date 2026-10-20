@@ -733,53 +733,6 @@ llvm::Value *RefValueHeader::GetInterfaceMethodTableFunction(
   }
   builder->SetInsertPoint(mergeBlock);
   return tablePHI;
-  // BasicBlock* incomingBlock = builder->GetInsertBlock();
-  //
-  // if (recreg.GetNomType()->PossiblyPrimitive())
-  //{
-  //	BasicBlock* isInt = BasicBlock::Create(LLVMCONTEXT, "imp_int",
-  // env->Function); 	BasicBlock* isFloat = BasicBlock::Create(LLVMCONTEXT,
-  //"imp_float", env->Function); 	BasicBlock* isRef =
-  // BasicBlock::Create(LLVMCONTEXT, "imp_rec", env->Function);
-  // incomingBlock = BasicBlock::Create(LLVMCONTEXT, "imp_merge",
-  // env->Function);
-
-  //	CreateRefKindSwitch(builder, recreg, isFloat, isRef, isInt);
-
-  //	builder->SetInsertPoint(isInt);
-  //	auto intTable =
-  // builder->CreatePointerCast(NomIntClass::GetInstance()->GetInterfaceTableLookup(*incomingBlock->getParent()->getParent(),
-  // llvm::GlobalValue::LinkageTypes::ExternalLinkage),
-  // GetIMTFunctionType()->getPointerTo());
-  ////ConstantExpr::getPointerCast(NomIntClass::GetInstance()->GetLLVMElement(*env->Function->getParent()),
-  // RTVTable::GetLLVMType()->getPointerTo()); builder->CreateBr(incomingBlock);
-
-  //	builder->SetInsertPoint(isFloat);
-  //	auto floatTable =
-  // builder->CreatePointerCast(NomFloatClass::GetInstance()->GetInterfaceTableLookup(*incomingBlock->getParent()->getParent(),
-  // llvm::GlobalValue::LinkageTypes::ExternalLinkage),
-  // GetIMTFunctionType()->getPointerTo());
-  ////ConstantExpr::getPointerCast(NomFloatClass::GetInstance()->GetLLVMElement(*env->Function->getParent()),
-  // RTVTable::GetLLVMType()->getPointerTo()); builder->CreateBr(incomingBlock);
-
-  //	builder->SetInsertPoint(isRef);
-  //	Value* vtable = GenerateReadVTablePointer(builder, recreg);
-  //	auto refTable = RTVTable::GenerateReadInterfaceMethodTableEntry(builder,
-  // vtable, index); 	builder->CreateBr(incomingBlock);
-
-  //	builder->SetInsertPoint(incomingBlock);
-  //	PHINode* tablePHI =
-  // builder->CreatePHI(GetIMTFunctionType()->getPointerTo(), 3, "imt");
-  //	tablePHI->addIncoming(intTable, isInt);
-  //	tablePHI->addIncoming(floatTable, isFloat);
-  //	tablePHI->addIncoming(refTable, isRef);
-
-  //	return tablePHI;
-
-  //}
-  // Value* vtable = GenerateReadVTablePointer(builder, recreg);
-  // return RTVTable::GenerateReadInterfaceMethodTableEntry(builder, vtable,
-  // index);
 }
 
 llvm::Value *RefValueHeader::GenerateReadRawInvoke(NomBuilder &builder,
