@@ -2,7 +2,10 @@
 #include "CallingConvConf.h"
 #include "CompileEnv.h"
 #include "NomBuilder.h"
+#include "NomNameRepository.h"
 #include "NomRecord.h"
+#include "NomVMInterface.h"
+#include "RTCompileConfig.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
@@ -19,6 +22,11 @@ NomRecordMethod::NomRecordMethod(const NomRecord *container, std::string &name,
                         argTypes),
       Container(container),
       /*ArgumentTypes(argTypes),*/ ReturnType(returnType) {}
+
+const int NomRecordMethod::GetIMTIndex() const {
+  return NomNameRepository::Instance().GetNameID(GetName()) % IMTsize;
+}
+
 llvm::Function *NomRecordMethod::createLLVMElement(
     llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
   NomBuilder builder;
@@ -36,6 +44,16 @@ llvm::Function *NomRecordMethod::createLLVMElement(
 
   builder->SetInsertPoint(startBlock);
 
+  // builder->CreateCall(
+  //     GetPrint(&mod),
+  //     {ConstantInt::get(INTTYPE,
+  //                       reinterpret_cast<uint64_t>(
+  //                           new std::string("Calling record method: " + name
+  //                           +
+  //                                           ", the record method body\n")),
+  //                       false),
+  //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+
   const std::vector<NomInstruction *> *instructions = GetInstructions();
 #ifdef INSTRUCTIONMESSAGES
   auto dbgfun = GetDebugPrint(&mod);
@@ -51,8 +69,8 @@ llvm::Function *NomRecordMethod::createLLVMElement(
 #endif
   }
   llvm::raw_os_ostream out(std::cout);
-  // For some reason, verifyFunction is supposed to return false if there are no
-  // problems
+  // For some reason, verifyFunction is supposed to return false if there are
+  // no problems
   if (verifyFunction(*fun, &out)) {
     std::cout << "Could not verify structure method!";
     fun->print(out);
@@ -62,6 +80,7 @@ llvm::Function *NomRecordMethod::createLLVMElement(
   }
   return fun;
 }
+
 NomTypeRef
 NomRecordMethod::GetReturnType(const NomSubstitutionContext *context) const {
   NomSubstitutionContextMemberContext nscmc(this);

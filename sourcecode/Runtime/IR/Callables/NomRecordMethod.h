@@ -1,5 +1,6 @@
 #pragma once
 #include "NomCallable.h"
+#include <atomic>
 
 namespace Nom {
 namespace Runtime {
@@ -11,11 +12,18 @@ public:
   // ConstantID ArgumentTypes;
   ConstantID ReturnType;
 
+  // JIT address of this method cached by IMTUtils::LookupRecordMethodAddr
+  // Atomic because the background IMT compiler reads it
+  mutable std::atomic<void *> CompiledAddr{nullptr};
+
   NomRecordMethod(const NomRecord *container, std::string &name,
                   std::string &qname, ConstantID typeParameters,
                   ConstantID returnType, ConstantID argTypes,
                   RegIndex regcount);
   virtual ~NomRecordMethod() override = default;
+
+  const int GetIMTIndex() const;
+
   // Inherited via NomCallable
   virtual llvm::Function *
   createLLVMElement(llvm::Module &mod,

@@ -11,6 +11,8 @@
 #include "NomInterface.h"
 #include "NomInterfaceCallTag.h"
 #include "NomMethod.h"
+#include "NomVMIMTInterface.h"
+#include "RTCast.h"
 #include "RTCompileConfig.h"
 #include "RTConfig.h"
 #include "RefValueHeader.h"
@@ -18,6 +20,7 @@
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Type.h"
 #include "llvm/Support/raw_os_ostream.h"
+#include <NomVMInterface.h>
 #include <cstdio>
 #include <iostream>
 
@@ -28,7 +31,6 @@ namespace Runtime {
 CallCheckedInstanceMethod::~CallCheckedInstanceMethod() {}
 void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                                         int lineno) {
-
   env->basicBlockTerminated = false;
   NomSubstitutionContextMemberContext nscmc(env->Context);
 
@@ -117,12 +119,11 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
   }
   env->ClearArguments();
 
+  auto mod = builder->GetInsertBlock()->getParent()->getParent();
+
   if (method.Elem->IsFinal()) {
     if (NomCastStats) {
-      builder->CreateCall(
-          GetIncFinalInstanceMethodCalls(
-              *builder->GetInsertBlock()->getParent()->getParent()),
-          {});
+      builder->CreateCall(GetIncFinalInstanceMethodCalls(*mod), {});
     }
     Function *fun = method.Elem->GetLLVMFunction(env->Module);
     auto call = builder->CreateCall(
@@ -140,11 +141,18 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
   Value *receiver = (*env)[Receiver];
 
   if (rawInvoke) {
+    // builder->CreateCall(
+    //     GetPrint(mod),
+    //     {ConstantInt::get(
+    //          INTTYPE,
+    //          reinterpret_cast<uint64_t>(new std::string(
+    //              "Raw invocation of method: " + method.Elem->GetName() +
+    //              "\n")),
+    //          false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+
     if (NomCastStats) {
-      builder->CreateCall(
-          GetIncTypedRawInvokes(
-              *builder->GetInsertBlock()->getParent()->getParent()),
-          {});
+      builder->CreateCall(GetIncTypedRawInvokes(*mod), {});
     }
     auto recNV = (*env)[Receiver];
     llvm::Value *methodptr = builder->CreatePointerCast(
@@ -172,11 +180,6 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                   builder->CreateGEP(argsasarr, MakeInt32(j), "arginarray"),
                   AtomicOrdering::NotAtomic);
       }
-      // invariantID =
-      // builder->CreateIntrinsic(llvm::Intrinsic::invariant_start, {
-      // POINTERTYPE }, {
-      // MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
-      // argsArrSize), builder->CreatePointerCast(argsasarr, POINTERTYPE) });
       argarr[RTConfig_NumberOfVarargsArguments] =
           builder->CreatePointerCast(argsasarr, POINTERTYPE);
     }
@@ -184,10 +187,10 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
       argarr[j] = WrapAsPointer(builder, argarr[j]);
     }
     argarr -= 1;
-    argarr[0] = builder->CreatePointerCast(
-        NomInterfaceCallTag::GetMethodKey(method.Elem)
-            ->GetLLVMElement(*env->Module),
-        POINTERTYPE);
+    argarr[0] =
+        builder->CreatePointerCast(NomInterfaceCallTag::GetCallTag(method.Elem)
+                                       ->GetLLVMElement(*env->Module),
+                                   POINTERTYPE);
     auto call = builder->CreateCall(
         GetIMTFunctionType(), methodptr,
         llvm::ArrayRef<llvm::Value *>(argarr,
@@ -199,6 +202,16 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     RegisterValue(env,
                   NomValue(result, method.Elem->GetReturnType(&nscl), true));
   } else if (method.Elem->GetContainer()->IsInterface()) {
+    // builder->CreateCall(
+    //     GetPrint(mod),
+    //     {ConstantInt::get(
+    //          INTTYPE,
+    //          reinterpret_cast<uint64_t>(new std::string(
+    //              "Interface call to method: " + method.Elem->GetName() +
+    //              "\n")),
+    //          false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+
     Value *invariantID = nullptr;
     auto argsArrSize = method.Elem->GetArgumentCount() +
                        method.Elem->GetDirectTypeParametersCount() -
@@ -207,10 +220,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
             method.Elem->GetDirectTypeParametersCount() >
         RTConfig_NumberOfVarargsArguments) {
       if (NomCastStats) {
-        builder->CreateCall(
-            GetIncExtendedInterfaceMethodCalls(
-                *builder->GetInsertBlock()->getParent()->getParent()),
-            {});
+        builder->CreateCall(GetIncExtendedInterfaceMethodCalls(*mod), {});
       }
       llvm::Value *argsasarr = builder->CreateAlloca(
           POINTERTYPE, MakeInt32(argsArrSize), "argarray");
@@ -228,29 +238,46 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                   builder->CreateGEP(argsasarr, MakeInt32(j), "arginarray"),
                   AtomicOrdering::NotAtomic);
       }
-      // invariantID =
-      // builder->CreateIntrinsic(llvm::Intrinsic::invariant_start, {
-      // POINTERTYPE }, {
-      // MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
-      // argsArrSize), builder->CreatePointerCast(argsasarr, POINTERTYPE) });
       argarr[RTConfig_NumberOfVarargsArguments] =
           builder->CreatePointerCast(argsasarr, POINTERTYPE);
     } else {
       if (NomCastStats) {
-        builder->CreateCall(
-            GetIncInterfaceMethodCalls(
-                *builder->GetInsertBlock()->getParent()->getParent()),
-            {});
+        builder->CreateCall(GetIncInterfaceMethodCalls(*mod), {});
       }
     }
     for (int j = 0; j <= RTConfig_NumberOfVarargsArguments; j++) {
       argarr[j] = WrapAsPointer(builder, argarr[j]);
     }
     argarr -= 1;
-    argarr[0] = builder->CreatePointerCast(
-        NomInterfaceCallTag::GetMethodKey(method.Elem)
-            ->GetLLVMElement(*env->Module),
-        POINTERTYPE);
+
+    auto ict = NomInterfaceCallTag::GetCallTag(method.Elem);
+    argarr[0] = builder->CreatePointerCast(ict->GetLLVMElement(*env->Module),
+                                           POINTERTYPE);
+
+    // builder->CreateCall(GetWriteFunCallTag(mod),
+    //                     {builder->CreatePtrToInt(argarr[0],
+    //                     numtype(intptr_t)),
+    //                      llvm::ConstantInt::get(
+    //                          INTTYPE, reinterpret_cast<intptr_t>(ict),
+    //                          false)});
+
+    // builder->CreateCall(GetPrint(mod),
+    //                     {builder->CreatePtrToInt(argarr[0],
+    //                     numtype(intptr_t)),
+    //                      llvm::ConstantInt::get(INTTYPE, 0, false)});
+
+    // builder->CreateCall(
+    //     GetPrint(mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(new std::string(
+    //                           "Should go to IMT slot " +
+    //                           std::to_string(method.Elem->GetIMTIndex()) +
+    //                           " for method: " + method.Elem->GetName() +
+    //                           "\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT,
+    //      bitsin(uint64_t)),
+    //                             1, false)});
 
     Value *methodptr = ObjectHeader::GetInterfaceMethodTableFunction(
         builder, env, Receiver, MakeInt32(method.Elem->GetIMTIndex()), lineno);
@@ -269,6 +296,12 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     } else {
       result = builder->CreateBitOrPointerCast(call, rettype);
     }
+    if (RTConfig_EnableTransition && rettype == REFTYPE) {
+      // in normal version return value from RCT is casted in ICT
+      // but IMT Transition get return value from IMT Entry without cast
+      result = RTCast::GenerateCast(builder, env, result,
+                                    method.Elem->GetReturnType(&nscl));
+    }
     RegisterValue(env,
                   NomValue(result, method.Elem->GetReturnType(&nscl), true));
     if (invariantID != nullptr) {
@@ -279,18 +312,23 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
                argsArrSize),
            argarr[RTConfig_NumberOfVarargsArguments + 1]});
-      // builder->CreateIntrinsic(llvm::Intrinsic::lifetime_end, { POINTERTYPE
-      // }, {
-      // MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
-      // argsArrSize), argarr[RTConfig_NumberOfVarargsArguments + 1] });
     }
-  } else {
+  } else { // for dynamic call
     if (NomCastStats) {
-      builder->CreateCall(
-          GetIncDirectClassMethodCalls(
-              *builder->GetInsertBlock()->getParent()->getParent()),
-          {});
+      builder->CreateCall(GetIncDirectClassMethodCalls(*mod), {});
     }
+    // builder->CreateCall(
+    //     GetPrint(mod),
+    //     {ConstantInt::get(INTTYPE,
+    //                       reinterpret_cast<uint64_t>(
+    //                           new std::string("Direct call to non-final \
+    //                                           method "
+    //                                           "without interface: " +
+    //                                           method.Elem->GetName() +
+    //                                           "\n")),
+    //                       false),
+    //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+
     Value *methodptr = ObjectHeader::GetDispatchMethodPointer(
         builder, env, Receiver, lineno, method);
     auto call =

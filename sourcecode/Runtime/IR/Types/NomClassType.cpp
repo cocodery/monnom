@@ -669,6 +669,8 @@ bool NomClassType::ContainsVariableIndex(int index) const {
 using namespace Nom::Runtime;
 
 extern "C" intptr_t NOM_RTInstantiateClass(intptr_t cls, intptr_t *args) {
+  // the background IMT compiler may be instantiating types too
+  auto lock = NomJIT::Instance().getContextLock();
   NomClass *ncls = reinterpret_cast<NomClass *>(cls);
   NomTypeRef *argtypes = reinterpret_cast<NomTypeRef *>(args);
   return ncls->GetType(TypeList(argtypes, ncls->GetTypeParametersCount()))

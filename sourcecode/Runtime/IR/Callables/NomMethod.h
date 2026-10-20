@@ -30,7 +30,7 @@ protected:
 public:
   virtual ~NomMethod() override = default;
 
-  int GetIMTIndex() const;
+  const int GetIMTIndex() const;
 
   bool IsOffsetSet();
   bool SetOffset(int offset);

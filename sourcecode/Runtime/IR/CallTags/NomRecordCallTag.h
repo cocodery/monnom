@@ -1,12 +1,13 @@
 #pragma once
 #include "AvailableExternally.h"
+#include "NomVMInterface.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Module.h"
 #include <string>
 
 namespace Nom {
 namespace Runtime {
-class NomRecordCallTag : public AvailableExternally<llvm::Constant> {
+class NomRecordCallTag : public CallTagExternally {
 private:
   std::string name;
   int typeargcount;
@@ -22,6 +23,7 @@ public:
   createLLVMElement(llvm::Module &mod,
                     llvm::GlobalValue::LinkageTypes linkage) const override;
   virtual llvm::Constant *findLLVMElement(llvm::Module &mod) const override;
+  std::string GetKey() const;
 };
 } // namespace Runtime
 } // namespace Nom
