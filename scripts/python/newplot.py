@@ -51,9 +51,9 @@ def cut_dotbm(str):
 def fetch_key(key,data):
   try:
     if(key.isdigit()):
-      return data.loc[int(key)][0]
+      return data.loc[int(key)].iloc[0]
     else:
-      return data.loc[key][0]
+      return data.loc[key].iloc[0]
   except KeyError:
     return "REMOVE"
 
@@ -64,9 +64,9 @@ def load_converter(path):
 def check_key(key,data):
   try:
     if(key.isdigit()):
-      return data.loc[int(key)][0] is None
+      return data.loc[int(key)].iloc[0] is None
     else:
-      return data.loc[key][0] is None
+      return data.loc[key].iloc[0] is None
   except KeyError:
     return True
 
@@ -113,7 +113,7 @@ def load_newbenchmark(path,config):
         else:
          resultcolumns[(i-1)%linesperprog].append(i)
     for i in range(0,linesperprog-1):
-      if not data.take(resultcolumns[i],axis=1).applymap(lambda x : x==rightvalues[i]).all(axis=None):
+      if not data.take(resultcolumns[i],axis=1).map(lambda x : x==rightvalues[i]).all(axis=None):
         print(data.take(resultcolumns[i],axis=1))
         raise Exception("not all result values match!")
     times=data.take(timescolumns,axis=1)
@@ -127,7 +127,7 @@ def load_newbenchmark(path,config):
     return dtable
 	
 def load_benchmarkv3(path,config):
-    fullresultsfiles=[(x.string,x.group()[(x.string.find("-")+1):-9]) for x in [re.search("[a-zA-Z]+\-([0-9\-]+)_finished.csv",f) for f in listdir(path) if re.search("[a-zA-Z]+\-([0-9\-]+)_finished.csv",f)!=None]]
+    fullresultsfiles=[(x.string,x.group()[(x.string.find("-")+1):-9]) for x in [re.search(r"[a-zA-Z]+\-([0-9\-]+)_finished.csv",f) for f in listdir(path) if re.search(r"[a-zA-Z]+\-([0-9\-]+)_finished.csv",f)!=None]]
     fullresultsfiles.sort(key=lambda x:x[1],reverse=True)
     data=pd.read_csv(path+"/"+fullresultsfiles[0][0],header=None,index_col=0)
     datacolumns=len(data.columns)
@@ -145,7 +145,7 @@ def load_benchmarkv3(path,config):
     return dtable
 
 def load_oldbenchmark(path, config):
-    fullresultsfiles=[(x.string,x.group()[8:-9]) for x in [re.search("results_([0-9\-]+)_full.csv",f) for f in listdir(path+"/benchmark") if re.search("results_([0-9\-]+)_full.csv",f)!=None]]
+    fullresultsfiles=[(x.string,x.group()[8:-9]) for x in [re.search(r"results_([0-9\-]+)_full.csv",f) for f in listdir(path+"/benchmark") if re.search(r"results_([0-9\-]+)_full.csv",f)!=None]]
     fullresultsfiles.sort(key=lambda x:x[1],reverse=True)
     converter=load_converter(path+"/"+config["mapping"])
     data=pd.read_csv(path+"/benchmark/"+fullresultsfiles[0][0],header=0,converters={"Folder":converter}).pivot(index="Folder",columns="Run",values="Seconds")
