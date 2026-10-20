@@ -1,0 +1,30 @@
+interface ICounter
+{
+	fun Up() : Int;
+	fun Down() : Int;
+}
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		dyn obj = new (Int up = 3, Int down = 1)
+		{
+			fun Up() : Int { return up; }
+			fun Down() : Int { return down; }
+		};
+		ICounter c = obj;
+
+		Int count = 1000;
+		Int total = 0;
+		Int i = 0;
+		while(i < count)
+		{
+			total = total + c.Up();
+			total = total - c.Down();
+			i = i + 1;
+		}
+		total.ToString().Print();
+		"\n".Print();
+	}
+}
