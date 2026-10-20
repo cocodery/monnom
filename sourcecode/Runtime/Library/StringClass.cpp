@@ -158,8 +158,7 @@ llvm::Function *GetDebugPrint(llvm::Module *mod) {
   Function *ret = mod->getFunction("LIB_NOM_DEBUG_PRINT");
   if (ret == nullptr) {
     std::array<Type *, 3> chararrpluslen = {
-        {POINTERTYPE, Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-         numtype(decltype(NomDebugPrintLevel))}};
+        {POINTERTYPE, INTTYPE, numtype(decltype(NomDebugPrintLevel))}};
     FunctionType *printFunType =
         FunctionType::get(Type::getVoidTy(LLVMCONTEXT), chararrpluslen, false);
     ret = Function::Create(printFunType, Function::ExternalLinkage,
@@ -173,8 +172,7 @@ llvm::Function *GetDebugPrintHex(llvm::Module *mod) {
   Function *ret = mod->getFunction("LIB_NOM_DEBUG_PRINT_HEX");
   if (ret == nullptr) {
     std::array<Type *, 3> chararrpluslen = {
-        {POINTERTYPE, Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-         numtype(decltype(NomDebugPrintLevel))}};
+        {POINTERTYPE, INTTYPE, numtype(decltype(NomDebugPrintLevel))}};
     FunctionType *printFunType =
         FunctionType::get(Type::getVoidTy(LLVMCONTEXT), chararrpluslen, false);
     ret = Function::Create(printFunType, Function::ExternalLinkage,

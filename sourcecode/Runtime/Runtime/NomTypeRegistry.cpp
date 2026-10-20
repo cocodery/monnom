@@ -164,7 +164,9 @@ TypeRegistry::createLLVMElement(llvm::Module &mod,
     builder->CreateCondBr(newFoundDifference, newInstanceBlock, idBlock);
 
     builder->SetInsertPoint(newInstanceBlock);
-    static auto uniqueInstantiationFun =
+    // not static: this function is materialized in many modules and the
+    // declaration must be the one in the module being built
+    auto uniqueInstantiationFun =
         NomInterface::GetGetUniqueInstantiationFunction(mod);
     if (NomCastStats) {
       builder->CreateCall(
@@ -228,7 +230,9 @@ TypeRegistry::createLLVMElement(llvm::Module &mod,
       builder->CreateCall(
           GetIncTypeInstanceAlloactionsFunction(*fun->getParent()), {});
     }
-    static auto uniqueInstantiationFun =
+    // not static: this function is materialized in many modules and the
+    // declaration must be the one in the module being built
+    auto uniqueInstantiationFun =
         NomInterface::GetGetUniqueInstantiationFunction(mod);
     auto uniquedResult = builder->CreateCall(
         uniqueInstantiationFun, {RTInterface::GenerateReadIRPtr(builder, iface),

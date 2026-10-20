@@ -30,7 +30,7 @@ NomMethodLoaded::NomMethodLoaded(const NomInterface *container,
       /*NomMemberContextLoaded(container, typeParameters),*/
       /* argTypes(argTypes),*/ isFinal(isFinal), Container(container) {}
 
-int NomMethod::GetIMTIndex() const {
+const int NomMethod::GetIMTIndex() const {
   return (this->GetContainer()->GetName()->HashCode() + (GetOffset() * 4177)) %
          IMTsize;
 }
@@ -117,7 +117,10 @@ llvm::Function *NomMethodInternal::createLLVMElement(
   BasicBlock *forwardblock =
       BasicBlock::Create(LLVMCONTEXT, GetName() + "start", wfun);
   builder->SetInsertPoint(forwardblock);
-  auto ufun = Function::Create(funtype, linkage, GetQName(), &mod);
+  // the C++ implementation is only declared here
+  // a declaration must have external linkage whatever linkage the forwarder get
+  auto ufun =
+      Function::Create(funtype, GlobalValue::ExternalLinkage, GetQName(), &mod);
   ufun->setCallingConv(llvm::CallingConv::C);
 
   auto ftnumparams = funtype->getNumParams();

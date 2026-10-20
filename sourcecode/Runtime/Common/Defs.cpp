@@ -11,6 +11,7 @@
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
 
+int _isInWarmup = 0;
 int isInWarmup() { return _isInWarmup; }
 
 namespace Nom {

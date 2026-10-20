@@ -24,6 +24,7 @@
           llvm::ConstantInt::get(llvm::IntegerType::getInt32Ty(LLVMCONTEXT),   \
                                  1)),                                          \
       llvm::IntegerType::get(LLVMCONTEXT, bitsin(size_t))))
+#define VOIDTYPE (::Nom::Runtime::BytecodeTypes::GetVoidType())
 #define INTTYPE (::Nom::Runtime::BytecodeTypes::GetIntType())
 #define FLOATTYPE (::Nom::Runtime::BytecodeTypes::GetFloatType())
 #define BOOLTYPE (::Nom::Runtime::BytecodeTypes::GetBoolType())
@@ -47,7 +48,7 @@
   (::llvm::ArrayRef<t>((arr == nullptr ? reinterpret_cast<t *>(this) : (arr)), \
                        (arr == nullptr ? 0 : (n))))
 
-static int _isInWarmup = 0;
+extern int _isInWarmup;
 int isInWarmup();
 
 namespace Nom {
@@ -113,6 +114,11 @@ class NomString;
 
 class BytecodeTypes {
 public:
+  static llvm::Type *GetVoidType() {
+    static llvm::Type *voidType = llvm::Type::getVoidTy(LLVMCONTEXT);
+    return voidType;
+  }
+
   static llvm::Type *GetIntType() {
     static llvm::Type *intType = (llvm::Type::getInt64Ty(LLVMCONTEXT));
     return intType;

@@ -1,6 +1,11 @@
 #pragma once
 #include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/Module.h"
+#include <cstdint>
+#include <exception>
+#include <iostream>
+#include <llvm/IR/Constant.h>
+#include <unordered_map>
 
 namespace Nom {
 namespace Runtime {
@@ -32,13 +37,20 @@ protected:
   createLLVMElement(llvm::Module &mod,
                     llvm::GlobalValue::LinkageTypes linkage) const = 0;
   virtual T *findLLVMElement(llvm::Module &mod) const = 0;
-  T *findMainLLVMElement() const {
-    if (mainModule != nullptr) {
-      return findLLVMElement(mainModule);
-    }
-    return nullptr;
-  }
+  // T *findMainLLVMElement() const {
+  //   if (mainModule != nullptr) {
+  //     return findLLVMElement(mainModule);
+  //   }
+  //   return nullptr;
+  // }
   llvm::Module *GetMainModule() const { return mainModule; }
+};
+
+class CallTagExternally : public AvailableExternally<llvm::Constant> {
+private:
+public:
+  CallTagExternally() {}
+  ~CallTagExternally() {}
 };
 
 } // namespace Runtime

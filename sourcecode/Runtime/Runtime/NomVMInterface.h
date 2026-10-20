@@ -36,4 +36,4 @@ extern "C" DLLEXPORT void *CPP_NOM_RECORDALLOC(size_t numfields,
 
 extern "C" DLLEXPORT void *CPP_NOM_CLASSTYPEALLOC(size_t numtargs);
 
-extern "C" DLLEXPORT void CPP_NOM_Print(uint64_t str);
+extern "C" DLLEXPORT void CPP_NOM_Print(uint64_t addr, uint64_t mode);

@@ -48,12 +48,6 @@ void RTCmdInstruction::Compile(NomBuilder &builder, CompileEnv *env,
   }
   cout << "Unknown runtime command";
   throw new std::exception();
-  /*env->basicBlockTerminated = false;
-  std::string * textptr = new std::string();
-  std::array<llvm::Value *, 1> args = { {
-  llvm::ConstantInt::get(Type::getIntNTy(LLVMCONTEXT, bitsin(uint64_t)),
-  reinterpret_cast<uint64_t>(textptr), false) } }; llvm::Function * fun =
-  GetPrint(env->Module);*/
 }
 void RTCmdInstruction::Print(bool resolve) {
   cout << "RUNTIMECMD ";
