@@ -35,7 +35,7 @@ namespace Nom.TypeChecker
             private set;
         } = new ClassRef<Language.IType>(StdLib.Object.Instance, new TypeEnvironment<Language.IType>()).InjectOptional();
 
- 
+
 
         public TDClass GetClass(DeclIdentifier name)
         {
@@ -48,7 +48,7 @@ namespace Nom.TypeChecker
                 throw new TypeCheckException("$1 is already an interface, not a class", name);
             }
             TDClass ret = TDClasses.FirstOrDefault(cls => cls.Name == name.Name.Name && cls.TypeParameters.Count() == name.Arguments.Count());
-            if(ret==null)
+            if (ret == null)
             {
                 ret = new TDClass(Program, name.Name.Name, name.Arguments.Select((arg, i) => new TDTypeArgDecl(arg.Name.Name, this.OverallTypeParameterCount + i)), this.InjectOptional());
                 this.AddClass(ret);
@@ -89,7 +89,7 @@ namespace Nom.TypeChecker
         public override IEnumerable<IParamRef<IInterfaceSpec, Language.IType>> ImmediateSuperTypes => SuperClass.AsEnumerable().Concat(base.ImmediateSuperTypes);
 
         IEnumerable<IStaticFieldDecl> IClass.StaticFields => throw new NotImplementedException();
-        public IEnumerable<IStaticFieldSpec> StaticFields  { get { yield break; } } //TODO: implement static fields
+        public IEnumerable<IStaticFieldSpec> StaticFields { get { yield break; } } //TODO: implement static fields
 
         private List<TDStruct> structs = new List<TDStruct>();
         public IEnumerable<ITDStruct> Structs => structs.ToList();
@@ -114,16 +114,16 @@ namespace Nom.TypeChecker
         protected override void CheckDefinition(TDClassDef def)
         {
             base.CheckDefinition(def);
-            if(this.IsFinal!=def.IsFinal)
+            if (this.IsFinal != def.IsFinal)
             {
                 CompilerOutput.RegisterException(new TypeCheckException("Class $1: final specifications must be consistent over all definitions", def.Name));
             }
-            if(this.IsAbstract!=def.IsAbstract)
+            if (this.IsAbstract != def.IsAbstract)
             {
                 CompilerOutput.RegisterException(new TypeCheckException("Class $1: abstract specifications must be consistent over all definitions", def.Name));
             }
         }
-        
+
         public override void ConsolidateDefinition(TDClassDef def)
         {
             base.ConsolidateDefinition(def);
@@ -150,28 +150,36 @@ namespace Nom.TypeChecker
                     staticMethods.Add(smd);
                 }
             }
-            foreach(FieldSpec fd in def.FieldDefinitions)
+            foreach (FieldSpec fd in def.FieldDefinitions)
             {
-                if(fields.Any(xfd=>xfd.Name==fd.Name)) //TODO: include superclass in field consolidation
+                if (fields.Any(xfd => xfd.Name == fd.Name)) //TODO: include superclass in field consolidation
                 {
                     throw new TypeCheckException("Field $0 already exists", fd.Identifier);
+                }
+                if (methods.Any(xmd => xmd.Name == fd.Name))
+                {
+                    throw new TypeCheckException("Field $0 has the same name as a method", fd.Identifier);
                 }
                 fields.Add(fd);
                 localFields.Add(fd);
             }
-            foreach(ConstructorDef cd in def.Constructors)
+            foreach (ConstructorDef cd in def.Constructors)
             {
-                if(constructors.Any(xcd=>!xcd.Parameters.IsDisjoint(cd.Parameters)))
+                if (constructors.Any(xcd => !xcd.Parameters.IsDisjoint(cd.Parameters)))
                 {
                     throw new TypeCheckException("Class $0 has non-disjoint constructors", def.Name);
                 }
                 constructors.Add(cd);
             }
-            foreach(MethodDef md in def.MethodDefinitions)
+            foreach (MethodDef md in def.MethodDefinitions)
             {
-                if(Methods.Any(xmd => xmd.Name==md.Name && xmd.TypeParameters.Count() == md.TypeParameters.Count() && ! xmd.Parameters.IsDisjoint(md.Parameters)))
+                if (Methods.Any(xmd => xmd.Name == md.Name && xmd.TypeParameters.Count() == md.TypeParameters.Count() && !xmd.Parameters.IsDisjoint(md.Parameters)))
                 {
                     throw new TypeCheckException("Method $0 has non-disjoint overloadings", md.Identifier);
+                }
+                if (fields.Any(xfd => xfd.Name == md.Name))
+                {
+                    throw new TypeCheckException("Method $0 has the same name as a field", md.Identifier);
                 }
                 methods.Add(md);
             }

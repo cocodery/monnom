@@ -692,6 +692,10 @@ namespace Nom.TypeChecker
             {
                 try
                 {
+                    if (tdstruct.Fields.Any(xsf => xsf.Name == sfd.Ident.Name))
+                    {
+                        throw new TypeCheckException("Field $0 already exists", sfd.Ident);
+                    }
                     IExprTransformResult etr = sfd.InitExpr.Visit(this, cenv);
                     Language.IType fieldType = sfd.Type.TransformType(cenv.Context);
                     if (!etr.Type.IsSubtypeOf(fieldType, true))
@@ -711,6 +715,10 @@ namespace Nom.TypeChecker
             List<(Parser.MethodDef, StructMethodDef)> methodPairs = new List<(Parser.MethodDef, StructMethodDef)>();
             foreach (var md in expr.Methods)
             {
+                if (expr.Fields.Any(sfd => sfd.Ident.Name == md.Name.Name.Name))
+                {
+                    throw new TypeCheckException("Method $0 has the same name as a record field", md.Name.Name);
+                }
                 ParametersSpec ps = new ParametersSpec(md.Args.Select(arg => new ArgumentDeclDef(arg.Name, arg.Type.TransformType(env.Context))));
                 TypeParametersSpec tps = new TypeParametersSpec(md.Name.Arguments.Select((arg, i) => new TDTypeArgDeclDef(arg.Name, env.Context.Container.OverallTypeParameterCount + i,/* arg.Variance,*/ arg.UpperBound.TransformType(env.Context), arg.LowerBound.TransformType(env.Context))));
                 StructMethodDef smd = new StructMethodDef(md.Name.Name, tps, ps, md.Returns.TransformType(env.Context), tdstruct);
