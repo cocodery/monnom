@@ -31,14 +31,22 @@ public:
   static llvm::Value *GenerateReadDictField(NomBuilder &builder,
                                             llvm::Value *thisObj,
                                             llvm::Value *fieldName);
+  // a dictionary field invoked through an interface is frozen
+  static llvm::Value *GenerateFreezeDictField(NomBuilder &builder,
+                                              llvm::Value *thisObj,
+                                              llvm::Value *fieldName);
+  static llvm::Value *GenerateIsDictFieldFrozen(NomBuilder &builder,
+                                                llvm::Value *thisObj,
+                                                llvm::Value *fieldName);
   static llvm::Value *GenerateWriteField(NomBuilder &builder,
                                          llvm::Value *thisObj,
                                          int32_t fieldindex, llvm::Value *value,
                                          size_t fieldCount);
+  // the written tag of a declared field is set once the field is invoked
+  // through an interface; the field may not be written afterwards
   static llvm::Value *GenerateWriteWrittenTag(NomBuilder &builder,
                                               llvm::Value *thisObj,
-                                              int32_t fieldindex,
-                                              size_t fieldCount);
+                                              llvm::Value *fieldIndex);
   static llvm::Value *GenerateReadField(NomBuilder &builder,
                                         llvm::Value *thisObj,
                                         int32_t fieldindex, size_t fieldCount);

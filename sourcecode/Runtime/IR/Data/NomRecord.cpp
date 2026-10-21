@@ -309,6 +309,21 @@ NomRecord::GetDynamicFieldStore(llvm::Module &mod,
     // static const char *lookupfailstr =
     //     "Could not find any fields with matching name!";
     // CreateDummyReturn(builder, fun);
+    // a dictionary field invoked through an interface is frozen
+    static const char *frozenDictFieldWriteMsg =
+        "Cannot write dictionary field that has been invoked through an "
+        "interface!";
+    BasicBlock *frozenDictFieldBlock =
+        RTOutput_Fail::GenerateFailOutputBlock(builder, frozenDictFieldWriteMsg);
+    BasicBlock *writeDictFieldBlock =
+        BasicBlock::Create(LLVMCONTEXT, "writeDictField", fun);
+    auto isFrozen =
+        RecordHeader::GenerateIsDictFieldFrozen(builder, thisarg, namearg);
+    builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                             {isFrozen, MakeUInt(1, 0)});
+    builder->CreateCondBr(isFrozen, frozenDictFieldBlock, writeDictFieldBlock,
+                          GetLikelySecondBranchMetadata());
+    builder->SetInsertPoint(writeDictFieldBlock);
     RecordHeader::GenerateWriteDictField(builder, thisarg, namearg, newValue);
     builder->CreateRetVoid();
 

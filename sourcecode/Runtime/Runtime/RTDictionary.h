@@ -68,6 +68,42 @@ public:
   virtual llvm::Function *findLLVMElement(llvm::Module &mod) const override;
 };
 
+class RTDictionaryFreeze : public AvailableExternally<llvm::Function>,
+                           public Singleton<RTDictionaryFreeze> {
+  friend class Singleton<RTDictionaryFreeze>;
+
+private:
+  RTDictionaryFreeze();
+
+public:
+  virtual ~RTDictionaryFreeze() {};
+
+  static llvm::FunctionType *GetFunctionType();
+  // Inherited via AvailableExternally
+  virtual llvm::Function *
+  createLLVMElement(llvm::Module &mod,
+                    llvm::GlobalValue::LinkageTypes linkage) const override;
+  virtual llvm::Function *findLLVMElement(llvm::Module &mod) const override;
+};
+
+class RTDictionaryIsFrozen : public AvailableExternally<llvm::Function>,
+                             public Singleton<RTDictionaryIsFrozen> {
+  friend class Singleton<RTDictionaryIsFrozen>;
+
+private:
+  RTDictionaryIsFrozen();
+
+public:
+  virtual ~RTDictionaryIsFrozen() {};
+
+  static llvm::FunctionType *GetFunctionType();
+  // Inherited via AvailableExternally
+  virtual llvm::Function *
+  createLLVMElement(llvm::Module &mod,
+                    llvm::GlobalValue::LinkageTypes linkage) const override;
+  virtual llvm::Function *findLLVMElement(llvm::Module &mod) const override;
+};
+
 class RTConcurrentDictionaryCreate
     : public AvailableExternally<llvm::Function>,
       public Singleton<RTConcurrentDictionaryCreate> {

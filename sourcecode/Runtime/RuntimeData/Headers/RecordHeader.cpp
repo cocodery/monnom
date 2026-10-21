@@ -128,6 +128,28 @@ llvm::Value *RecordHeader::GenerateReadDictField(NomBuilder &builder,
   return builder->CreatePointerCast(call, REFTYPE);
 }
 
+llvm::Value *RecordHeader::GenerateFreezeDictField(NomBuilder &builder,
+                                                   llvm::Value *thisObj,
+                                                   llvm::Value *fieldName) {
+  auto freezeFun = RTDictionaryFreeze::Instance().GetLLVMElement(
+      *builder->GetInsertBlock()->getModule());
+  auto call = builder->CreateCall(
+      freezeFun, {GenerateReadStructDictionary(builder, thisObj), fieldName});
+  call->setCallingConv(CallingConv::C);
+  return call;
+}
+
+llvm::Value *RecordHeader::GenerateIsDictFieldFrozen(NomBuilder &builder,
+                                                     llvm::Value *thisObj,
+                                                     llvm::Value *fieldName) {
+  auto isFrozenFun = RTDictionaryIsFrozen::Instance().GetLLVMElement(
+      *builder->GetInsertBlock()->getModule());
+  auto call = builder->CreateCall(
+      isFrozenFun, {GenerateReadStructDictionary(builder, thisObj), fieldName});
+  call->setCallingConv(CallingConv::C);
+  return builder->CreateICmpNE(call, MakeIntLike(call, 0));
+}
+
 llvm::Value *RecordHeader::GenerateWriteField(NomBuilder &builder,
                                               llvm::Value *thisObj,
                                               int32_t fieldindex,
@@ -141,13 +163,11 @@ llvm::Value *RecordHeader::GenerateWriteField(NomBuilder &builder,
 }
 llvm::Value *RecordHeader::GenerateWriteWrittenTag(NomBuilder &builder,
                                                    llvm::Value *thisObj,
-                                                   int32_t fieldindex,
-                                                   size_t fieldCount) {
+                                                   llvm::Value *fieldIndex) {
   return MakeStore(
       builder, MakeUInt(8, 1),
-      builder->CreatePointerCast(thisObj,
-                                 GetLLVMType(fieldCount)->getPointerTo()),
-      {MakeInt32(StructHeaderFields::WrittenTags), MakeInt32(fieldindex)});
+      builder->CreatePointerCast(thisObj, GetLLVMType()->getPointerTo()),
+      {MakeInt32(StructHeaderFields::WrittenTags), fieldIndex});
 }
 
 llvm::Value *RecordHeader::GenerateReadField(NomBuilder &builder,

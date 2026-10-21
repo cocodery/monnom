@@ -132,13 +132,12 @@ llvm::Value *RTVTable::GenerateReadNomObjPtr(NomBuilder &builder,
       builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
       MakeInt32(RTVTableFields::NomObjPtr), "", AtomicOrdering::NotAtomic);
 }
-llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
-                                                         Value *refValue,
-                                                         Value *vtablePtr,
-                                                         size_t name) {
-  return GenerateFindDynamicDispatcherPair(builder, refValue, vtablePtr,
-                                           MakeUInt(64, name),
-                                           MakeUInt(32, name % IMTsize));
+llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
+    NomBuilder &builder, Value *refValue, Value *vtablePtr, size_t name,
+    bool freezeInvokedField) {
+  return GenerateFindDynamicDispatcherPair(
+      builder, refValue, vtablePtr, MakeUInt(64, name),
+      MakeUInt(32, name % IMTsize), freezeInvokedField);
 }
 llvm::Value *RTVTable::GenerateHasRawInvoke(NomBuilder &builder,
                                             Value *vtablePtr) {
@@ -289,11 +288,9 @@ llvm::Value *RTVTable::GenerateIsNominalValue(NomBuilder &builder,
 
 //	builder->SetInsertPoint(outBlock);
 //}
-llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
-                                                         Value *refValue,
-                                                         Value *vtablePtr,
-                                                         Value *name,
-                                                         Value *tableIndex) {
+llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
+    NomBuilder &builder, Value *refValue, Value *vtablePtr, Value *name,
+    Value *tableIndex, bool freezeInvokedField) {
   auto listPtr = MakeInvariantLoad(
       builder,
       builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
@@ -439,6 +436,9 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
     builder->SetInsertPoint(loopRecordDictionaryBlock);
     auto dfield = builder->CreatePointerCast(
         RecordHeader::GenerateReadDictField(builder, refValue, name), REFTYPE);
+    if (freezeInvokedField) { // freeze dict field invoke through interface
+      RecordHeader::GenerateFreezeDictField(builder, refValue, name);
+    }
     fieldValuePHI->addIncoming(dfield, builder->GetInsertBlock());
     builder->CreateBr(checkLambdaExistsBlock);
   }
@@ -512,9 +512,12 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
               actualIndex, fieldsOffset)); // hasRawInvoke is false because this
                                            // table is already filled with
                                            // appropriately changed indices
-      // the field value is re-read on every call
-      // and writes are cast to the field's type
-      // so an overwritten field may be invoked
+      // the field value is re-read on every call and writes are cast to the
+      // field's type so an overwritten field may be invoked
+      // once invoked through an interface the field is frozen
+      if (freezeInvokedField) { // freeze record field invoke through interface
+        RecordHeader::GenerateWriteWrittenTag(builder, refValue, actualIndex);
+      }
       fieldValuePHI->addIncoming(fieldValue, builder->GetInsertBlock());
       builder->CreateBr(checkLambdaExistsBlock);
     }

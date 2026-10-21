@@ -6,6 +6,7 @@
 #include "IMT.h"
 #include "IntClass.h"
 #include "LambdaHeader.h"
+#include "Metadata.h"
 #include "NomClass.h"
 #include "NomClassType.h"
 #include "NomConstants.h"
@@ -274,8 +275,22 @@ void NomRecordField::GenerateWrite(NomBuilder &builder, CompileEnv *env,
   }
   value = EnsurePacked(builder, value);
   if (!env->GetInConstructor()) {
-    RecordHeader::GenerateWriteWrittenTag(builder, receiver, Index,
-                                          Structure->Fields.size());
+    // a field invoked through an interface is frozen
+    static const char *frozenFieldWriteMsg =
+        "Cannot write record field that has been invoked through an "
+        "interface!\n";
+    BasicBlock *frozenBlock =
+        RTOutput_Fail::GenerateFailOutputBlock(builder, frozenFieldWriteMsg);
+    BasicBlock *writeBlock = BasicBlock::Create(
+        LLVMCONTEXT, "writeRecordField",
+        builder->GetInsertBlock()->getParent());
+    auto isFrozen = RecordHeader::GenerateReadWrittenTag(builder, receiver,
+                                                         MakeInt32(Index));
+    builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                             {isFrozen, MakeUInt(1, 0)});
+    builder->CreateCondBr(isFrozen, frozenBlock, writeBlock,
+                          GetLikelySecondBranchMetadata());
+    builder->SetInsertPoint(writeBlock);
   }
   RecordHeader::GenerateWriteField(builder, receiver, Index, value,
                                    Structure->Fields.size());

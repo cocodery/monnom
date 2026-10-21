@@ -171,9 +171,11 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
                                                    nomRecordAddr, imtArray});
     }
 
+    // record call tags are only reached through interface calls
+    // so a lambda field found here is frozen
     auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
         builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,
-        NomNameRepository::Instance().GetNameID(name));
+        NomNameRepository::Instance().GetNameID(name), true);
 
     auto target = builder->CreateExtractValue(dpair, {0});
     argarr[1] = builder->CreatePointerCast(

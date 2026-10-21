@@ -56,14 +56,18 @@ public:
   // static void GenerateFreezeMethodField(NomBuilder& builder, llvm::Value*
   // refValue, llvm::Value* vtablePtr, llvm::Value* name, llvm::Value*
   // tableIndex);
-  static llvm::Value *GenerateFindDynamicDispatcherPair(NomBuilder &builder,
-                                                        llvm::Value *refValue,
-                                                        llvm::Value *vtablePtr,
-                                                        size_t name);
+
+  // the call goes through an interface
+  // a record field found as the callee gets frozen and not be written
+  static llvm::Value *
+  GenerateFindDynamicDispatcherPair(NomBuilder &builder, llvm::Value *refValue,
+                                    llvm::Value *vtablePtr, size_t name,
+                                    bool freezeInvokedField = false);
   static llvm::Value *
   GenerateFindDynamicDispatcherPair(NomBuilder &builder, llvm::Value *refValue,
                                     llvm::Value *vtablePtr, llvm::Value *name,
-                                    llvm::Value *tableIndex);
+                                    llvm::Value *tableIndex,
+                                    bool freezeInvokedField = false);
 };
 } // namespace Runtime
 } // namespace Nom

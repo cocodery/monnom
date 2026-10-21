@@ -68,6 +68,29 @@ extern "C" DLLEXPORT void RT_NOM_DictionarySet(void *dictref, DICTKEYTYPE key,
   (*dict)[key] = value;
 }
 
+// a frozen field is marked by an entry under its key with the top bit set;
+// name ids are small, so this never collides with an actual field
+static constexpr DICTKEYTYPE FrozenKeyBit = ((DICTKEYTYPE)1)
+                                            << (sizeof(DICTKEYTYPE) * 8 - 1);
+
+extern "C" DLLEXPORT void RT_NOM_DictionaryFreeze(void *dictref,
+                                                  DICTKEYTYPE key) {
+  if (dictref == nullptr) {
+    return;
+  }
+  Dicttype *dict = (Dicttype *)dictref;
+  (*dict)[key | FrozenKeyBit] = nullptr;
+}
+
+extern "C" DLLEXPORT size_t RT_NOM_DictionaryIsFrozen(void *dictref,
+                                                      DICTKEYTYPE key) {
+  if (dictref == nullptr) {
+    return 0;
+  }
+  Dicttype *dict = (Dicttype *)dictref;
+  return dict->find(key | FrozenKeyBit) != dict->end() ? 1 : 0;
+}
+
 extern "C" DLLEXPORT void *RT_NOM_ConcurrentDictionaryCreate() {
   ConcurrentDictType *dict =
       new (gcalloc(sizeof(ConcurrentDictType))) ConcurrentDictType();
@@ -238,6 +261,52 @@ llvm::Function *RTDictionarySet::createLLVMElement(
 }
 llvm::Function *RTDictionarySet::findLLVMElement(llvm::Module &mod) const {
   return mod.getFunction("RT_NOM_DictionarySet");
+}
+
+RTDictionaryFreeze::RTDictionaryFreeze() {
+  llvm::sys::DynamicLibrary::AddSymbol("RT_NOM_DictionaryFreeze",
+                                       (void *)&RT_NOM_DictionaryFreeze);
+}
+
+llvm::FunctionType *RTDictionaryFreeze::GetFunctionType() {
+  static FunctionType *ft =
+      FunctionType::get(Type::getVoidTy(LLVMCONTEXT),
+                        {POINTERTYPE, numtype(DICTKEYTYPE)}, false);
+  return ft;
+}
+
+llvm::Function *RTDictionaryFreeze::createLLVMElement(
+    llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
+  Function *fun = Function::Create(
+      GetFunctionType(), llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+      "RT_NOM_DictionaryFreeze", &mod);
+  return fun;
+}
+llvm::Function *RTDictionaryFreeze::findLLVMElement(llvm::Module &mod) const {
+  return mod.getFunction("RT_NOM_DictionaryFreeze");
+}
+
+RTDictionaryIsFrozen::RTDictionaryIsFrozen() {
+  llvm::sys::DynamicLibrary::AddSymbol("RT_NOM_DictionaryIsFrozen",
+                                       (void *)&RT_NOM_DictionaryIsFrozen);
+}
+
+llvm::FunctionType *RTDictionaryIsFrozen::GetFunctionType() {
+  static FunctionType *ft = FunctionType::get(
+      numtype(size_t), {POINTERTYPE, numtype(DICTKEYTYPE)}, false);
+  return ft;
+}
+
+llvm::Function *RTDictionaryIsFrozen::createLLVMElement(
+    llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
+  Function *fun = Function::Create(
+      GetFunctionType(), llvm::GlobalValue::LinkageTypes::ExternalLinkage,
+      "RT_NOM_DictionaryIsFrozen", &mod);
+  return fun;
+}
+llvm::Function *
+RTDictionaryIsFrozen::findLLVMElement(llvm::Module &mod) const {
+  return mod.getFunction("RT_NOM_DictionaryIsFrozen");
 }
 
 RTConcurrentDictionaryCreate::RTConcurrentDictionaryCreate() {
