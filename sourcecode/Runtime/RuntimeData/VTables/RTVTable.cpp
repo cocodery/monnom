@@ -390,6 +390,20 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
   BasicBlock *noLambdaBlock =
       RTOutput_Fail::GenerateFailOutputBlock(builder, noLambdaMsg);
   auto fieldValuePHI = builder->CreatePHI(REFTYPE, 3, "fieldValue");
+  BasicBlock *isRefValueBlock =
+      BasicBlock::Create(LLVMCONTEXT, "fieldIsRefValue", fun);
+  auto fieldValueAsInt = builder->CreatePtrToInt(fieldValuePHI, INTTYPE);
+  auto isRefValue = builder->CreateAnd(
+      builder->CreateICmpEQ(
+          builder->CreateAnd(fieldValueAsInt, MakeIntLike(fieldValueAsInt, 3)),
+          MakeIntLike(fieldValueAsInt, 0)),
+      builder->CreateICmpNE(fieldValueAsInt, MakeIntLike(fieldValueAsInt, 0)));
+  builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                           {isRefValue, MakeUInt(1, 1)});
+  builder->CreateCondBr(isRefValue, isRefValueBlock, noLambdaBlock,
+                        GetLikelyFirstBranchMetadata());
+
+  builder->SetInsertPoint(isRefValueBlock);
   auto hasLambda = GenerateHasRawInvoke(
       builder,
       RefValueHeader::GenerateReadVTablePointer(builder, fieldValuePHI));
@@ -488,9 +502,6 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
 
     builder->SetInsertPoint(recordFieldBlock);
     {
-      BasicBlock *fieldOverwrittenBlock =
-          RTOutput_Fail::GenerateFailOutputBlock(
-              builder, "Tried to invoke overwritten field!");
       auto actualIndex = builder->CreateTrunc(
           builder->CreateLShr(fieldIndex, MakeIntLike(fieldIndex, 32)),
           inttype(32));
@@ -501,13 +512,11 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(NomBuilder &builder,
               actualIndex, fieldsOffset)); // hasRawInvoke is false because this
                                            // table is already filled with
                                            // appropriately changed indices
-      auto fieldWriteTag =
-          RecordHeader::GenerateReadWrittenTag(builder, refValue, actualIndex);
+      // the field value is re-read on every call
+      // and writes are cast to the field's type
+      // so an overwritten field may be invoked
       fieldValuePHI->addIncoming(fieldValue, builder->GetInsertBlock());
-      CreateExpect(builder, fieldWriteTag, MakeIntLike(fieldWriteTag, 0));
-      builder->CreateCondBr(fieldWriteTag, fieldOverwrittenBlock,
-                            checkLambdaExistsBlock,
-                            GetLikelySecondBranchMetadata());
+      builder->CreateBr(checkLambdaExistsBlock);
     }
   }
 
