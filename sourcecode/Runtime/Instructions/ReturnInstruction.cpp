@@ -11,6 +11,14 @@ void Nom::Runtime::ReturnInstruction::Compile(NomBuilder &builder,
   auto rtype = env->Function->getReturnType();
   auto rval = *((*env)[this->reg]);
   if (rval->getType() != rtype) {
+    // lambda doesnt have function type it simply use GetIMTFunctionType
+    // in this case lambdas returning a raw pointer
+    // and the runtime use the return value of lambda as an address to deref
+    // and an wrapper to the return value could solve this
+    if (rtype == POINTERTYPE && rval->getType() != REFTYPE &&
+        rval->getType() != TYPETYPE) {
+      rval = EnsurePackedUnpacked(builder, rval, REFTYPE);
+    }
     rval = EnsurePackedUnpacked(builder, rval, rtype);
   }
   // if (rtype == INTTYPE && rval->getType() != INTTYPE)
