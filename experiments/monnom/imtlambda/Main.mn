@@ -1,0 +1,106 @@
+interface IScale
+{
+	fun Scale(Int k) : Int;
+}
+
+class Shape
+{
+	public Int W;
+	public constructor(Int w)
+	{
+		W = w;
+	}
+	public fun Area() : Int { return W * W; }
+}
+
+class Main
+{
+	# a single construction site, shared by every record it returns
+	public static fun MakeScaler() : dyn
+	{
+		return new (Scale = k => k * 10){};
+	}
+
+	public static fun TestOnRecord() : Void
+	{
+		# imposing an interface alone does not freeze a declared lambda field
+		# it can still be reassigned before the first interface call
+		dyn r3 = new (Scale = k => k * 10){};
+		IScale s3 = r3;
+		r3.Scale = k => k + 6;
+		s3.Scale(4).ToString().Print();
+		" Done for declared field reassigned before interface call\n".Print();
+		# r3.Scale = k => k + 6;
+
+		# the same holds for a dictionary lambda field
+		dyn r4 = new {};
+		r4.Scale = k => k + 10;
+		IScale s4 = r4;
+		r4.Scale = k => k + 6;
+		s4.Scale(4).ToString().Print();
+		" Done for dictionary field reassigned before interface call\n".Print();
+		# r4.Scale = k => k + 6;
+
+		# the freeze is per object: an interface call on a freezes only a
+		# so b, constructed at the same site, can still be reassigned
+		dyn a = MakeScaler();
+		dyn b = MakeScaler();
+		IScale sa = a;
+		sa.Scale(4).ToString().Print();
+		"\n".Print();
+		b.Scale = k => k + 6;
+		b.Scale(4).ToString().Print();
+		" Done for same-site records\n".Print();
+
+		# once invoked through an interface, the lambda field is frozen
+		# so the reassignment below aborts
+		dyn r1 = new (Scale = k => k * 10){};
+
+		IScale s1 = r1;
+		s1.Scale(4).ToString().Print();
+		"\n".Print();
+
+		# r1.Scale = k => k + 6;
+		s1.Scale(4).ToString().Print();
+		"\n".Print();
+
+		dyn r2 = new {};
+		r2.Scale = k => k + 10;
+
+		IScale s2 = r2;
+		s2.Scale(4).ToString().Print();
+		"\n".Print();
+
+		# r2.Scale = k => k + 6;
+		s2.Scale(4).ToString().Print();
+		"\n".Print();
+	}
+
+	# a class object passed as a dyn argument gets a lambda field
+	# added, called, reassigned and called again
+	public static fun AddScale(dyn o) : Void
+	{
+		o.W.ToString().Print();
+		o.Area().ToString().Print();
+		o.Scale = k => k * 10;
+		o.Scale(4).ToString().Print();
+		"\n".Print();
+		o.Scale = k => k + 6;
+		o.Scale(4).ToString().Print();
+		" Done for class object\n".Print();
+	}
+
+	public static fun TestOnClass() : Void
+	{
+		Shape s = new Shape(3);
+		AddScale(s);
+		s.Area().ToString().Print();
+		" Done for class method after adding a field\n".Print();
+	}
+
+	public static fun Main() : Void
+	{
+		TestOnRecord();
+		# TestOnClass();
+	}
+}

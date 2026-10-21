@@ -103,8 +103,15 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     fargs++;
   }
 
-  Value **varargs = argbuf + 2;
-  size_t argbufpos = 0;
+  // the old version was **Value **varargs = argbuf + 2**
+  // arbuf   [0]       [1]    [2] [3]
+  //      call-tag  receiver arg1 arg2
+  // param = receiver + type-param + param
+  // each time the old version packs a unused argument and store it to varargs
+  // this bug will trigger when call through an interface on record or lambda
+  // and the interface method signature should type first argument as Integers
+  // dyn or generic T are all REFTYPE
+  Value **varargs = argbuf + 1;
 
   auto calledFunctionType = method->GetLLVMFunctionType();
   auto paramCount = calledFunctionType->getNumParams();
