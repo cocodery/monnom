@@ -185,6 +185,110 @@ namespace Nom.TypeChecker
             }
         }
 
+        private bool interfaceImplementationsChecked = false;
+
+        /// <summary>
+        /// Reports every interface method this class does not implement. When
+        /// the runtime loads a class, it fills each interface slot of the
+        /// method table with a method of the same name from the class or a
+        /// superclass whose signature matches strictly, and aborts if there is
+        /// none, so these checks mirror that rule rather than the optimistic
+        /// one used for overriding. Abstract classes are not checked.
+        /// </summary>
+        public void CheckInterfaceImplementations(IReference location)
+        {
+            if (interfaceImplementationsChecked || IsAbstract)
+            {
+                return;
+            }
+            interfaceImplementationsChecked = true;
+
+            var implementations = new List<IMethodSpec>();
+            var required = new List<(IMethodSpec Method, IInterfaceSpec Interface)>();
+            var visitedInterfaces = new HashSet<IInterfaceSpec>();
+
+            IClassSpec cls = this;
+            ITypeEnvironment<Language.IType> env = new TypeEnvironment<Language.IType>();
+            var visitedClasses = new HashSet<IClassSpec>();
+            while (visitedClasses.Add(cls))
+            {
+                IEnumerable<IMethodSpec> declared = cls is TDClass tdc ? tdc.Methods : cls.Methods;
+                implementations.AddRange(cls == this ? declared : declared.Select(m => new MethodReference(m, env)));
+                foreach (var iface in cls.Implements)
+                {
+                    CollectInterfaceMethods(iface, env, required, visitedInterfaces);
+                }
+                if (!cls.SuperClass.HasElem)
+                {
+                    break;
+                }
+                var super = cls.SuperClass.Elem;
+                env = super.PArguments.Substitute(env);
+                cls = super.Element;
+            }
+
+            foreach (var (meth, iface) in required)
+            {
+                var candidates = implementations.Where(impl => impl.Name == meth.Name).ToList();
+                if (candidates.Any(impl => StrictlyImplements(impl, meth)))
+                {
+                    continue;
+                }
+                string ifaceMethod = iface.Name + "." + meth.Name;
+                var sameArity = candidates.FirstOrDefault(impl => impl.TypeParameters.Count() == meth.TypeParameters.Count() && impl.Parameters.Entries.Count() == meth.Parameters.Entries.Count());
+                if (sameArity == null)
+                {
+                    CompilerOutput.RegisterException(new TypeCheckException("Class $0 does not implement " + ifaceMethod, location));
+                }
+                else
+                {
+                    IReference at = sameArity is MethodDeclDef mdd ? (IReference)mdd.Identifier : location;
+                    if (!sameArity.ReturnType.IsSubtypeOf(meth.ReturnType, false))
+                    {
+                        CompilerOutput.RegisterException(new TypeCheckException("Method $0 cannot implement " + ifaceMethod + ": it returns $1, which is not a subtype of $2", at, sameArity.ReturnType, meth.ReturnType));
+                    }
+                    else
+                    {
+                        CompilerOutput.RegisterException(new TypeCheckException("Method $0 cannot implement " + ifaceMethod + ": its parameter types do not accept the interface's", at));
+                    }
+                }
+            }
+        }
+
+        private static void CollectInterfaceMethods(IParamRef<IInterfaceSpec, Language.IType> iface, ITypeEnvironment<Language.IType> env, List<(IMethodSpec Method, IInterfaceSpec Interface)> required, HashSet<IInterfaceSpec> visited)
+        {
+            if (!visited.Add(iface.Element))
+            {
+                return;
+            }
+            var ifaceEnv = iface.PArguments.Substitute(env);
+            IEnumerable<IMethodSpec> declared = iface.Element is TDInterface tdi ? tdi.Methods : iface.Element.Methods;
+            foreach (var meth in declared)
+            {
+                required.Add((new MethodReference(meth, ifaceEnv), iface.Element));
+            }
+            foreach (var super in iface.Element.Implements)
+            {
+                CollectInterfaceMethods(super, ifaceEnv, required, visited);
+            }
+        }
+
+        // The runtime's rule: return types covariant and parameter types
+        // contravariant, both without optimism. Generic methods are matched
+        // on their counts only, as their type parameters are not unified.
+        private static bool StrictlyImplements(IMethodSpec impl, IMethodSpec meth)
+        {
+            if (impl.TypeParameters.Count() != meth.TypeParameters.Count() || impl.Parameters.Entries.Count() != meth.Parameters.Entries.Count())
+            {
+                return false;
+            }
+            if (meth.TypeParameters.Count() > 0)
+            {
+                return true;
+            }
+            return impl.ReturnType.IsSubtypeOf(meth.ReturnType, false) && meth.Parameters.Entries.Zip(impl.Parameters.Entries, (ip, cp) => ip.Type.IsSubtypeOf(cp.Type, false)).All(x => x);
+        }
+
         public IParamRef<IClassSpec, Language.IType> MakeClassRef(ITypeEnvironment<Language.IType> env)
         {
             return new ClassRef<Language.IType>(this, env);

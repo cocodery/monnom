@@ -1,7 +1,9 @@
 #!/bin/bash
-# Run one MonNom benchmark from experiments/monnom and chart its results.
+# Run one MonNom benchmark from experiments/monnom, check that every
+# configuration executed and returned the right result, and with -p chart
+# the running times.
 #
-# usage: ./run-benchmark.sh <test> [name|CONFIG] [-o DIR] [-r RUNS]
+# usage: ./run-benchmark.sh <test> [name|CONFIG] [-p [DIR]] [-r RUNS]
 #                           [--plot-only | --no-gen | --compare]
 #                           [-- RUNTIME_FLAGS...]
 #
@@ -9,26 +11,29 @@
 #   [name]          output chart name, .png optional (default <test>)
 #   [CONFIG]        a generated configuration (e.g. IISSSCC): run only
 #                   <test>/.BM_<CONFIG> and print its output, no chart
-#   -o DIR          directory to write the chart to (default $MONNOMBASE)
+#   -p [DIR]        generate the performance chart into DIR (default
+#                   $MONNOMBASE); without -p the results are only checked.
+#                   Any word after -p is DIR, so put <test> and [name]
+#                   before -p
 #   -r RUNS         measured runs per configuration (default 1)
-#   --plot-only     skip running, re-chart the existing results.csv
+#   --plot-only     skip running, chart the existing results.csv (implies -p)
 #   --no-gen        skip the benchmark generator, rerun the existing
 #                   .BM_* configurations with nom directly
 #   --compare       run three times: no flags, --trans, --trans --sync,
-#                   writing <name>-base, <name>-trans, <name>-trans-sync
+#                   charted as <name>-base, <name>-trans, <name>-trans-sync
 #                   (the generator only runs for the first)
 #   -- FLAGS...     extra flags passed to the nom runtime, after the default
 #                   -o3 so they override it (e.g. --trans, -o1, -w2)
 #
-# The chart is written to <DIR>/<name>.png, as make_charts_png.sh
+# With -p the chart is written to <DIR>/<name>.png, as make_charts_png.sh
 # does (kaleido needs Chrome; install it once with plotly_get_chrome).
-SOURCE="$( realpath "${BASH_SOURCE[0]}" )"
-DIRNAME="$( dirname "$SOURCE" )"
+RUNBENCH_SELF="$( realpath "${BASH_SOURCE[0]}" )"
+RUNBENCH_DIR="$( dirname "$RUNBENCH_SELF" )"
 
 usage() {
-  sed -n '4,21p' "$SOURCE" | sed 's/^# \{0,1\}//'
+  sed -n '6,26p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
   echo "available tests:"
-  for d in "$DIRNAME"/experiments/monnom/*/; do
+  for d in "$RUNBENCH_DIR"/experiments/monnom/*/; do
     [ -f "$d/plotconfig.json" ] && echo "  $(basename "$d")"
   done
   exit 1
@@ -48,6 +53,7 @@ TEST=""
 RUNS=1
 OUTNAME=""
 OUTDIR=""
+PLOT=0
 PLOTONLY=0
 NOGEN=0
 COMPARE=0
@@ -55,8 +61,12 @@ FORWARD=()
 while [ $# -gt 0 ]; do
   case "$1" in
     -r) RUNS="$2"; shift 2 ;;
-    -o) OUTDIR="$2"; shift 2 ;;
-    --plot-only) PLOTONLY=1; shift ;;
+    -p) PLOT=1; shift
+        # the next word, unless it is an option, is the output directory
+        if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
+          OUTDIR="$1"; shift
+        fi ;;
+    --plot-only) PLOTONLY=1; PLOT=1; shift ;;
     --no-gen) NOGEN=1; shift ;;
     --compare) COMPARE=1; shift ;;
     -h|--help) usage ;;
@@ -75,27 +85,27 @@ done
 # an all-capitals name that matches none is most likely a typo of one
 CONFIG=""
 if [ -n "$OUTNAME" ] && \
-   [ -d "$DIRNAME/experiments/monnom/$TEST/.BM_$OUTNAME" ]; then
+   [ -d "$RUNBENCH_DIR/experiments/monnom/$TEST/.BM_$OUTNAME" ]; then
   CONFIG="$OUTNAME"
 elif [[ "$OUTNAME" =~ ^[A-Z]+$ ]]; then
   echo "ERROR: $TEST has no configuration .BM_$OUTNAME" \
        "(run ./run-benchmark.sh $TEST once to generate them)"
   exit 1
 fi
-if [ -n "$CONFIG" ] && { [ $PLOTONLY -eq 1 ] || [ -n "$OUTDIR" ]; }; then
-  echo "ERROR: -o and --plot-only make no sense for a single configuration"
+if [ -n "$CONFIG" ] && [ $PLOT -eq 1 ]; then
+  echo "ERROR: -p and --plot-only make no sense for a single configuration"
   exit 1
 fi
 
 OUTNAME="${OUTNAME:-$TEST}"
 OUTNAME="${OUTNAME%.png}.png"
-# resolve -o against the caller's cwd before setpath.sh/cd change things
+# resolve the -p DIR against the caller's cwd before setpath.sh/cd change things
 if [ -n "$OUTDIR" ]; then
   mkdir -p "$OUTDIR" || { echo "ERROR: cannot create $OUTDIR"; exit 1; }
   OUTDIR="$( realpath "$OUTDIR" )"
 fi
 
-. "$DIRNAME/setpath.sh" > /dev/null
+. "$RUNBENCH_DIR/setpath.sh" > /dev/null
 BENCHDIR="$MONNOMBASE/experiments/monnom/$TEST"
 if [ ! -f "$BENCHDIR/plotconfig.json" ]; then
   echo "ERROR: $BENCHDIR has no plotconfig.json (not a chartable benchmark)"
@@ -156,7 +166,7 @@ if [ $COMPARE -eq 1 ]; then
     exit 1
   fi
   COMMON=(-r "$RUNS")
-  [ -n "$OUTDIR" ] && COMMON+=(-o "$OUTDIR")
+  [ $PLOT -eq 1 ] && COMMON+=(-p ${OUTDIR:+"$OUTDIR"})
   BASE="${OUTNAME%.png}"
   FAILED=()
   for VARIANT in "${COMPARE_VARIANTS[@]}"; do
@@ -167,7 +177,7 @@ if [ $COMPARE -eq 1 ]; then
     # the run prints this header right before its nom command, i.e. after
     # nombench has generated the configurations for base
     if ! RUNBENCH_HEADER="==== $VARIANT${ALL[*]:+: ${ALL[*]}}" \
-         "$SOURCE" "$TEST" "$BASE-$VARIANT" "${COMMON[@]}" "${GEN[@]}" \
+         "$RUNBENCH_SELF" "$TEST" "$BASE-$VARIANT" "${COMMON[@]}" "${GEN[@]}" \
          -- "${FLAGS[@]}" "${FORWARD[@]}"; then
       FAILED+=("$VARIANT")
       # without generated configurations the other variants cannot run
@@ -247,11 +257,72 @@ if [ ! -s "$BENCHDIR/results.csv" ]; then
   exit 1
 fi
 # a run that crashed or printed an error leaves an empty out file
-EMPTY=$( find "$BENCHDIR" -path '*/.BM_*/out*.txt' -empty | wc -l )
-if [ "$EMPTY" -gt 0 ]; then
-  echo "ERROR: $EMPTY run(s) produced no output:"
-  find "$BENCHDIR" -path '*/.BM_*/out*.txt' -empty | head
+mapfile -t EMPTY < <( find "$BENCHDIR" -path '*/.BM_*/out*.txt' -empty \
+                       | sort )
+if [ ${#EMPTY[@]} -gt 0 ]; then
+  echo "ERROR: ${#EMPTY[@]} run(s) produced no output, failed folders:"
+  for F in "${EMPTY[@]}"; do
+    echo "  $( dirname "$F" )  ($( basename "$F" ) is empty)"
+  done
+  CONF="$( basename "$( dirname "${EMPTY[0]}" )" )"
+  echo "rerun one alone with: ./run-benchmark.sh $TEST ${CONF#.BM_}"
   exit 1
+fi
+
+if [ $PLOT -eq 0 ]; then
+  # per run, results.csv holds "lines" columns with the time at index
+  # "time" (plotconfig.json) and the program's result in the others; check
+  # every configuration ran completely and returned the common result
+  echo "== checking results"
+  python3 - "$BENCHDIR" "$RUNS" "$TEST" <<'EOF'
+import collections, glob, json, sys
+bench, runs, test = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+config = json.load(open(bench + "/plotconfig.json"))
+lines, timecol = config["lines"], config["time"]
+configs = {d.rstrip("/").split("/.BM_")[-1]
+           for d in glob.glob(bench + "/.BM_*/")}
+problems, results, rows = [], {}, 0
+for row in open(bench + "/results.csv"):
+    cols = row.rstrip("\n").split(",")
+    name, vals = cols[0][len(".BM_"):], cols[1:]
+    configs.discard(name)
+    rows += 1
+    if len(vals) != lines * runs:
+        problems.append((name, "expected %d output line(s) per run, got %d "
+                         "in total" % (lines, len(vals))))
+        continue
+    try:
+        [float(v) for i, v in enumerate(vals) if i % lines == timecol]
+    except ValueError:
+        problems.append((name, "running time is not a number"))
+        continue
+    results[name] = [",".join(v.strip() for j, v in
+                              enumerate(vals[k * lines:(k + 1) * lines])
+                              if j != timecol) for k in range(runs)]
+problems += [(c, "missing from results.csv") for c in sorted(configs)]
+# the result most runs agree on is taken as the right one
+counts = collections.Counter(r for rs in results.values() for r in rs)
+expected = counts.most_common(1)[0][0] if counts else ""
+for name, rs in results.items():
+    for r in rs:
+        if r != expected:
+            problems.append((name, "returned %s, expected %s"
+                             % (r, expected)))
+            break
+if problems:
+    print("FAILED: %d of %d configuration(s), failed folders:"
+          % (len(problems), rows + len(configs)))
+    for name, msg in problems:
+        print("  %s/.BM_%s  (%s)" % (bench, name, msg))
+    print("rerun one alone with: ./run-benchmark.sh %s %s"
+          % (test, problems[0][0]))
+    sys.exit(1)
+print("OK: %d configuration(s) x %d run(s) executed"
+      % (len(results), runs) +
+      (", all returned %s" % expected if lines > 1
+       else " (this test prints no result value to check)"))
+EOF
+  exit
 fi
 
 # newplot.py also checks that every configuration produced the same result

@@ -711,7 +711,7 @@ namespace Nom.TypeChecker
             {
                 protected override void HandleClass(ClassDef elem, ClassTypeCheckInfo tci, TypeCheckBlock tcb, ITypeCheckLookup<LType, LTypeArg> context)
                 {
-                    
+                    tci.Container.CheckInterfaceImplementations(elem.Name.Name);
                 }
 
                 protected override void HandleInterface(InterfaceDef elem, InterfaceTypeCheckInfo tci, TypeCheckBlock tcb, ITypeCheckLookup<LType, LTypeArg> context)
