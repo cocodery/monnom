@@ -71,12 +71,25 @@ public:
                          llvm::Value *fieldindex, llvm::Value *val,
                          bool targetHasRawInvoke);
 
+  static llvm::Value *
+  GenerateGetInstanceDictionary(NomBuilder &builder,
+                                llvm::Value *objPointer, int32_t dictIndex,
+                                bool targetHasRawInvoke);
+  static llvm::Value *GenerateReadDictField(NomBuilder &builder,
+                                            llvm::Value *objPointer,
+                                            int32_t dictIndex,
+                                            bool targetHasRawInvoke,
+                                            llvm::Value *fieldName);
+  static llvm::Value *
+  GenerateWriteDictField(NomBuilder &builder, llvm::Value *objPointer,
+                         int32_t dictIndex, bool targetHasRawInvoke,
+                         llvm::Value *fieldName, llvm::Value *value);
+
   static llvm::Value *GenerateReadVTablePointer(NomBuilder &builder,
                                                 llvm::Value *objPointer);
 
   static llvm::Value *GenerateSetClassDescriptor(NomBuilder &builder,
                                                  llvm::Value *ohref,
-                                                 size_t fieldCount,
                                                  llvm::Value *desc);
 
   static llvm::Value *CreateDictionaryLoad(NomBuilder &builder, CompileEnv *env,

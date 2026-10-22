@@ -53,10 +53,6 @@ public:
   static llvm::Value *GenerateIsNominalValue(NomBuilder &builder,
                                              llvm::Value *vtablePtr);
 
-  // static void GenerateFreezeMethodField(NomBuilder& builder, llvm::Value*
-  // refValue, llvm::Value* vtablePtr, llvm::Value* name, llvm::Value*
-  // tableIndex);
-
   // the call goes through an interface
   // a record field found as the callee gets frozen and not be written
   static llvm::Value *

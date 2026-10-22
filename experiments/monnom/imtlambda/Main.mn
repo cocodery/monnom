@@ -101,6 +101,6 @@ class Main
 	public static fun Main() : Void
 	{
 		TestOnRecord();
-		# TestOnClass();
+		TestOnClass();
 	}
 }

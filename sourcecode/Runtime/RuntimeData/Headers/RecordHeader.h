@@ -24,6 +24,8 @@ public:
                                                    llvm::Value *objPointer);
   static llvm::Value *GenerateGetStructDictionary(NomBuilder &builder,
                                                   llvm::Value *objPointer);
+  static llvm::Value *GenerateGetOrCreateDictionary(NomBuilder &builder,
+                                                    llvm::Value *dictAddr);
   static llvm::Value *GenerateWriteDictField(NomBuilder &builder,
                                              llvm::Value *thisObj,
                                              llvm::Value *fieldName,

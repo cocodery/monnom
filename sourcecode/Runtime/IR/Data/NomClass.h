@@ -69,6 +69,9 @@ public:
 
   const NomField *GetField(NomStringRef name) const;
   virtual size_t GetFieldCount() const;
+  // whether instances keep an instance dictionary for dynamically added fields
+  virtual bool HasInstanceDictionary() const { return false; }
+  size_t GetAllocatedFieldCount() const;
 
   void CompileLLVM(llvm::Module *mod) const override;
   void PreprocessInheritance() const override;
@@ -153,6 +156,9 @@ public:
                  ConstantID superClass, const ConstantID superInterfaces,
                  const NomMemberContext *parent);
   virtual ~NomClassLoaded() override = default;
+
+  // declared classes reserve one more field for dictionary
+  virtual bool HasInstanceDictionary() const override { return true; }
 
   virtual const NomInstantiationRef<NomClass>
   GetSuperClass(const NomSubstitutionContext *context = nullptr) const override;

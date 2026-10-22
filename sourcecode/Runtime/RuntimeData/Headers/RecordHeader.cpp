@@ -62,6 +62,12 @@ RecordHeader::GenerateGetStructDictionary(NomBuilder &builder,
   auto dictAddr = builder->CreateGEP(
       builder->CreatePointerCast(objPointer, GetLLVMType()->getPointerTo()),
       {MakeInt32(0), MakeInt32(StructHeaderFields::InstanceDictionary)});
+  return GenerateGetOrCreateDictionary(builder, dictAddr);
+}
+
+llvm::Value *
+RecordHeader::GenerateGetOrCreateDictionary(NomBuilder &builder,
+                                            llvm::Value *dictAddr) {
   auto dict = MakeLoad(builder, dictAddr);
   auto isNull = builder->CreateIsNull(dict, "dictIsNull");
   builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},

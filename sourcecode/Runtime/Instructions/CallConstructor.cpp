@@ -54,17 +54,17 @@ llvm::Function *GenerateCConstructor(llvm::Module &mod,
   builder->SetInsertPoint(cblock);
 
   Function *allocfun = GetNewAlloc(&mod);
-  auto fieldCount = cls->GetFieldCount();
   llvm::Value *newmem = builder->CreateCall(
-      allocfun, {MakeInt<size_t>(fieldCount + ((cls->GetHasRawInvoke() &&
-                                                NomLambdaOptimizationLevel > 0)
-                                                   ? 1
-                                                   : 0)),
+      allocfun, {MakeInt<size_t>(cls->GetAllocatedFieldCount() +
+                                 ((cls->GetHasRawInvoke() &&
+                                   NomLambdaOptimizationLevel > 0)
+                                      ? 1
+                                      : 0)),
                  MakeInt<size_t>(cls->GetTypeArgOffset() +
                                  cls->GetTypeParametersCount())});
 
-  newmem = ObjectHeader::GenerateSetClassDescriptor(builder, newmem, fieldCount,
-                                                    cls->GetLLVMElement(mod));
+  newmem = ObjectHeader::GenerateSetClassDescriptor(
+      builder, newmem, cls->GetLLVMElement(mod));
   if (cls->GetHasRawInvoke() && NomLambdaOptimizationLevel > 0) {
     RefValueHeader::GenerateWriteRawInvoke(builder, newmem,
                                            cls->GetRawInvokeFunction(mod));
@@ -105,19 +105,18 @@ void CallConstructor::Compile(NomBuilder &builder, CompileEnv *env,
   NomInstantiationRef<NomClass> cls =
       NomConstants::GetSuperClass(ClassSuperClass)->GetClassType(&nscmc);
 
-  auto fieldCount = cls.Elem->GetFieldCount();
-
   Function *allocfun = GetNewAlloc(env->Module);
   llvm::Value *newmem = builder->CreateCall(
-      allocfun, {MakeInt<size_t>(fieldCount + ((cls.Elem->GetHasRawInvoke() &&
-                                                NomLambdaOptimizationLevel > 0)
-                                                   ? 1
-                                                   : 0)),
+      allocfun, {MakeInt<size_t>(cls.Elem->GetAllocatedFieldCount() +
+                                 ((cls.Elem->GetHasRawInvoke() &&
+                                   NomLambdaOptimizationLevel > 0)
+                                      ? 1
+                                      : 0)),
                  MakeInt<size_t>(cls.Elem->GetTypeArgOffset() +
                                  cls.Elem->GetTypeParametersCount())});
 
   newmem = ObjectHeader::GenerateSetClassDescriptor(
-      builder, newmem, fieldCount, cls.Elem->GetLLVMElement(*(env->Module)));
+      builder, newmem, cls.Elem->GetLLVMElement(*(env->Module)));
   if (cls.Elem->GetHasRawInvoke() && NomLambdaOptimizationLevel > 0) {
     RefValueHeader::GenerateWriteRawInvoke(
         builder, newmem, cls.Elem->GetRawInvokeFunction(*(env->Module)));

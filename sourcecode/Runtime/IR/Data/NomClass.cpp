@@ -26,6 +26,7 @@
 #include "NomTypeParameter.h"
 #include "NomTypeVar.h"
 #include "ObjectClass.h"
+#include "ObjectHeader.h"
 #include "RTCast.h"
 #include "RTCompileConfig.h"
 #include "RTDescriptor.h"
@@ -42,6 +43,7 @@
 #include <algorithm>
 #include <iostream>
 #include <map>
+#include <unordered_set>
 #include <vector>
 
 namespace Nom {
@@ -618,9 +620,14 @@ NomClass::GetDynamicFieldLookup(llvm::Module &mod,
           field->GenerateRead(builder, &scce, NomValue(thisarg, thisType))));
     }
     builder->SetInsertPoint(notfound);
-    static const char *lookupfailstr =
-        "Could not find any fields with matching name!";
-    CreateDummyReturn(builder, fun);
+    if (HasInstanceDictionary()) {
+      builder->CreateRet(ObjectHeader::GenerateReadDictField(
+          builder, thisarg, GetFieldCount(), GetHasRawInvoke(), namearg));
+    } else {
+      static const char *lookupfailstr =
+          "Could not find any fields with matching name!";
+      CreateDummyReturn(builder, fun);
+    }
     llvm::raw_os_ostream out(std::cout);
     if (verifyFunction(*fun, &out)) {
       out.flush();
@@ -705,9 +712,43 @@ NomClass::GetDynamicFieldStore(llvm::Module &mod,
       builder->CreateRetVoid();
     }
     builder->SetInsertPoint(notfound);
-    static const char *lookupfailstr =
-        "Could not find any fields with matching name!";
-    CreateDummyReturn(builder, fun);
+    if (HasInstanceDictionary()) {
+      BasicBlock *methodNameBlock = nullptr;
+      std::unordered_set<size_t> methodNameIDs;
+      for (auto meth : AllMethods) {
+        size_t nameID =
+            NomNameRepository::Instance().GetNameID(meth->GetName());
+        if (!methodNameIDs.insert(nameID).second ||
+            std::any_of(AllFields.begin(), AllFields.end(),
+                        [&](auto field) {
+                          return field->GetName()->ToStdString() ==
+                                 meth->GetName();
+                        })) {
+          continue;
+        }
+        if (methodNameBlock == nullptr) {
+          methodNameBlock =
+              BasicBlock::Create(LLVMCONTEXT, "writeToMethodName", fun);
+          static const char *methodWriteErrorMessage =
+              "Cannot write field with the same name as a class method!\n";
+          RTOutput_Fail::MakeBlockFailOutputBlock(
+              builder, methodWriteErrorMessage, methodNameBlock);
+        }
+        nameSwitch->addCase(MakeInt<size_t>(nameID), methodNameBlock);
+      }
+      builder->SetInsertPoint(notfound);
+
+      // no frozen check: class objects never reach record call tags, so
+      // their dictionary fields are never invoked through an interface
+      ObjectHeader::GenerateWriteDictField(
+          builder, thisarg, GetFieldCount(), GetHasRawInvoke(), namearg,
+          newValue);
+      builder->CreateRetVoid();
+    } else {
+      static const char *lookupfailstr =
+          "Could not find any fields with matching name!";
+      CreateDummyReturn(builder, fun);
+    }
 
     builder->SetInsertPoint(errorBlock);
     static const char *generic_errorMessage = "Trying to write invalid value!";
@@ -1112,6 +1153,10 @@ size_t NomClass::GetFieldCount() const {
     ret += sc.Elem->GetFieldCount();
   }
   return ret;
+}
+
+size_t NomClass::GetAllocatedFieldCount() const {
+  return GetFieldCount() + (HasInstanceDictionary() ? 1 : 0);
 }
 
 void NomClass::PreprocessInheritance() const {

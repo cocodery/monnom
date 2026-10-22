@@ -164,130 +164,6 @@ llvm::Value *RTVTable::GenerateIsNominalValue(NomBuilder &builder,
                           MakeInt<intptr_t>(4)),
       inttype(1));
 }
-
-// void RTVTable::GenerateFreezeMethodField(NomBuilder& builder, Value*
-// _refValue, Value* _vtablePtr, Value* _name, Value* _tableIndex)
-//{
-//	static auto funType =
-// FunctionType::get(llvm::Type::getVoidTy(LLVMCONTEXT), { REFTYPE,
-// GetLLVMType()->getPointerTo(), inttype(64), inttype(32) }, false);
-// BasicBlock* origBlock = builder->GetInsertBlock(); 	auto fun =
-// origBlock->getParent();
-
-//	auto isNominalValue = GenerateIsNominalValue(builder, _vtablePtr);
-
-//	BasicBlock* structuralBlock = BasicBlock::Create(LLVMCONTEXT,
-//"freeze$start", fun); 	BasicBlock* outBlock =
-// BasicBlock::Create(LLVMCONTEXT, "freeze$out", fun);
-// builder->CreateCondBr(isNominalValue, outBlock, structuralBlock,
-// GetLikelyFirstBranchMetadata());
-
-//	auto &mod = *fun->getParent();
-//	fun = fun->getParent()->getFunction("MONNOM_RT_ENSUREMETHOD");
-//	if (fun == nullptr)
-//	{
-//		fun = Function::Create(funType,
-// GlobalValue::LinkageTypes::InternalLinkage, "MONNOM_RT_ENSUREMETHOD", mod);
-//		fun->setCallingConv(NOMCC);
-//		fun->addFnAttr(Attribute::get(LLVMCONTEXT,
-// Attribute::AttrKind::NoInline));
-
-//		auto argsiter = fun->arg_begin();
-//		Value* refValue = argsiter;
-//		argsiter++;
-//		Value* vtablePtr = argsiter;
-//		argsiter++;
-//		Value* name = argsiter;
-//		argsiter++;
-//		Value* tableIndex = argsiter;
-
-//		BasicBlock* startBlock = BasicBlock::Create(LLVMCONTEXT, "",
-// fun); 		BasicBlock* retBlock = BasicBlock::Create(LLVMCONTEXT,
-// "return", fun); 		builder->SetInsertPoint(retBlock);
-// builder->CreateRetVoid();
-
-//		builder->SetInsertPoint(startBlock);
-//		{
-//			auto listPtr = MakeInvariantLoad(builder,
-// builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()), {
-// MakeInt32(RTVTableFields::DynamicDispatcherTable), tableIndex }, "DDTE",
-// AtomicOrdering::NotAtomic);
-
-//			BasicBlock* loopHeadBlock =
-// BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Head", fun);
-// BasicBlock* loopBodyBlock = BasicBlock::Create(LLVMCONTEXT,
-// "DDLookupLoop$Body", fun); 			BasicBlock* loopMatchBlock =
-// BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Match", fun);
-// BasicBlock* loopMatchFieldBlock = BasicBlock::Create(LLVMCONTEXT,
-//"DDLookupLoop$Match$Field", fun); 			BasicBlock*
-// loopDictionaryBlock = RTOutput_Fail::GenerateFailUnimplementedBlock(builder);
-
-//			builder->CreateBr(loopHeadBlock);
-
-//			builder->SetInsertPoint(loopHeadBlock);
-//			auto indexPHI = builder->CreatePHI(inttype(32), 2);
-//			indexPHI->addIncoming(MakeInt32(0), startBlock);
-//			auto currentEntry = builder->CreateGEP(listPtr,
-// indexPHI, "currentEntry"); 			auto currentKey =
-// MakeInvariantLoad(builder, currentEntry,
-// MakeInt32(DynamicDispatchListEntryFields::Key), "DDTEKey",
-// AtomicOrdering::NotAtomic); 			auto currentKeyIsNotNull =
-// builder->CreateICmpNE(currentKey, MakeIntLike(currentKey, 0),
-// "keyIsNotNull");
-// builder->CreateIntrinsic(Intrinsic::expect, { inttype(1)
-//}, { currentKeyIsNotNull, MakeUInt(1,1) });
-//			builder->CreateCondBr(currentKeyIsNotNull,
-// loopBodyBlock, loopDictionaryBlock, GetLikelyFirstBranchMetadata());
-
-//			builder->SetInsertPoint(loopBodyBlock);
-//			auto isMatch = builder->CreateICmpEQ(currentKey,
-// builder->CreateZExtOrTrunc(name, currentKey->getType()), "keyMatch");
-// auto nextIndex = builder->CreateAdd(indexPHI, MakeIntLike(indexPHI, 1));
-//			indexPHI->addIncoming(nextIndex,
-// builder->GetInsertBlock());
-// builder->CreateIntrinsic(Intrinsic::expect, { inttype(1) }, { isMatch,
-// MakeUInt(1,1) }); 			builder->CreateCondBr(isMatch,
-// loopMatchBlock, loopHeadBlock, GetLikelyFirstBranchMetadata());
-
-//			builder->SetInsertPoint(loopMatchBlock);
-//			auto flag = MakeInvariantLoad(builder, currentEntry,
-// MakeInt32(DynamicDispatchListEntryFields::Flags), "DDTEFlags",
-// AtomicOrdering::NotAtomic); 			auto isMethod =
-// builder->CreateICmpEQ(flag, MakeIntLike(flag, 0), "isMethod");
-// builder->CreateIntrinsic(Intrinsic::expect, { inttype(1) }, { isMethod,
-// MakeUInt(1,1) }); 			builder->CreateCondBr(isMethod,
-// retBlock, loopMatchFieldBlock, GetLikelyFirstBranchMetadata());
-
-//			builder->SetInsertPoint(loopMatchFieldBlock);
-//			auto fieldIndex =
-// builder->CreatePtrToInt(MakeInvariantLoad(builder, currentEntry,
-// MakeInt32(DynamicDispatchListEntryFields::Dispatcher), "fieldNumber",
-// AtomicOrdering::Unordered), numtype(intptr_t)); 			auto
-// fieldValue = RecordHeader::GenerateReadAndLockField(builder, refValue,
-// fieldIndex, false);
-////hasRawInvoke is false because this table is already filled with
-// appropriately changed indices
-//			//fieldValue is definitely a reference value because
-// locking only works on reference values 			static const
-// char* noLambdaMsg = "Tried to load invokable value from field, but value has
-// no lambda method!"; 			BasicBlock* noLambdaBlock =
-// RTOutput_Fail::GenerateFailOutputBlock(builder, noLambdaMsg);
-// auto hasLambda = GenerateHasRawInvoke(builder,
-// RefValueHeader::GenerateReadVTablePointer(builder, fieldValue));
-//			builder->CreateIntrinsic(Intrinsic::expect, { inttype(1)
-// }, { hasLambda, MakeUInt(1,1) });
-// builder->CreateCondBr(hasLambda, retBlock, noLambdaBlock,
-// GetLikelyFirstBranchMetadata());
-//		}
-
-//	}
-//	builder->SetInsertPoint(structuralBlock);
-//	auto ensureMethodCall = builder->CreateCall(fun, { _refValue,
-//_vtablePtr, _name, _tableIndex }); 	ensureMethodCall->setCallingConv(NOMCC);
-//	builder->CreateBr(outBlock);
-
-//	builder->SetInsertPoint(outBlock);
-//}
 llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
     NomBuilder &builder, Value *refValue, Value *vtablePtr, Value *name,
     Value *tableIndex, bool freezeInvokedField) {
@@ -424,14 +300,24 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
     builder->CreateBr(outBlock);
   }
 
+  BasicBlock *loopClassDictionaryBlock =
+      BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$ClassDictionary", fun);
   builder->SetInsertPoint(loopDictionaryBlock);
   {
+    BasicBlock *notRecordBlock =
+        BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$IsClass", fun);
     auto kind = GenerateReadKind(builder, vtablePtr);
     auto isRecord = builder->CreateICmpEQ(
         kind, MakeIntLike(kind, (uint64_t)RTDescriptorKind::Record));
     builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
                              {isRecord, MakeUInt(1, 1)});
-    builder->CreateCondBr(isRecord, loopRecordDictionaryBlock, errorBlock);
+    builder->CreateCondBr(isRecord, loopRecordDictionaryBlock,
+                          notRecordBlock);
+
+    builder->SetInsertPoint(notRecordBlock);
+    auto isClass = builder->CreateICmpEQ(
+        kind, MakeIntLike(kind, (uint64_t)RTDescriptorKind::Class));
+    builder->CreateCondBr(isClass, loopClassDictionaryBlock, errorBlock);
 
     builder->SetInsertPoint(loopRecordDictionaryBlock);
     auto dfield = builder->CreatePointerCast(
@@ -440,6 +326,31 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
       RecordHeader::GenerateFreezeDictField(builder, refValue, name);
     }
     fieldValuePHI->addIncoming(dfield, builder->GetInsertBlock());
+    builder->CreateBr(checkLambdaExistsBlock);
+  }
+
+  builder->SetInsertPoint(loopClassDictionaryBlock);
+  {
+    // the class's field lookup reads its instance dictionary for names
+    // that are not declared fields; classes without one yield null. No
+    // freezing here: record call tags never dispatch on class objects
+    auto fieldLookupFun =
+        GenerateReadReadFieldFunction(builder, vtablePtr);
+    auto cfieldCall = builder->CreateCall(
+        GetFieldReadFunctionType(), fieldLookupFun,
+        {builder->CreateZExtOrTrunc(name, numtype(size_t)),
+         builder->CreatePointerCast(
+             refValue, GetFieldReadFunctionType()->getParamType(1))},
+        "classDictField");
+    cfieldCall->setCallingConv(NOMCC);
+    auto cfield = builder->CreatePointerCast(cfieldCall, REFTYPE);
+    auto isNull = builder->CreateIsNull(cfield, "classDictFieldIsNull");
+    BasicBlock *classDictFoundBlock = BasicBlock::Create(
+        LLVMCONTEXT, "DDLookupLoop$ClassDictionary$Found", fun);
+    builder->CreateCondBr(isNull, errorBlock, classDictFoundBlock,
+                          GetLikelySecondBranchMetadata());
+    builder->SetInsertPoint(classDictFoundBlock);
+    fieldValuePHI->addIncoming(cfield, builder->GetInsertBlock());
     builder->CreateBr(checkLambdaExistsBlock);
   }
 
