@@ -124,6 +124,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/Runtime/Typing
     ${CMAKE_SOURCE_DIR}/RuntimeData
     ${CMAKE_SOURCE_DIR}/RuntimeData/Headers
+    ${CMAKE_SOURCE_DIR}/RuntimeData/Headers/RTDictionary
     ${CMAKE_SOURCE_DIR}/RuntimeData/Types
     ${CMAKE_SOURCE_DIR}/RuntimeData/VTables
     # checked above

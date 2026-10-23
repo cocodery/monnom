@@ -6,6 +6,7 @@
 #include "FloatClass.h"
 #include "GlobalNameAddressLookupList.h"
 #include "IMT.h"
+#include "InstanceDictionary.h"
 #include "IntClass.h"
 #include "NomClass.h"
 #include "NomClassType.h"
@@ -13,11 +14,9 @@
 #include "RTClass.h"
 #include "RTClassType.h"
 #include "RTCompileConfig.h"
-#include "RTDictionary.h"
 #include "RTInstanceType.h"
 #include "RTOutput.h"
 #include "RTVTable.h"
-#include "RecordHeader.h"
 #include "RefValueHeader.h"
 #include "StringClass.h"
 #include "TypeOperations.h"
@@ -226,33 +225,27 @@ llvm::Value *ObjectHeader::GenerateGetInstanceDictionary(
                      ? 1
                      : 0)))}),
       POINTERTYPE->getPointerTo());
-  return RecordHeader::GenerateGetOrCreateDictionary(builder, dictAddr);
+  return InstanceDictionary::GenerateGetOrCreate(builder, dictAddr);
 }
 llvm::Value *ObjectHeader::GenerateReadDictField(NomBuilder &builder,
                                                  llvm::Value *objPointer,
                                                  int32_t dictIndex,
                                                  bool targetHasRawInvoke,
                                                  llvm::Value *fieldName) {
-  auto dict = GenerateGetInstanceDictionary(builder, objPointer, dictIndex,
-                                            targetHasRawInvoke);
-  auto getFun = RTDictionaryLookup::Instance().GetLLVMElement(
-      *builder->GetInsertBlock()->getModule());
-  auto call = builder->CreateCall(getFun, {dict, fieldName});
-  call->setCallingConv(CallingConv::C);
-  return builder->CreatePointerCast(call, REFTYPE);
+  return InstanceDictionary::GenerateLookup(
+      builder,
+      GenerateGetInstanceDictionary(builder, objPointer, dictIndex,
+                                    targetHasRawInvoke),
+      fieldName);
 }
 llvm::Value *ObjectHeader::GenerateWriteDictField(
     NomBuilder &builder, llvm::Value *objPointer, int32_t dictIndex,
     bool targetHasRawInvoke, llvm::Value *fieldName, llvm::Value *value) {
-  auto dict = GenerateGetInstanceDictionary(builder, objPointer, dictIndex,
-                                            targetHasRawInvoke);
-  auto setFun = RTDictionarySet::Instance().GetLLVMElement(
-      *builder->GetInsertBlock()->getModule());
-  auto call = builder->CreateCall(
-      setFun,
-      {dict, fieldName, builder->CreatePointerCast(value, POINTERTYPE)});
-  call->setCallingConv(CallingConv::C);
-  return call;
+  return InstanceDictionary::GenerateSet(
+      builder,
+      GenerateGetInstanceDictionary(builder, objPointer, dictIndex,
+                                    targetHasRawInvoke),
+      fieldName, value);
 }
 llvm::Value *ObjectHeader::GenerateReadVTablePointer(NomBuilder &builder,
                                                      llvm::Value *objPointer) {

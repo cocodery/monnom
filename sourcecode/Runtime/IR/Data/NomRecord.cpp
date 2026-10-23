@@ -5,6 +5,7 @@
 #include "EnsureDynamicMethodInstruction.h"
 #include "FloatClass.h"
 #include "IMT.h"
+#include "InstanceDictionary.h"
 #include "IntClass.h"
 #include "Metadata.h"
 #include "NomClassType.h"
@@ -32,7 +33,6 @@
 #include "llvm/Support/raw_os_ostream.h"
 #include <algorithm>
 #include <iostream>
-#include <unordered_set>
 
 using namespace llvm;
 using namespace std;
@@ -206,9 +206,6 @@ llvm::Function *NomRecord::GetDynamicFieldLookup(
     }
     builder->SetInsertPoint(notfound);
 
-    // static const char *lookupfailstr =
-    //     "Could not find any fields with matching name!";
-    // CreateDummyReturn(builder, fun);
     auto returnVal =
         RecordHeader::GenerateReadDictField(builder, thisarg, namearg);
     builder->CreateRet(returnVal);
@@ -283,27 +280,9 @@ NomRecord::GetDynamicFieldStore(llvm::Module &mod,
       builder->CreateRetVoid();
     }
 
-    // a dictionary field must not shadow a method of the record
-    BasicBlock *methodNameBlock = nullptr;
-    std::unordered_set<size_t> methodNameIDs;
-    for (auto meth : Methods) {
-      size_t nameID = NomNameRepository::Instance().GetNameID(meth->GetName());
-      if (!methodNameIDs.insert(nameID).second ||
-          std::any_of(Fields.begin(), Fields.end(), [&](auto field) {
-            return field->GetName()->ToStdString() == meth->GetName();
-          })) {
-        continue;
-      }
-      if (methodNameBlock == nullptr) {
-        methodNameBlock =
-            BasicBlock::Create(LLVMCONTEXT, "writeToMethodName", fun);
-        static const char *methodWriteErrorMessage =
-            "Cannot write field with the same name as a record method!\n";
-        RTOutput_Fail::MakeBlockFailOutputBlock(
-            builder, methodWriteErrorMessage, methodNameBlock);
-      }
-      nameSwitch->addCase(MakeInt<size_t>(nameID), methodNameBlock);
-    }
+    InstanceDictionary::AddMethodNameWriteGuard(
+        builder, nameSwitch, Methods, Fields,
+        "Cannot write field with the same name as a record method!\n");
     builder->SetInsertPoint(notfound);
 
     // static const char *lookupfailstr =

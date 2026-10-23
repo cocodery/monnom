@@ -9,6 +9,7 @@
 #include "FloatClass.h"
 #include "GlobalNameAddressLookupList.h"
 #include "IMT.h"
+#include "InstanceDictionary.h"
 #include "IntClass.h"
 #include "Metadata.h"
 #include "NomCallableVersion.h"
@@ -43,7 +44,6 @@
 #include <algorithm>
 #include <iostream>
 #include <map>
-#include <unordered_set>
 #include <vector>
 
 namespace Nom {
@@ -713,29 +713,9 @@ NomClass::GetDynamicFieldStore(llvm::Module &mod,
     }
     builder->SetInsertPoint(notfound);
     if (HasInstanceDictionary()) {
-      BasicBlock *methodNameBlock = nullptr;
-      std::unordered_set<size_t> methodNameIDs;
-      for (auto meth : AllMethods) {
-        size_t nameID =
-            NomNameRepository::Instance().GetNameID(meth->GetName());
-        if (!methodNameIDs.insert(nameID).second ||
-            std::any_of(AllFields.begin(), AllFields.end(),
-                        [&](auto field) {
-                          return field->GetName()->ToStdString() ==
-                                 meth->GetName();
-                        })) {
-          continue;
-        }
-        if (methodNameBlock == nullptr) {
-          methodNameBlock =
-              BasicBlock::Create(LLVMCONTEXT, "writeToMethodName", fun);
-          static const char *methodWriteErrorMessage =
-              "Cannot write field with the same name as a class method!\n";
-          RTOutput_Fail::MakeBlockFailOutputBlock(
-              builder, methodWriteErrorMessage, methodNameBlock);
-        }
-        nameSwitch->addCase(MakeInt<size_t>(nameID), methodNameBlock);
-      }
+      InstanceDictionary::AddMethodNameWriteGuard(
+          builder, nameSwitch, AllMethods, AllFields,
+          "Cannot write field with the same name as a class method!\n");
       builder->SetInsertPoint(notfound);
 
       // no frozen check: class objects never reach record call tags, so

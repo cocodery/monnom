@@ -14,7 +14,6 @@
 #include "NomPartialApplication.h"
 #include "ObjectHeader.h"
 #include "RTClass.h"
-#include "RTDictionary.h"
 #include "RTLambda.h"
 #include "RTOutput.h"
 #include "RTVTable.h"

@@ -20,7 +20,6 @@
 #include "RTClassType.h"
 #include "RTCompileConfig.h"
 #include "RTConfig.h"
-#include "RTDictionary.h"
 #include "RTInstanceType.h"
 #include "RTInterface.h"
 #include "RTLambda.h"

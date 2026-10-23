@@ -24,15 +24,13 @@ public:
                                                    llvm::Value *objPointer);
   static llvm::Value *GenerateGetStructDictionary(NomBuilder &builder,
                                                   llvm::Value *objPointer);
-  static llvm::Value *GenerateGetOrCreateDictionary(NomBuilder &builder,
-                                                    llvm::Value *dictAddr);
+  static llvm::Value *GenerateReadDictField(NomBuilder &builder,
+                                            llvm::Value *thisObj,
+                                            llvm::Value *fieldName);
   static llvm::Value *GenerateWriteDictField(NomBuilder &builder,
                                              llvm::Value *thisObj,
                                              llvm::Value *fieldName,
                                              llvm::Value *value);
-  static llvm::Value *GenerateReadDictField(NomBuilder &builder,
-                                            llvm::Value *thisObj,
-                                            llvm::Value *fieldName);
   // a dictionary field invoked through an interface is frozen
   static llvm::Value *GenerateFreezeDictField(NomBuilder &builder,
                                               llvm::Value *thisObj,

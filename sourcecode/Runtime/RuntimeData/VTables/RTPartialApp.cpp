@@ -6,7 +6,6 @@
 #include "NomNameRepository.h"
 #include "NomPartialApplication.h"
 #include "ObjectHeader.h"
-#include "RTDictionary.h"
 #include "RTVTable.h"
 #include "llvm/IR/DerivedTypes.h"
 

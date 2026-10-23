@@ -1,10 +1,57 @@
+class Point
+{
+	public Int X;
+	public constructor(Int x)
+	{
+		X = x;
+	}
+}
+
 class Main
 {
-	public static fun Main() : Void
+	public static fun MakeRecord() : dyn
 	{
-		dyn obj = new {};
-		obj.foo = x => x + 3;
-		obj.foo(5).ToString().Print();
+		return new {};
 	}
 
+	public static fun AddTag(dyn o) : Void
+	{
+		o.tag = 5;
+	}
+
+	public static fun Main() : Void
+	{
+		# two records from the same site, same field, same value
+		dyn r1 = MakeRecord();
+		dyn r2 = MakeRecord();
+		r1.tag = 5;
+		r2.tag = 5;
+		r1.tag.ToString().Print();
+		" ".Print();
+		r2.tag.ToString().Print();
+		"\n".Print();
+		# change it on r1 only: if the value were shared, r2 would see 7
+		r1.tag = 7;
+		r1.tag.ToString().Print();
+		" ".Print();
+		r2.tag.ToString().Print();
+		" Done for records\n".Print();
+
+		# two class instances get the same field through a dyn function
+		Point p1 = new Point(1);
+		Point p2 = new Point(2);
+		AddTag(p1);
+		AddTag(p2);
+		dyn d1 = p1;
+		dyn d2 = p2;
+		d1.tag.ToString().Print();
+		" ".Print();
+		d2.tag.ToString().Print();
+		"\n".Print();
+		d1.tag = 7;
+		d1.tag.ToString().Print();
+		" ".Print();
+		d2.tag.ToString().Print();
+		" Done for class instances\n".Print();
+	}
 }

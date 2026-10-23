@@ -5,7 +5,6 @@
 #include "NomJIT.h"
 #include "ObjectHeader.h"
 #include "RTCompileConfig.h"
-#include "RTDictionary.h"
 #include "RTInterface.h"
 #include "RTInterfaceTableEntry.h"
 #include "RTVTable.h"
