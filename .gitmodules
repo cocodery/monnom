@@ -1,0 +1,6 @@
+[submodule "gtp-benchmarks"]
+	path = gtp-benchmarks
+	url = git@github.com:utahplt/gtp-benchmarks.git
+[submodule "gtp-benchmark-monnom"]
+	path = gtp-benchmark-monnom
+	url = git@github.com:cocodery/gtp-benchmark-monnom.git
