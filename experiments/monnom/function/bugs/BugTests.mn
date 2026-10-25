@@ -1,0 +1,519 @@
+# One test per bug described in ../BUGS.md (the comment above each test names
+# the bug ID). Each test prints "<name>: PASS" or "<name>: FAIL got ...".
+#
+# The runtime compiles every method of Main when it loads the class, so one
+# runtime bug anywhere in this file can crash all tests. Run a single test with
+#   bugfixes/run_test.sh Test_Name
+# which removes the other tests' # BEGIN/# END blocks before compiling.
+#
+# Apart from the construct each test is about, the tests only use constructs
+# that work without any fix: results are reported through if/else (no Bool
+# arguments, bug R5), no ++ (bug R10) and calls with at most two arguments
+# (bug R2).
+
+interface IOps
+{
+	fun Three(Int a, Int b, Int c) : Int;
+	fun Six(Int a1, Int a2, Int a3, Int a4, Int a5, Int a6) : Int;
+}
+
+interface IFive
+{
+	fun Five(Int a1, Int a2, Int a3, Int a4, Int a5) : Int;
+}
+
+class Five implements IFive
+{
+	public constructor() { }
+	public fun Five(Int a1, Int a2, Int a3, Int a4, Int a5) : Int
+	{
+		return a1 + a2 * 10 + a3 * 100 + a4 * 1000 + a5 * 10000;
+	}
+}
+
+interface IAdd
+{
+	fun Add3(Int a, Int b, Int c) : Int;
+	fun Add4(String s, Int b, Int c, Int d) : Int;
+}
+
+class Adder implements IAdd
+{
+	public constructor() { }
+	public fun Add3(Int a, Int b, Int c) : Int
+	{
+		return a + b * 10 + c * 100;
+	}
+	public fun Add4(String s, Int b, Int c, Int d) : Int
+	{
+		return b + c * 10 + d * 100;
+	}
+}
+
+class Counter
+{
+	public Int N;
+	public constructor() { N = 0; }
+	public fun Hit() : Bool
+	{
+		N = N + 1;
+		return true;
+	}
+}
+
+class Box
+{
+	public Int V;
+	public constructor(Int v) { V = v; }
+	public fun Getter() : dyn
+	{
+		return () => { return V + 1; } : dyn;
+	}
+	public fun Getter2() : dyn
+	{
+		return () => { return this.V + 2; } : dyn;
+	}
+}
+
+interface IFl { fun Get() : Float; }
+class Fl implements IFl { public constructor() { } public fun Get() : Float { return 2.5; } }
+
+interface IA { fun A() : Int; }
+interface IB extends IA { fun B() : Int; }
+class AB implements IB { public constructor() { } public fun A() : Int { return 1; } public fun B() : Int { return 2; } }
+
+interface IBox<T> { fun Get() : T; }
+class GBox<T> implements IBox<T> { private T v; public constructor(T x) { v = x; } public fun Get() : T { return v; } }
+class Store<T>
+{
+	private ArrayList<IBox<T>> items;
+	public constructor() { items = new ArrayList<IBox<T>>(); }
+	public fun Add(T x) : Void { IBox<T> b = new GBox<T>(x); items.Add(b); }
+	public fun First() : T { return items.Get(0).Get(); }
+}
+
+class Pair<A, B>
+{
+	public A First;
+	public B Second;
+	public constructor(A a, B b) { First = a; Second = b; }
+}
+
+class Main
+{
+	public static fun Pass(String name) : Void
+	{
+		name.Print();
+		": PASS\n".Print();
+	}
+	# prints "<name>: FAIL got"; follow with Show(...) for each value and End()
+	public static fun Fail(String name) : Void
+	{
+		name.Print();
+		": FAIL got".Print();
+	}
+	public static fun Show(dyn v) : Void
+	{
+		" ".Print();
+		v.ToString().Print();
+	}
+	public static fun End() : Void
+	{
+		"\n".Print();
+	}
+
+	public static fun Id(dyn x) : dyn { return x; }
+
+	# BEGIN Test_IfAssign
+	# C1: a local assigned inside an if kept its old value after the if
+	public static fun Test_IfAssign() : Void
+	{
+		Int x = 1;
+		if(x < 5)
+		{
+			x = 2;
+		}
+		Int y = 1;
+		Int i = 0;
+		while(i < 3)
+		{
+			if(i == 1)
+			{
+				y = y + 10;
+			}
+			i = i + 1;
+		}
+		if(x == 2 && y == 11) { Main.Pass("Test_IfAssign"); }
+		else { Main.Fail("Test_IfAssign"); Main.Show(x); Main.Show(y); Main.End(); }
+	}
+	# END Test_IfAssign
+
+	# BEGIN Test_ElseIf
+	# C2: the guard expression of an elseif was never evaluated
+	public static fun Test_ElseIf() : Void
+	{
+		Int z = 0;
+		Int k = 0;
+		while(k < 6)
+		{
+			if(k < 2)
+			{
+				z = z + 1;
+			}
+			elseif(k < 4)
+			{
+				z = z + 100;
+			}
+			else
+			{
+				z = z + 10000;
+			}
+			k = k + 1;
+		}
+		if(z == 20202) { Main.Pass("Test_ElseIf"); }
+		else { Main.Fail("Test_ElseIf"); Main.Show(z); Main.End(); }
+	}
+	# END Test_ElseIf
+
+	# BEGIN Test_ShortCircuit
+	# C3: && and || evaluated their right operand even when the left one decided the result
+	public static fun Test_ShortCircuit() : Void
+	{
+		Counter c = new Counter();
+		Bool f = false;
+		Bool t = true;
+		Bool r1 = f && c.Hit();
+		Bool r2 = t || c.Hit();
+		Bool r3 = t && c.Hit();
+		Bool r4 = f || c.Hit();
+		if(c.N == 2 && !r1 && r2 && r3 && r4) { Main.Pass("Test_ShortCircuit"); }
+		else { Main.Fail("Test_ShortCircuit"); Main.Show(c.N); Main.End(); }
+	}
+	# END Test_ShortCircuit
+
+	# BEGIN Test_NestedClosureCapture
+	public static fun MkNested(dyn p) : dyn
+	{
+		return (dyn m) => { return () => { return p * 10 + m; } : dyn; } : dyn;
+	}
+	# C4: a closure nested in a closure read a variable captured by the outer closure
+	#     from its own closure object
+	public static fun Test_NestedClosureCapture() : Void
+	{
+		dyn r = Main.MkNested(5)(2)();
+		if(r == 52) { Main.Pass("Test_NestedClosureCapture"); }
+		else { Main.Fail("Test_NestedClosureCapture"); Main.Show(r); Main.End(); }
+	}
+	# END Test_NestedClosureCapture
+
+	# BEGIN Test_ClosureInRecordInitializer
+	public static fun MkRecordInLambda(dyn p) : dyn
+	{
+		return (dyn m) => { return new (dyn payload = () => { return p * 10 + m; } : dyn) { public fun Get() : dyn { return payload; } }; } : dyn;
+	}
+	# C5: a closure in a record field initializer inside a closure read captured
+	#     variables from the wrong frame (also needs C8)
+	public static fun Test_ClosureInRecordInitializer() : Void
+	{
+		dyn r = Main.MkRecordInLambda(5)(2).Get()();
+		if(r == 52) { Main.Pass("Test_ClosureInRecordInitializer"); }
+		else { Main.Fail("Test_ClosureInRecordInitializer"); Main.Show(r); Main.End(); }
+	}
+	# END Test_ClosureInRecordInitializer
+
+	# BEGIN Test_ClosureReadsClassField
+	# C6: a closure in a class method read the class's fields from the closure object
+	public static fun Test_ClosureReadsClassField() : Void
+	{
+		Box b = new Box(10);
+		dyn f = b.Getter();
+		dyn g = b.Getter2();
+		dyn r1 = f();
+		dyn r2 = g();
+		if(r1 == 11 && r2 == 12) { Main.Pass("Test_ClosureReadsClassField"); }
+		else { Main.Fail("Test_ClosureReadsClassField"); Main.Show(r1); Main.Show(r2); Main.End(); }
+	}
+	# END Test_ClosureReadsClassField
+
+	# BEGIN Test_ClosureReadsRecordField
+	public static fun MkCell(dyn p) : dyn
+	{
+		return new (dyn v = p)
+		{
+			public fun Get() : dyn { return () => { return v + 1; } : dyn; }
+			public fun Inc() : dyn { return () => { v = v + 10; return v; } : dyn; }
+		};
+	}
+	# C7: a closure in a record method read the record's fields from the closure object
+	public static fun Test_ClosureReadsRecordField() : Void
+	{
+		dyn r = Main.MkCell(41);
+		dyn a = r.Get()();
+		dyn b = r.Inc()();
+		dyn c = r.Get()();
+		if(a == 42 && b == 51 && c == 52) { Main.Pass("Test_ClosureReadsRecordField"); }
+		else { Main.Fail("Test_ClosureReadsRecordField"); Main.Show(a); Main.Show(b); Main.Show(c); Main.End(); }
+	}
+	# END Test_ClosureReadsRecordField
+
+	# BEGIN Test_RecordFieldInitializerCall
+	public static fun MkRecordWithClosureField(dyn p) : dyn
+	{
+		return new (dyn payload = () => { return p + 2; } : dyn) { public fun Get() : dyn { return payload; } };
+	}
+	# C8: a record field initialized with a call or closure wrote the wrong instruction
+	#     count, so the runtime could not read the bytecode
+	public static fun Test_RecordFieldInitializerCall() : Void
+	{
+		dyn r = Main.MkRecordWithClosureField(5).Get()();
+		if(r == 7) { Main.Pass("Test_RecordFieldInitializerCall"); }
+		else { Main.Fail("Test_RecordFieldInitializerCall"); Main.Show(r); Main.End(); }
+	}
+	# END Test_RecordFieldInitializerCall
+
+	# BEGIN Test_GenericFieldType
+	# C9: the type of a field of a generic class instance ignored the type arguments
+	#     (with the old compiler this does not compile: "A does not have a method ToString")
+	public static fun Test_GenericFieldType() : Void
+	{
+		Pair<Int, String> p = new Pair<Int, String>(1, "a");
+		Int first = p.First; # A is not a subtype of Int (BugTests.mn:280:14)
+		String text = p.First.ToString();
+		if(first == 1) { Main.Pass("Test_GenericFieldType"); }
+		else { Main.Fail("Test_GenericFieldType"); Main.Show(text); Main.End(); }
+	}
+	# END Test_GenericFieldType
+
+	# BEGIN Test_Alignment
+	public static fun MkOps() : dyn
+	{
+		return new {
+			fun Three(Int a, Int b, Int c) : Int { return a + b * 10 + c * 100; }
+			fun Six(Int a1, Int a2, Int a3, Int a4, Int a5, Int a6) : Int { return a1 + a2 * 10 + a3 * 100 + a4 * 1000 + a5 * 10000 + a6 * 100000; }
+		};
+	}
+	public static fun UseOps(IOps o) : Int
+	{
+		return o.Six(1, 2, 3, 4, 5, 6);
+	}
+	# R1: loads and stores claimed 64-byte alignment; the optimizer turned the stores into
+	#     the argument array into aligned vector stores, which crash (needs -o1 or more,
+	#     and the R2 fixes)
+	public static fun Test_Alignment() : Void
+	{
+		Int r = Main.UseOps(Main.MkOps());
+		if(r == 654321) { Main.Pass("Test_Alignment"); }
+		else { Main.Fail("Test_Alignment"); Main.Show(r); Main.End(); }
+	}
+	# END Test_Alignment
+
+	# BEGIN Test_ManyArguments
+	# R2: calls with more arguments than the varargs slots (default 2) built and read the
+	#     overflow argument array wrongly (methods, interface calls, lambdas)
+	public static fun Test_ManyArguments() : Void
+	{
+		Adder ad = new Adder();
+		IAdd ia = ad;
+		Int r1 = ad.Add3(1, 2, 3);
+		Int r2 = ia.Add3(1, 2, 3);
+		Int r3 = ia.Add4("s", 4, 5, 6);
+		Fun<Int, Int, Int, Int> f = (Int a, Int b, Int c) => a + b * 10 + c * 100;
+		Int r4 = f(1, 2, 3);
+		if(r1 == 321 && r2 == 321 && r3 == 654 && r4 == 321) { Main.Pass("Test_ManyArguments"); }
+		else { Main.Fail("Test_ManyArguments"); Main.Show(r1); Main.Show(r2); Main.Show(r3); Main.Show(r4); Main.End(); }
+	}
+	# END Test_ManyArguments
+
+	# BEGIN Test_DynamicManyArguments
+	# R3: dynamic calls with more than two arguments passed the array size as an
+	#     address space (invalid IR) and wrote the array pointer past the argument buffer
+	public static fun Test_DynamicManyArguments() : Void
+	{
+		dyn d = Main.Id(new Adder());
+		dyn r1 = d.Add3(7, 8, 9);
+		dyn lam = (Int a, Int b, Int c, Int e) => a + b * 10 + c * 100 + e * 1000;
+		dyn r2 = lam(1, 2, 3, 4);
+		if(r1 == 987 && r2 == 4321) { Main.Pass("Test_DynamicManyArguments"); }
+		else { Main.Fail("Test_DynamicManyArguments"); Main.Show(r1); Main.Show(r2); Main.End(); }
+	}
+	# END Test_DynamicManyArguments
+
+	# BEGIN Test_LoaderLibraryKey
+	public static fun UseFive(IFive o) : Int
+	{
+		return o.Five(1, 2, 3, 4, 5);
+	}
+	# R4: the loader keyed its library table by a pointer to a temporary string; later
+	#     lookups found the wrong library ("class not found"), depending on memory layout,
+	#     so whether this test shows it varies (it also needs the R2 fixes)
+	public static fun Test_LoaderLibraryKey() : Void
+	{
+		Int r = Main.UseFive(Main.Id(new Five()));
+		if(r == 54321) { Main.Pass("Test_LoaderLibraryKey"); }
+		else { Main.Fail("Test_LoaderLibraryKey"); Main.Show(r); Main.End(); }
+	}
+	# END Test_LoaderLibraryKey
+
+	# BEGIN Test_BoolArgument
+	public static fun BoolToInt(Bool b) : Int
+	{
+		if(b) { return 1; }
+		return 0;
+	}
+	# R5: passing a comparison result directly as a Bool argument threw while compiling
+	public static fun Test_BoolArgument() : Void
+	{
+		Int x = 3;
+		Int r = Main.BoolToInt(x < 5) * 10 + Main.BoolToInt(x > 5);
+		if(r == 10) { Main.Pass("Test_BoolArgument"); }
+		else { Main.Fail("Test_BoolArgument"); Main.Show(r); Main.End(); }
+	}
+	# END Test_BoolArgument
+
+	# BEGIN Test_LambdaArgumentToTypedMethod
+	public static fun Half(Float f) : Float { return f / 2.0; }
+	# R6: lambda arguments stayed raw pointers, so passing one to a method with an
+	#     Int or Float parameter threw while compiling
+	public static fun Test_LambdaArgumentToTypedMethod() : Void
+	{
+		dyn h = (dyn x) => { return Main.Half(x); } : dyn;
+		dyn r = h(5.0);
+		if(r == 2.5) { Main.Pass("Test_LambdaArgumentToTypedMethod"); }
+		else { Main.Fail("Test_LambdaArgumentToTypedMethod"); Main.Show(r); Main.End(); }
+	}
+	# END Test_LambdaArgumentToTypedMethod
+
+	# BEGIN Test_BitOps
+	# R7: & | ^ on Int were not implemented ("Invalid operation on given operands!")
+	public static fun Test_BitOps() : Void
+	{
+		Int a = 12;
+		Int b = 10;
+		Int r = (a & b) * 10000 + (a | b) * 100 + (a ^ b);
+		if(r == 81406) { Main.Pass("Test_BitOps"); }
+		else { Main.Fail("Test_BitOps"); Main.Show(r); Main.End(); }
+	}
+	# END Test_BitOps
+
+	# BEGIN Test_Power
+	# R8: ** was not implemented for Int or Float
+	public static fun Test_Power() : Void
+	{
+		Int i = 2 ** 10;
+		Int z = 3 ** 0;
+		Float f = 2.0 ** 0.5;
+		if(i == 1024 && z == 1 && f > 1.41421 && f < 1.41422) { Main.Pass("Test_Power"); }
+		else { Main.Fail("Test_Power"); Main.Show(i); Main.Show(z); Main.Show(f); Main.End(); }
+	}
+	# END Test_Power
+
+	# BEGIN Test_UnaryMinus
+	# R9: unary minus fell through into the ! case (crash), negated floats as ints
+	#     and put unboxed values into a boxed phi
+	public static fun Test_UnaryMinus() : Void
+	{
+		Int a = 7;
+		Int b = -a;
+		Float f = 2.5;
+		Float g = -f;
+		dyn d = Main.Id(3);
+		dyn e = -d;
+		dyn d2 = Main.Id(1.5);
+		dyn e2 = -d2;
+		if(b == 0 - 7 && g == 0.0 - 2.5 && e == 0 - 3 && e2 == 0.0 - 1.5) { Main.Pass("Test_UnaryMinus"); }
+		else { Main.Fail("Test_UnaryMinus"); Main.Show(b); Main.Show(g); Main.Show(e); Main.Show(e2); Main.End(); }
+	}
+	# END Test_UnaryMinus
+
+	# BEGIN Test_StringConcat
+	# R10: String ++ compiled to String.Concat, which the runtime did not implement
+	#      (R11, the ToString strings allocated as unscanned GC memory, is exercised by
+	#      the many intermediate strings here, but a GC-timing bug cannot be shown reliably)
+	public static fun Test_StringConcat() : Void
+	{
+		String s = "";
+		Int i = 0;
+		while(i < 30)
+		{
+			s = s ++ i.ToString();
+			i = i + 1;
+		}
+		dyn d = Main.Id("x");
+		dyn dy = d ++ "y";
+		# String == compares references: run_test.sh compares the printed text
+		"Test_StringConcat: COMPARE ".Print();
+		s.Print();
+		" ".Print();
+		dy.Print();
+		"|01234567891011121314151617181920212223242526272829 xy\n".Print();
+	}
+	# END Test_StringConcat
+
+	# BEGIN Test_FloatEqualsDyn
+	# R12: comparing a Float with an untyped value used the wrong operand in the
+	#      boxed-int case (invalid IR: "Instruction does not dominate all uses")
+	public static fun Test_FloatEqualsDyn() : Void
+	{
+		dyn o = Main.Id(new Fl());
+		Float f = 2.5;
+		if(f == o.Get()) { Main.Pass("Test_FloatEqualsDyn"); }
+		else { Main.Fail("Test_FloatEqualsDyn"); Main.Show(o.Get()); Main.End(); }
+	}
+	# END Test_FloatEqualsDyn
+
+	# BEGIN Test_InterfaceExtends
+	public static fun UseA(IA a) : Int { return a.A(); }
+	# R13: the return-type check function of an interface threw for methods
+	#      inherited from a super-interface
+	public static fun Test_InterfaceExtends() : Void
+	{
+		IB b = new AB();
+		Int r = Main.UseA(b) * 10 + b.B();
+		if(r == 12) { Main.Pass("Test_InterfaceExtends"); }
+		else { Main.Fail("Test_InterfaceExtends"); Main.Show(r); Main.End(); }
+	}
+	# END Test_InterfaceExtends
+
+	# BEGIN Test_GenericInstantiation
+	# R14: in generic code, call-site argument types were substituted with the receiver's
+	#      type arguments ("method not found"), and new C<...T...> called a runtime
+	#      function that was never declared (also: a loop in NomInterface::GetMethod
+	#      had no increment)
+	public static fun Test_GenericInstantiation() : Void
+	{
+		Store<Int> s = new Store<Int>();
+		s.Add(7);
+		Int r = s.First();
+		if(r == 7) { Main.Pass("Test_GenericInstantiation"); }
+		else { Main.Fail("Test_GenericInstantiation"); Main.Show(r); Main.End(); }
+	}
+	# END Test_GenericInstantiation
+
+	public static fun Main() : Void
+	{
+		# TESTS-BEGIN (run_test.sh keeps one of these lines)
+		Main.Test_IfAssign();
+		Main.Test_ElseIf();
+		Main.Test_ShortCircuit();
+		Main.Test_NestedClosureCapture();
+		Main.Test_ClosureInRecordInitializer();
+		Main.Test_ClosureReadsClassField();
+		Main.Test_ClosureReadsRecordField();
+		Main.Test_RecordFieldInitializerCall();
+		Main.Test_GenericFieldType();
+		Main.Test_Alignment();
+		Main.Test_ManyArguments();
+		Main.Test_DynamicManyArguments();
+		Main.Test_LoaderLibraryKey();
+		Main.Test_BoolArgument();
+		Main.Test_LambdaArgumentToTypedMethod();
+		Main.Test_BitOps();
+		Main.Test_Power();
+		Main.Test_UnaryMinus();
+		Main.Test_StringConcat();
+		Main.Test_FloatEqualsDyn();
+		Main.Test_InterfaceExtends();
+		Main.Test_GenericInstantiation();
+		# TESTS-END
+	}
+}

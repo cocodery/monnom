@@ -30,7 +30,7 @@
 RUNBENCH_SELF="$( realpath "${BASH_SOURCE[0]}" )"
 RUNBENCH_DIR="$( dirname "$RUNBENCH_SELF" )"
 
-usage() {
+runbench_usage() {
   sed -n '6,26p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
   echo "available tests:"
   for d in "$RUNBENCH_DIR"/experiments/monnom/*/; do
@@ -69,17 +69,17 @@ while [ $# -gt 0 ]; do
     --plot-only) PLOTONLY=1; PLOT=1; shift ;;
     --no-gen) NOGEN=1; shift ;;
     --compare) COMPARE=1; shift ;;
-    -h|--help) usage ;;
+    -h|--help) runbench_usage ;;
     --) shift; FORWARD=("$@"); break ;;
-    -*) echo "ERROR: unknown option $1"; usage ;;
+    -*) echo "ERROR: unknown option $1"; runbench_usage ;;
     *) if [ -z "$TEST" ]; then TEST="$1"
        elif [ -z "$OUTNAME" ]; then OUTNAME="$1"
-       else echo "ERROR: unexpected argument $1"; usage
+       else echo "ERROR: unexpected argument $1"; runbench_usage
        fi
        shift ;;
   esac
 done
-[ -z "$TEST" ] && usage
+[ -z "$TEST" ] && runbench_usage
 
 # a second argument naming a generated configuration selects single mode;
 # an all-capitals name that matches none is most likely a typo of one
@@ -109,7 +109,7 @@ fi
 BENCHDIR="$MONNOMBASE/experiments/monnom/$TEST"
 if [ ! -f "$BENCHDIR/plotconfig.json" ]; then
   echo "ERROR: $BENCHDIR has no plotconfig.json (not a chartable benchmark)"
-  usage
+  runbench_usage
 fi
 MNPS=( "$BENCHDIR"/*.mnp )
 if [ ${#MNPS[@]} -ne 1 ] || [ ! -f "${MNPS[0]}" ]; then

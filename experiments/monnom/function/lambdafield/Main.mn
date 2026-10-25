@@ -6,7 +6,7 @@ class Main
 		# but lambda field is shadowed by the function
 		dyn both = new (Int w = 3, Area = () => 100)
 		{
-			fun Area() : Int { return w * w; }
+			#fun Area() : Int { return w * w; }
 		};
 		both.Area().ToString().Print();
 		" Done for Area\n".Print();
@@ -19,7 +19,7 @@ class Main
 		};
 		assigned.Area().ToString().Print();
 		"\n".Print();
-		assigned.Area = () => 100;
+		#assigned.Area = () => 100;
 		assigned.Area().ToString().Print();
 		" Done for assigned\n".Print();
 
