@@ -31,22 +31,24 @@ namespace Nom.TypeChecker
 
     internal class CheckedFieldReference : IInstanceFieldReference
     {
-        public CheckedFieldReference(Identifier identifier, IFieldSpec fieldSpec, IExprTransformResult receiver)
+        public CheckedFieldReference(Identifier identifier, IFieldSpec fieldSpec, IExprTransformResult receiver, Language.IType type = null)
         {
             Identifier = identifier;
             FieldSpec = fieldSpec;
             Receiver = receiver;
+            // passed type or declared type
+            Type = type ?? fieldSpec.Type;
         }
         public IFieldSpec FieldSpec { get; }
         public IExprTransformResult Receiver { get; }
 
         public Identifier Identifier { get; }
 
+        public Language.IType Type { get; }
+
         public virtual bool IsReadOnly => FieldSpec.IsReadonly;
 
         public virtual bool IsInitialized => true;
-
-        public Language.IType Type => FieldSpec.Type;
 
         public IInstanceFieldReference OptimisticVersion => throw new NotImplementedException();
 
@@ -634,7 +636,9 @@ namespace Nom.TypeChecker
                     }
                     return Optional<IInstanceFieldReference>.Empty;
                 }
-                return new CheckedFieldReference(args.Item1, field.Elem, args.Item2).InjectOptional();
+                Language.IType fieldType = ((ISubstitutable<Language.IType>)field.Elem.Type).Substitute(type.Substitutions);
+                return new CheckedFieldReference(args.Item1, field.Elem, args.Item2, fieldType).InjectOptional();
+
             };
 
             public Func<InterfaceType, (Identifier, IExprTransformResult, ICodeTransformEnvironment), IOptional<IInstanceFieldReference>> VisitInterfaceType => (type, args) => Optional<IInstanceFieldReference>.Empty;
