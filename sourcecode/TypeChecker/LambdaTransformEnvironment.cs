@@ -104,6 +104,12 @@ namespace Nom.TypeChecker
                 }
                 var outer = ParentEnv[ident];
 
+                if (outer.HasElem && outer.Elem is CheckedFieldReference refr && !refr.Receiver.Any())
+                {
+                    IVariableReference thisField = new ATopLevelCodeTransformEnvironment.CheckedThisFieldReference(ident, refr.FieldSpec);
+                    return thisField.InjectOptional();
+                }
+
                 if (outer.HasElem && (outer.Elem is LocalVariableRef // a register in the parent frame 
                     || outer.Elem is LambdaFieldReference // parent is a lambda and request a captured field
                     || (outer.Elem is IInstanceFieldReference && outer.Elem.IsReadOnly)))
@@ -112,6 +118,13 @@ namespace Nom.TypeChecker
                     lambda.AddFieldDef(fs);
                     fields.Add(ident.Name, new CaptureField(fs, outer.Elem));
                     return new LambdaFieldReference(ident, fs).InjectOptional();
+                }
+
+                if (outer.HasElem && outer.Elem is IInstanceFieldReference && this[new Identifier("this", ident.Locs)].HasElem)
+                {   // this block resolve mutable captured field for the enclosing object
+                    // a general way for this to read fields
+                    IVariableReference thisField = new ThisRelativeFieldReference(ident, outer.Elem.Type);
+                    return thisField.InjectOptional();
                 }
                 return outer;
             }
@@ -144,6 +157,42 @@ namespace Nom.TypeChecker
             public IStmtTransformResult GenerateWriteAccess(IExprTransformResult value, ICodeTransformEnvironment env)
             {
                 throw new TypeCheckException("Captured local variables are read-only!");
+            }
+        }
+
+        private class ThisRelativeFieldReference : IVariableReference
+        {
+            public ThisRelativeFieldReference(Identifier ident, Language.IType type)
+            {
+                Identifier = ident;
+                Type = type;
+            }
+            public Identifier Identifier { get; }
+            public Language.IType Type { get; }
+            public bool IsReadOnly => false;
+            public bool IsInitialized => true;
+
+            private IVariableReference FieldOfThis(ICodeTransformEnvironment env, out IExprTransformResult thisexpr)
+            {
+                thisexpr = env[new Identifier("this", Identifier.Locs)].Elem.GenerateReadAccess(env);
+                var field = env.GetFieldAccessVariable(thisexpr, Identifier);
+                if (!field.HasElem)
+                {
+                    throw new TypeCheckException("Field $0 is not accessible from this closure!", Identifier);
+                }
+                return field.Elem;
+            }
+
+            public IExprTransformResult GenerateReadAccess(ICodeTransformEnvironment env)
+            {
+                var read = FieldOfThis(env, out var thisexpr).GenerateReadAccess(env);
+                return new ExprTransformResult(read.Type, read.Register, thisexpr.Concat(read).Distinct().ToList());
+            }
+
+            public IStmtTransformResult GenerateWriteAccess(IExprTransformResult value, ICodeTransformEnvironment env)
+            {
+                var write = FieldOfThis(env, out var thisexpr).GenerateWriteAccess(value, env);
+                return new StmtTransformResult(thisexpr.Concat(write).Distinct().ToList(), env);
             }
         }
 
