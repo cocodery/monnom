@@ -27,10 +27,13 @@ namespace Nom.Bytecode
         {
             ws.WriteValue(FieldNameConstant.ConstantID);
             ws.WriteValue(TypeConstant.ConstantID);
-            ws.WriteByte(IsReadOnly?(byte)1:(byte)0);
+            ws.WriteByte(IsReadOnly ? (byte)1 : (byte)0);
             ws.WriteValue(ValueRegister);
-            ws.WriteValue(InitializerInstructions.Count());
-            foreach(IInstruction instr in InitializerInstructions)
+            // ws.WriteValue(InitializerInstructions.Count());
+            // calls write their arugments as seperate instructions
+            // count bytecode instructions instead of instruction objects
+            ws.WriteValue((int)InitializerInstructions.Aggregate((UInt64)0, (acc, i) => acc += i.InstructionCount));
+            foreach (IInstruction instr in InitializerInstructions)
             {
                 instr.WriteByteCode(ws);
             }
@@ -44,9 +47,12 @@ namespace Nom.Bytecode
             var valueReg = s.ReadInt();
             var instrcount = s.ReadInt();
             List<IInstruction> instructions = new List<IInstruction>();
-            for(int i=0;i<instrcount;i++)
+            for (int i = 0; i < instrcount;)
             {
-                instructions.Add(AInstruction.ReadInstruction(s, rcs)); ;
+                // instructions.Add(AInstruction.ReadInstruction(s, rcs));
+                var instr = AInstruction.ReadInstruction(s, rcs);
+                instructions.Add(instr);
+                i += (int)instr.InstructionCount;
             }
             return new StructFieldRep(nameconst, typeconst, isreadonly, valueReg, instructions);
         }
