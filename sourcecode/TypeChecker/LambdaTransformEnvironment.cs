@@ -25,7 +25,7 @@ namespace Nom.TypeChecker
         private IEnumerable<ArgumentDeclDef> Parameters;
 
         public ITDLambda Lambda => lambda;
-        internal LambdaTransformEnvironment(ICodeTransformEnvironment parentEnv, IEnumerable<ArgumentDeclDef> args, Language.IType expectedReturnType, ISourceSpan locs=null)
+        internal LambdaTransformEnvironment(ICodeTransformEnvironment parentEnv, IEnumerable<ArgumentDeclDef> args, Language.IType expectedReturnType, ISourceSpan locs = null)
         {
             Parameters = args.ToList();
             registers.Add(new Register(0));
@@ -39,7 +39,7 @@ namespace Nom.TypeChecker
             }
 
             lambda = ParentEnv.Context.Container.CreateLambda(new TypeParametersSpec(new List<ITypeParameterSpec>()), new ParametersSpec(args), new Language.DynamicType());
-            
+
             StructContext = new StructTypeCheckLookup(ParentEnv.Context);
             Context = StructContext.PushVariables(lambda.TypeParameters);
             ExpectedReturnType = expectedReturnType.InjectOptional();
@@ -49,8 +49,8 @@ namespace Nom.TypeChecker
         {
             IStmtTransformResult str = b.Visit(CodeTransformer.Instance, this);
             List<ArgumentDeclDef> consparameters = new List<ArgumentDeclDef>();
-            
-            foreach(CaptureField cf in fields.Values)
+
+            foreach (CaptureField cf in fields.Values)
             {
                 consparameters.Add(new ArgumentDeclDef(cf.Field.Identifier, cf.Field.Type));
             }
@@ -64,8 +64,9 @@ namespace Nom.TypeChecker
             }
             lambda.ClosureParameters = new ParametersSpec(consparameters);
             lambda.ClosureTypeParameters = new TypeParametersSpec(StructContext.StructTypeParameters);
-            IEnumerable<IExprTransformResult> argResults = fields.Select(f => f.Value.Source.GenerateReadAccess(ParentEnv));
-            var cc= new CreateClosureInstruction(lambda, StructContext.ConstructorTypeArguments, argResults.Select(ar=>ar.Register) , ParentEnv.CreateRegister());
+            // IEnumerable<IExprTransformResult> argResults = fields.Select(f => f.Value.Source.GenerateReadAccess(ParentEnv));
+            IEnumerable<IExprTransformResult> argResults = fields.Select(f => f.Value.Source.GenerateReadAccess(ParentEnv)).ToList();
+            var cc = new CreateClosureInstruction(lambda, StructContext.ConstructorTypeArguments, argResults.Select(ar => ar.Register), ParentEnv.CreateRegister());
             lambda.ReturnType = BestReturnType;
             return new ExprTransformResult(new Language.DynamicType(), cc.Register, argResults.Flatten().Snoc(cc), locs);
         }
@@ -89,7 +90,7 @@ namespace Nom.TypeChecker
                 {
                     return new LocalVariableRef(ident, localVariables[ident.Name]).InjectOptional();
                 }
-                if(fields.ContainsKey(ident.Name))
+                if (fields.ContainsKey(ident.Name))
                 {
                     return new LambdaFieldReference(ident, fields[ident.Name].Field).InjectOptional();
                 }
@@ -101,7 +102,18 @@ namespace Nom.TypeChecker
                     fields.Add(ident.Name, new CaptureField(fs, new LocalVariableRef(ident, plv.Elem)));
                     return new LambdaFieldReference(ident, fs).InjectOptional();
                 }
-                return ParentEnv[ident];
+                var outer = ParentEnv[ident];
+
+                if (outer.HasElem && (outer.Elem is LocalVariableRef // a register in the parent frame 
+                    || outer.Elem is LambdaFieldReference // parent is a lambda and request a captured field
+                    || (outer.Elem is IInstanceFieldReference && outer.Elem.IsReadOnly)))
+                {
+                    TDLambdaField fs = new TDLambdaField(ident, outer.Elem.Type, lambda);
+                    lambda.AddFieldDef(fs);
+                    fields.Add(ident.Name, new CaptureField(fs, outer.Elem));
+                    return new LambdaFieldReference(ident, fs).InjectOptional();
+                }
+                return outer;
             }
         }
 
@@ -138,7 +150,7 @@ namespace Nom.TypeChecker
         private Language.IType bestReturnType = BotType.Instance;
         public Language.IType BestReturnType
         {
-            get => ExpectedReturnType.Extract(ert => ert.IsSubtypeOf(bestReturnType, false)?ert:bestReturnType,bestReturnType);
+            get => ExpectedReturnType.Extract(ert => ert.IsSubtypeOf(bestReturnType, false) ? ert : bestReturnType, bestReturnType);
             set { bestReturnType = bestReturnType.Join(value); }
         }
 
@@ -147,18 +159,18 @@ namespace Nom.TypeChecker
         public StructTypeCheckLookup StructContext { get; }
         public ITypeCheckLookup<Language.IType, Language.ITypeArgument> Context { get; }
 
-        private Dictionary<string,LocalVariable> localVariables = new Dictionary<string,LocalVariable>();
+        private Dictionary<string, LocalVariable> localVariables = new Dictionary<string, LocalVariable>();
         public IVariableReference AddLocalVariable(Identifier ident, Language.IType type)
         {
             return AddLocalVariable(ident, type, null);
         }
         public IVariableReference AddLocalVariable(Identifier ident, Language.IType type, IRegister register)
         {
-            if(ident.Name=="this"||ident.Name=="dis")
+            if (ident.Name == "this" || ident.Name == "dis")
             {
                 throw new TypeCheckException("$1 is a reserved name!", ident);
             }
-            if(localVariables.ContainsKey(ident.Name))
+            if (localVariables.ContainsKey(ident.Name))
             {
                 throw new TypeCheckException("A variable named $1 is already defined in this scope!", ident);
             }
@@ -171,7 +183,7 @@ namespace Nom.TypeChecker
         public IOptional<ICallableReference> AsCallable(IExprTransformResult value, IEnumerable<Language.IType> argTypes)
         {
             var meth = GetMethod(value, new AArgIdentifier<Identifier, Language.IType>(new Identifier("", value.Locs), new List<Language.IType>()), argTypes);
-            if(!meth.HasElem)
+            if (!meth.HasElem)
             {
                 throw new InternalException("(Optimistic) callable should have fitting invoke method");
             }
@@ -192,7 +204,7 @@ namespace Nom.TypeChecker
 
         public ILocalVariable GetCurrentVersion(ILocalVariable var)
         {
-            if(!localVariables.ContainsKey(var.Name))
+            if (!localVariables.ContainsKey(var.Name))
             {
                 throw new InternalException("Local variable does not exist!");
             }
@@ -206,7 +218,7 @@ namespace Nom.TypeChecker
 
         public IOptional<ICallableReference> GetLocalCallable(IArgIdentifier<Identifier, Language.IType> callableName, IEnumerable<Language.IType> argTypes)
         {
-            if(callableName.Arguments.Count()==0 && localVariables.ContainsKey(callableName.Name.Name))
+            if (callableName.Arguments.Count() == 0 && localVariables.ContainsKey(callableName.Name.Name))
             {
                 return AsCallable(new LocalVariableRef(callableName.Name, localVariables[callableName.Name.Name]).GenerateReadAccess(this), argTypes);
             }
@@ -240,7 +252,7 @@ namespace Nom.TypeChecker
 
         public void MergeIn(ICodeTransformEnvironment env)
         {
-            foreach(LocalVariable lv in localVariables.Values)
+            foreach (LocalVariable lv in localVariables.Values)
             {
                 lv.CurrentRegister = env.GetCurrentVersion(lv).CurrentRegister;
             }
