@@ -157,6 +157,7 @@ namespace Nom.TypeChecker
                 PhiNode curBlock = nextBlock;
                 instructions.Add(curBlock);
                 guard = eip.Item1.Visit(this, nextBlock).EnsureType(StdLib.StdLib.BoolType, curBlock);
+                instructions.AddRange(guard); // elseif condition doesnt be compiled into bytecode
                 thenBlock = new TargetPhiNode();
                 nextBlock = new TargetPhiNode();
                 cbi = new CondBranchInstruction(guard.Register, thenBlock, nextBlock, curBlock);
@@ -236,7 +237,7 @@ namespace Nom.TypeChecker
                     }
                     return ret.Elem;
                 },
-                etr=>
+                etr =>
                 {
                     IOptional<IVariableReference> ret = env[stmt.Variable];
                     if (!ret.HasElem)
@@ -330,8 +331,48 @@ namespace Nom.TypeChecker
             return new ExprTransformResult(StdLib.Bool.Instance.ClassType, bfi.Register, bfi.Singleton());
         };
 
+        private int shortCircuitCounter = 0;
+        private IExprTransformResult TransformShortCircuit(BinOpExpr expr, ICodeTransformEnvironment env)
+        {
+            bool isAnd = expr.Operator.Operator == BinaryOperator.And;
+            List<IInstruction> instructions = new List<IInstruction>();
+            ScopeTransformEnvironment outer = new ScopeTransformEnvironment(env);
+            Identifier tmpIdent = new Identifier("$shortcircuit" + (shortCircuitCounter++), expr.Locs);
+            IVariableReference tmp = outer.AddLocalVariable(tmpIdent, StdLib.StdLib.BoolType);
+
+            IExprTransformResult left = expr.Left.Visit(this, outer).EnsureType(StdLib.StdLib.BoolType, outer);
+            instructions.AddRange(tmp.GenerateWriteAccess(left, outer));
+
+            MergePhiNode mergephi = new MergePhiNode(outer);
+            ScopeTransformEnvironment ste = new ScopeTransformEnvironment(mergephi);
+            TargetPhiNode evalBlock = new TargetPhiNode();
+            TargetPhiNode skipBlock = new TargetPhiNode();
+            instructions.Add(isAnd ? new CondBranchInstruction(left.Register, evalBlock, skipBlock, ste) : new CondBranchInstruction(left.Register, skipBlock, evalBlock, ste));
+
+            instructions.Add(evalBlock);
+            IExprTransformResult right = expr.Right.Visit(this, evalBlock).EnsureType(StdLib.StdLib.BoolType, evalBlock);
+            instructions.AddRange(evalBlock[tmpIdent].Elem.GenerateWriteAccess(right, evalBlock));
+            instructions.Add(new BranchInstruction(mergephi, evalBlock));
+
+            instructions.Add(skipBlock);
+            instructions.Add(new BranchInstruction(mergephi, skipBlock));
+
+            mergephi.FinalizeMerges();
+            instructions.Add(mergephi);
+            outer.MergeIn(mergephi);
+
+            IExprTransformResult result = outer[tmpIdent].Elem.GenerateReadAccess(outer);
+            instructions.AddRange(result);
+            expr.TypeAnnotation = StdLib.StdLib.BoolType.GetParserType();
+            return new ExprTransformResult(StdLib.StdLib.BoolType, result.Register, instructions, expr.Locs);
+        }
+
         public Func<BinOpExpr, ICodeTransformEnvironment, IExprTransformResult> VisitBinOpExpr => (expr, env) =>
         {
+            if (expr.Operator.Operator == BinaryOperator.And || expr.Operator.Operator == BinaryOperator.Or)
+            {
+                return TransformShortCircuit(expr, env);
+            }
             IExprTransformResult left = expr.Left.Visit(this, env);
             IExprTransformResult right = expr.Right.Visit(this, env);
             bool leftintopt = left.Type.IsSubtypeOf(StdLib.Int.Instance.ClassType, true);
@@ -1067,7 +1108,7 @@ namespace Nom.TypeChecker
                 IOptional<IVariableReference> varref = env[expr.Name];
                 if (varref.HasElem)
                 {
-                    if(expr.Name.Name=="this")
+                    if (expr.Name.Name == "this")
                     {
                         return env.ThisHandler(varref.Elem.GenerateReadAccess(env));
                     }
@@ -1125,7 +1166,7 @@ namespace Nom.TypeChecker
                                 return env.ValueResultHandler(null);//TODO: implement static field access
                             }));
                     },
-                    etr=>
+                    etr =>
                     {
                         if (expr.Identifier.Arguments.Count() > 0)
                         {
@@ -1276,7 +1317,7 @@ namespace Nom.TypeChecker
                                  throw new TypeCheckException("Class $0 does not have a static method called $1", typeref, expr.Identifier);
                              }), null);
                     },
-                    etr=>
+                    etr =>
                     {
                         IOptional<ICallableReference> callableRef = env.GetMethod(etr, expr.Identifier.TransformArg(t => t.TransformType(env.Context)), env.Arguments.Select(arg => arg.Type)).Coalesce(() => (env[expr.Identifier.Name].Join(fav => env.AsCallable(fav.GenerateReadAccess(env), env.Arguments.Select(arg => arg.Type)))));
                         if (callableRef.HasElem)

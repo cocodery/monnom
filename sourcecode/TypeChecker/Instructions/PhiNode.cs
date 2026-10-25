@@ -212,7 +212,7 @@ namespace Nom.TypeChecker
 
             protected override ALocalVariableCopy CreateLocalVariableCopy(ILocalVariable lv)
             {
-                var lvc= new LoopVariableCopy(lv);
+                var lvc = new LoopVariableCopy(lv);
                 this.variableCopies.Add(lv.Name, lvc);
                 lvc.RegisterChange += RaiseVariableRegisterChanged;
                 return lvc;
@@ -327,11 +327,12 @@ namespace Nom.TypeChecker
                 var dict = sources.ToDictionary<IBranchInstruction, IBranchInstruction, IRegister>(x => x, x => x.OutEnvironment.GetCurrentVersion(this).CurrentRegister);
                 if (dict.Values.Any(r => r?.Index != reg?.Index) && !dict.Values.Any(r => r == null))
                 {
-                    reg = parent.CreateRegister();
+                    reg = parent.CreateRegister(); // for phi node
                     foreach (IBranchInstruction source in sources)
                     {
                         source.RegisterIncoming(reg, dict[source]);
                     }
+                    CurrentRegister = reg; // write the result to phi node
                     return (reg, Type).InjectOptional();
                 }
                 return Optional<(IRegister, Language.IType)>.Empty;
@@ -496,7 +497,7 @@ namespace Nom.TypeChecker
 
         private void Parent_VariableRegisterChanged(ICodeTransformEnvironment arg1, ILocalVariable arg2, IRegister arg3, IRegister arg4)
         {
-            if(!varCopies.ContainsKey(arg2.Name))
+            if (!varCopies.ContainsKey(arg2.Name))
             {
                 var x = this[new Identifier(arg2.Name)];
             }
@@ -519,7 +520,7 @@ namespace Nom.TypeChecker
         {
             var lvc = new LocalVariableCopy(lv);
             varCopies.Add(lv.Name, lvc);
-            lvc.RegisterChange += (x,y,z)=> throw new InternalException("Branch environment copy should not be used for code generation");
+            lvc.RegisterChange += (x, y, z) => throw new InternalException("Branch environment copy should not be used for code generation");
             return lvc;
         }
 
