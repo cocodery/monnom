@@ -15,11 +15,13 @@
 #include "NomTopType.h"
 #include "NomType.h"
 #include "NomTypeDecls.h"
+#include "NomValue.h"
 #include "RTCast.h"
 #include "RTCompileConfig.h"
 #include "RTLambda.h"
 #include "RTOutput.h"
 #include "RTSignature.h"
+#include "TypeOperations.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
@@ -306,7 +308,12 @@ Function *NomLambdaBody::createLLVMElement(
   auto argpos = 1;
   for (auto &arg : this->GetArgumentTypes(&nscmc)) {
     auto val = (*env)[argpos];
-    RTCast::GenerateCast(builder, env, val, arg);
+    // RTCast::GenerateCast(builder, env, val, arg);
+    auto refVal =
+        NomValue(EnsurePackedUnpacked(builder, val, REFTYPE), val.GetNomType());
+    auto castVal = RTCast::GenerateCast(builder, env, refVal, arg);
+    (*env)[argpos] = NomValue(
+        EnsurePackedUnpacked(builder, castVal, arg->GetLLVMType()), arg);
     argpos++;
   }
 
