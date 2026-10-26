@@ -126,7 +126,9 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
       } else {
         curArg = MakeLoad(builder,
                           builder->CreateGEP(
-                              varargs[RTConfig_NumberOfVarargsArguments],
+                              builder->CreatePointerCast(
+                                  varargs[RTConfig_NumberOfVarargsArguments],
+                                  POINTERTYPE->getPointerTo()),
                               MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
                           "varArg", AtomicOrdering::NotAtomic);
       }
@@ -141,7 +143,9 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
       } else {
         MakeStore(builder, curArg,
                   builder->CreateGEP(
-                      varargs[RTConfig_NumberOfVarargsArguments],
+                      builder->CreatePointerCast(
+                          varargs[RTConfig_NumberOfVarargsArguments],
+                          POINTERTYPE->getPointerTo()),
                       MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
                   AtomicOrdering::NotAtomic);
       }

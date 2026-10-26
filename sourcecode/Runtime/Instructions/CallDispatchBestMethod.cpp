@@ -57,8 +57,11 @@ void CallDispatchBestMethod::Compile(NomBuilder &builder, CompileEnv *env,
   size_t argbufpos = 0;
   Value *extArgArray = nullptr;
   if (dispargcount > RTConfig_NumberOfVarargsArguments) {
-    extArgArray = builder->CreateAlloca(POINTERTYPE, dispargcount - 2);
-    argbuf[RTConfig_NumberOfVarargsArguments + 2] =
+    extArgArray = builder->CreateAlloca(
+        POINTERTYPE,
+        MakeInt32(dispargcount - (RTConfig_NumberOfVarargsArguments - 1)),
+        "argarray");
+    argbuf[RTConfig_NumberOfVarargsArguments + 1] =
         builder->CreatePointerCast(extArgArray, POINTERTYPE);
   }
   while (argbufpos < typeargcount) {

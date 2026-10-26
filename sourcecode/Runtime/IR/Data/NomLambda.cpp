@@ -305,6 +305,24 @@ Function *NomLambdaBody::createLLVMElement(
 
   builder->SetInsertPoint(matchBlock);
   NomSubstitutionContextMemberContext nscmc(this);
+  // for function that the last argument is varargs
+  // exact arguments to current environment
+  auto argTypes = this->GetArgumentTypes(&nscmc);
+  size_t argCount = argTypes.size();
+  if (argCount > (size_t)RTConfig_NumberOfVarargsArguments) {
+    auto idx = RTConfig_NumberOfVarargsArguments - 1;
+    auto varargs = builder->CreatePointerCast(
+        argsarr[1 + RTConfig_NumberOfVarargsArguments],
+        POINTERTYPE->getPointerTo());
+    for (size_t i = idx; i < argCount; i++) {
+      auto argVal =
+          MakeLoad(builder, builder->CreateGEP(varargs, MakeInt32(i - idx)),
+                   "varArg", AtomicOrdering::NotAtomic);
+      (*env)[i + 1] = NomValue(argVal, argTypes[i]);
+    }
+  }
+  // arguments are always raw packed pointers which mismatch the declared types
+  // class interface dyn are all REFTYPE here
   auto argpos = 1;
   for (auto &arg : this->GetArgumentTypes(&nscmc)) {
     auto val = (*env)[argpos];

@@ -193,8 +193,7 @@ llvm::StoreInst *MakeStore(NomBuilder &builder, llvm::Module &mod,
   {builder->CreatePointerCast(pval,POINTERTYPE),builder->CreatePointerCast(ptr,POINTERTYPE)}
   });*/
   llvm::StoreInst *store = builder->CreateStore(val, ptr);
-  store->setAlignment(
-      llvm::Align(GetNomJITDataLayout().getTypeSizeInBits(val->getType())));
+  store->setAlignment(GetNomJITDataLayout().getABITypeAlign(val->getType()));
   store->setAtomic(ordering);
   return store;
 }
@@ -220,8 +219,8 @@ llvm::StoreInst *MakeStore(NomBuilder &builder, llvm::Value *val,
   llvm::Value *actualpointer = builder->CreateGEP(
       ptr, llvm::ArrayRef<llvm::Value *>(indexbuf, indexcount + 1));
   llvm::StoreInst *store = builder->CreateStore(val, actualpointer);
-  store->setAlignment(llvm::Align(GetNomJITDataLayout().getTypeSizeInBits(
-      ((PointerType *)actualpointer->getType())->getElementType())));
+  store->setAlignment(GetNomJITDataLayout().getABITypeAlign(
+      ((PointerType *)actualpointer->getType())->getElementType()));
   store->setAtomic(ordering);
   return store;
 }
@@ -241,8 +240,8 @@ llvm::StoreInst *MakeStore(NomBuilder &builder, llvm::Value *val,
   llvm::Value *actualpointer = builder->CreateGEP(
       ptr, {MakeInt32(0), builder->CreateZExtOrTrunc(index, inttype(32))});
   llvm::StoreInst *store = builder->CreateStore(val, actualpointer);
-  store->setAlignment(llvm::Align(GetNomJITDataLayout().getTypeSizeInBits(
-      ((PointerType *)actualpointer->getType())->getElementType())));
+  store->setAlignment(GetNomJITDataLayout().getABITypeAlign(
+      ((PointerType *)actualpointer->getType())->getElementType()));
   store->setAtomic(ordering);
   return store;
 }
@@ -327,8 +326,8 @@ llvm::LoadInst *MakeLoad(NomBuilder &builder, llvm::Module &mod,
   {builder->CreatePointerCast(pval,POINTERTYPE),
   builder->CreatePointerCast(ptr,POINTERTYPE)} });*/
   // load->setAtomic(ordering);
-  load->setAlignment(llvm::Align(GetNomJITDataLayout().getTypeSizeInBits(
-      ((PointerType *)ptr->getType())->getElementType())));
+  load->setAlignment(GetNomJITDataLayout().getABITypeAlign(
+      ((PointerType *)ptr->getType())->getElementType()));
   load->setAtomic(ordering);
   return load;
 }
@@ -356,8 +355,8 @@ llvm::LoadInst *MakeLoad(NomBuilder &builder, llvm::Value *ptr,
   llvm::Value *actualpointer = builder->CreateGEP(
       ptr, llvm::ArrayRef<llvm::Value *>(indexbuf, indexcount + 1));
   llvm::LoadInst *load = builder->CreateLoad(actualpointer, name);
-  load->setAlignment(llvm::Align(GetNomJITDataLayout().getTypeSizeInBits(
-      ((PointerType *)actualpointer->getType())->getElementType())));
+  load->setAlignment(GetNomJITDataLayout().getABITypeAlign(
+      ((PointerType *)actualpointer->getType())->getElementType()));
   load->setAtomic(ordering);
   return load;
 }
@@ -377,8 +376,8 @@ llvm::LoadInst *MakeLoad(NomBuilder &builder, llvm::Value *ptr,
   llvm::Value *actualpointer = builder->CreateGEP(
       ptr, {MakeInt32(0), builder->CreateZExtOrTrunc(index, inttype(32))});
   llvm::LoadInst *load = builder->CreateLoad(actualpointer, name);
-  load->setAlignment(llvm::Align(GetNomJITDataLayout().getTypeSizeInBits(
-      ((PointerType *)actualpointer->getType())->getElementType())));
+  load->setAlignment(GetNomJITDataLayout().getABITypeAlign(
+      ((PointerType *)actualpointer->getType())->getElementType()));
   load->setAtomic(ordering);
   return load;
 }

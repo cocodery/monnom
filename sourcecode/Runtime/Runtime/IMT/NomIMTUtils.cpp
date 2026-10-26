@@ -124,8 +124,11 @@ static Value *ReadIMTArgument(NomBuilder &builder, Value **varargs,
   if (pos < regCount || regCount + 1 == paramCount) {
     return varargs[pos];
   }
-  return MakeInvariantLoad(
-      builder, builder->CreateGEP(varargs[regCount], MakeInt32(pos - regCount)),
+  return MakeLoad(
+      builder,
+      builder->CreateGEP(builder->CreatePointerCast(
+                             varargs[regCount], POINTERTYPE->getPointerTo()),
+                         MakeInt32(pos - regCount)),
       "varArg", AtomicOrdering::NotAtomic);
 }
 

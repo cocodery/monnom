@@ -159,7 +159,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
         RefValueHeader::GenerateReadRawInvoke(builder, recNV),
         GetIMTFunctionType()->getPointerTo());
     auto argsArrSize = method.Elem->GetArgumentCount() +
-                       method.Elem->GetDirectTypeParametersCount() -
+                       method.Elem->GetDirectTypeParametersCount() + 1 -
                        RTConfig_NumberOfVarargsArguments;
     if (method.Elem->GetArgumentCount() +
             method.Elem->GetDirectTypeParametersCount() >
@@ -173,10 +173,10 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
                argsArrSize),
            builder->CreatePointerCast(argsasarr, POINTERTYPE)});
-      for (int j = method.Elem->GetArgumentCount() +
-                   method.Elem->GetDirectTypeParametersCount() - 1;
-           j >= 2; j--) {
-        MakeStore(builder, WrapAsPointer(builder, argarr[j + 1]),
+      for (int j = argsArrSize - 1; j >= 0; j--) {
+        MakeStore(builder,
+                  WrapAsPointer(builder,
+                                argarr[j + RTConfig_NumberOfVarargsArguments]),
                   builder->CreateGEP(argsasarr, MakeInt32(j), "arginarray"),
                   AtomicOrdering::NotAtomic);
       }
@@ -214,7 +214,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
 
     Value *invariantID = nullptr;
     auto argsArrSize = method.Elem->GetArgumentCount() +
-                       method.Elem->GetDirectTypeParametersCount() -
+                       method.Elem->GetDirectTypeParametersCount() + 1 -
                        RTConfig_NumberOfVarargsArguments;
     if (method.Elem->GetArgumentCount() +
             method.Elem->GetDirectTypeParametersCount() >
@@ -231,10 +231,10 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                GetNomJITDataLayout().getTypeAllocSize(POINTERTYPE) *
                argsArrSize),
            builder->CreatePointerCast(argsasarr, POINTERTYPE)});
-      for (int j = method.Elem->GetArgumentCount() +
-                   method.Elem->GetDirectTypeParametersCount() - 1;
-           j >= 2; j--) {
-        MakeStore(builder, WrapAsPointer(builder, argarr[j + 1]),
+      for (int j = argsArrSize - 1; j >= 0; j--) {
+        MakeStore(builder,
+                  WrapAsPointer(builder,
+                                argarr[j + RTConfig_NumberOfVarargsArguments]),
                   builder->CreateGEP(argsasarr, MakeInt32(j), "arginarray"),
                   AtomicOrdering::NotAtomic);
       }

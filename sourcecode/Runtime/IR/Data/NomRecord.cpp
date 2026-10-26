@@ -585,10 +585,12 @@ NomRecord::GetDynamicDispatcherLookup(llvm::Module &mod,
             RTConfig_NumberOfVarargsArguments + 1 == paramCount) {
           curArg = varargs[j];
         } else {
-          curArg = MakeInvariantLoad(
+          curArg = MakeLoad(
               builder,
               builder->CreateGEP(
-                  varargs[RTConfig_NumberOfVarargsArguments],
+                  builder->CreatePointerCast(
+                      varargs[RTConfig_NumberOfVarargsArguments],
+                      POINTERTYPE->getPointerTo()),
                   MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
               "varArg", AtomicOrdering::NotAtomic);
         }
