@@ -384,14 +384,20 @@ class Main
 	# END Test_LambdaArgumentToTypedMethod
 
 	# BEGIN Test_BitOps
-	# R7: & | ^ on Int were not implemented ("Invalid operation on given operands!")
+	# R7: & | ^ on Int were not implemented ("Invalid operation on given operands!");
+	#     << and >> were neither parsed nor implemented (>> keeps the sign, and only the
+	#     low 6 bits of the shift amount count)
 	public static fun Test_BitOps() : Void
 	{
 		Int a = 12;
 		Int b = 10;
 		Int r = (a & b) * 10000 + (a | b) * 100 + (a ^ b);
-		if(r == 81406) { Main.Pass("Test_BitOps"); }
-		else { Main.Fail("Test_BitOps"); Main.Show(r); Main.End(); }
+		Int n = 0 - 16;
+		Int s = (a << 2) * 100 + (a >> 2);
+		Int t = n >> 2;
+		Int u = a << 66;
+		if(r == 81406 && s == 4803 && t == 0 - 4 && u == 48) { Main.Pass("Test_BitOps"); }
+		else { Main.Fail("Test_BitOps"); Main.Show(r); Main.Show(s); Main.Show(t); Main.Show(u); Main.End(); }
 	}
 	# END Test_BitOps
 

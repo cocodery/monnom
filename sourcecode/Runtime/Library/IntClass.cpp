@@ -93,7 +93,7 @@ extern "C" DLLEXPORT const void *LIB_NOM_Int_ToString_1(const int64_t value) {
   char buf[64];
   snprintf(buf, 64, "%" PRIiPTR "", value);
   Nom::Runtime::NomString *nomstring =
-      new (Nom::Runtime::gcalloc_atomic(sizeof(Nom::Runtime::NomString)))
+      new (Nom::Runtime::gcalloc(sizeof(Nom::Runtime::NomString)))
           Nom::Runtime::NomString(buf);
   return nomstring->GetStringObject();
 }

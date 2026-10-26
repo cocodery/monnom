@@ -7,6 +7,7 @@
 #include "IntClass.h"
 #include "Metadata.h"
 #include "NomClassType.h"
+#include "NomValue.h"
 #include "NomValuePrimitiveCases.h"
 #include "RTOutput.h"
 #include "RefValueHeader.h"
@@ -1421,6 +1422,64 @@ NomValue BinOpInstruction::CompileIntInt(NomBuilder &builder, CompileEnv *env,
   case BinaryOperation::RefEquals:
     return NomValue(builder->CreateICmpEQ(left, right),
                     NomBoolClass::GetInstance()->GetType());
+  case BinaryOperation::BitAND:
+    return NomValue(builder->CreateAnd(left, right),
+                    NomIntClass::GetInstance()->GetType());
+  case BinaryOperation::BitOR:
+    return NomValue(builder->CreateOr(left, right),
+                    NomIntClass::GetInstance()->GetType());
+  case BinaryOperation::BitXOR:
+    return NomValue(builder->CreateXor(left, right),
+                    NomIntClass::GetInstance()->GetType());
+  // the low 6 bits of the shift amount are used (as in Java)
+  case BinaryOperation::ShiftLeft:
+    return NomValue(
+        builder->CreateShl(left, builder->CreateAnd(right, MakeIntLike(right, 63))),
+        NomIntClass::GetInstance()->GetType());
+  case BinaryOperation::ShiftRight:
+    return NomValue(
+        builder->CreateAShr(left,
+                            builder->CreateAnd(right, MakeIntLike(right, 63))),
+        NomIntClass::GetInstance()->GetType());
+  case BinaryOperation::Power: {
+    Function *fun = builder->GetInsertBlock()->getParent();
+    BasicBlock *startBlock = builder->GetInsertBlock();
+    BasicBlock *loopBlock = BasicBlock::Create(LLVMCONTEXT, "powLoop", fun);
+    BasicBlock *bodyBlock = BasicBlock::Create(LLVMCONTEXT, "powBody", fun);
+    BasicBlock *doneBlock = BasicBlock::Create(LLVMCONTEXT, "powDone", fun);
+    BasicBlock *outBlock = BasicBlock::Create(LLVMCONTEXT, "powOut", fun);
+    auto negative = builder->CreateICmpSLT(right, MakeIntLike(right, 0));
+    builder->CreateCondBr(negative, outBlock, loopBlock);
+
+    builder->SetInsertPoint(loopBlock);
+    auto result = builder->CreatePHI(INTTYPE, 2, "powResult");
+    auto base = builder->CreatePHI(INTTYPE, 2, "powBase");
+    auto exponent = builder->CreatePHI(INTTYPE, 2, "powExponent");
+    result->addIncoming(MakeIntLike(left, 1), startBlock);
+    base->addIncoming(left, startBlock);
+    exponent->addIncoming(right, startBlock);
+    builder->CreateCondBr(
+        builder->CreateICmpSGT(exponent, MakeIntLike(right, 0)), bodyBlock,
+        doneBlock);
+
+    builder->SetInsertPoint(bodyBlock);
+    auto odd = builder->CreateTrunc(exponent, inttype(1));
+    auto nextResult =
+        builder->CreateSelect(odd, builder->CreateMul(result, base), result);
+    result->addIncoming(nextResult, bodyBlock);
+    base->addIncoming(builder->CreateMul(base, base), bodyBlock);
+    exponent->addIncoming(builder->CreateAShr(exponent, 1), bodyBlock);
+    builder->CreateBr(loopBlock);
+
+    builder->SetInsertPoint(doneBlock);
+    builder->CreateBr(outBlock);
+
+    builder->SetInsertPoint(outBlock);
+    auto outPHI = builder->CreatePHI(INTTYPE, 2, "pow");
+    outPHI->addIncoming(MakeIntLike(left, 0), startBlock);
+    outPHI->addIncoming(result, doneBlock);
+    return NomValue(outPHI, NomIntClass::GetInstance()->GetType());
+  }
   default: {
     auto nullVal = PoisonValue::get(REFTYPE);
     return NomValue(nullVal, NomType::Anything);
@@ -1465,6 +1524,10 @@ NomValue BinOpInstruction::CompileFloatFloat(NomBuilder &builder,
   case BinaryOperation::LessOrEqualTo:
     return NomValue(builder->CreateFCmpOLE(left, right),
                     NomBoolClass::GetInstance()->GetType());
+  case BinaryOperation::Power:
+    return NomValue(
+        builder->CreateBinaryIntrinsic(llvm::Intrinsic::pow, left, right),
+        NomFloatClass::GetInstance()->GetType());
   default: {
     auto nullVal = PoisonValue::get(REFTYPE);
     return NomValue(nullVal, NomType::Anything);

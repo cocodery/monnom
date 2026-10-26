@@ -136,6 +136,15 @@ NomStringClass *NomStringClass::GetInstance() {
     NomObjectClass::GetInstance();
     NomIntClass::GetInstance();
     NomVoidClass::GetInstance();
+
+    NomTypeRef *stringTypeArr = makenmalloc(NomTypeRef, 1);
+    stringTypeArr[0] = nsc.GetType();
+    NomMethodInternal *concat = new NomMethodInternal(
+        &nsc, "Concat", "LIB_NOM_String_Concat_1", true);
+    concat->SetDirectTypeParameters();
+    concat->SetArgumentTypes(TypeList(stringTypeArr, 1));
+    concat->SetReturnType(nsc.GetType());
+    nsc.AddMethod(concat);
     // nsc.PreprocessInheritance();
   }
   return &nsc;
@@ -152,6 +161,15 @@ extern "C" DLLEXPORT void *LIB_NOM_String_Print_1(void *str) {
   // ((NomStringRef)(ObjectHeader(str).Fields()-sizeof(intptr_t)))->ToStdString();
   return (void *)((
       intptr_t)(NomJIT::Instance().getSymbolAddress("RT_NOM_VOIDOBJ")));
+}
+
+extern "C" DLLEXPORT void *LIB_NOM_String_Concat_1(void *str, void *other) {
+  auto left = (NomStringRef)GetReadFieldFunction()(str, 0);
+  auto right = (NomStringRef)GetReadFieldFunction()(other, 0);
+  // not atomic: the string's character buffer is a separate GC allocation
+  NomString *result = new (gcalloc(sizeof(NomString))) NomString(*left);
+  result->append(*right);
+  return result->GetStringObject();
 }
 
 llvm::Function *GetDebugPrint(llvm::Module *mod) {

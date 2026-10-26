@@ -39,6 +39,7 @@ public:
 // extern const Nom::Runtime::RTClass * const _RTStringClassRTC;
 
 extern "C" DLLEXPORT void *LIB_NOM_String_Print_1(void *str);
+extern "C" DLLEXPORT void *LIB_NOM_String_Concat_1(void *str, void *other);
 llvm::Function *GetDebugPrint(llvm::Module *mod);
 
 llvm::Function *GetDebugPrintHex(llvm::Module *mod);
