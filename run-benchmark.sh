@@ -4,7 +4,8 @@
 # the running times.
 #
 # usage: ./run-benchmark.sh <test> [name|CONFIG] [-p [DIR]] [-r RUNS]
-#                           [--plot-only | --no-gen | --compare]
+#                           [--plot-only | --no-gen | --compare | --dry-run |
+#                            --clean]
 #                           [-- RUNTIME_FLAGS...]
 #
 #   <test>          benchmark folder in experiments/monnom (sort, sieve, float)
@@ -24,6 +25,10 @@
 #                   (the generator only runs for the first)
 #   -- FLAGS...     extra flags passed to the nom runtime, after the default
 #                   -o3 so they override it (e.g. --trans, -o1, -w2)
+#   --dry-run       only generate the configurations with nombench, do not
+#                   run, collect or chart them
+#   --clean         delete the files generated for <test> (.BM_* configurations,
+#                   results.csv, *.mnil, *.manifest, llvmir*.lli) and exit
 #
 # With -p the chart is written to <DIR>/<name>.png, as make_charts_png.sh
 # does (kaleido needs Chrome; install it once with plotly_get_chrome).
@@ -31,7 +36,7 @@ RUNBENCH_SELF="$( realpath "${BASH_SOURCE[0]}" )"
 RUNBENCH_DIR="$( dirname "$RUNBENCH_SELF" )"
 
 runbench_usage() {
-  sed -n '6,26p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
+  sed -n '6,31p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
   echo "available tests:"
   for d in "$RUNBENCH_DIR"/experiments/monnom/*/; do
     [ -f "$d/plotconfig.json" ] && echo "  $(basename "$d")"
@@ -51,16 +56,19 @@ variant_flags() {
 
 TEST=""
 RUNS=1
+RUNS_GIVEN=0
 OUTNAME=""
 OUTDIR=""
 PLOT=0
 PLOTONLY=0
 NOGEN=0
 COMPARE=0
+CLEAN=0
+DRYRUN=0
 FORWARD=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    -r) RUNS="$2"; shift 2 ;;
+    -r) RUNS="$2"; RUNS_GIVEN=1; shift 2 ;;
     -p) PLOT=1; shift
         # the next word, unless it is an option, is the output directory
         if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
@@ -69,6 +77,8 @@ while [ $# -gt 0 ]; do
     --plot-only) PLOTONLY=1; PLOT=1; shift ;;
     --no-gen) NOGEN=1; shift ;;
     --compare) COMPARE=1; shift ;;
+    --clean) CLEAN=1; shift ;;
+    --dry-run) DRYRUN=1; shift ;;
     -h|--help) runbench_usage ;;
     --) shift; FORWARD=("$@"); break ;;
     -*) echo "ERROR: unknown option $1"; runbench_usage ;;
@@ -92,6 +102,14 @@ elif [[ "$OUTNAME" =~ ^[A-Z]+$ ]]; then
        "(run ./run-benchmark.sh $TEST once to generate them)"
   exit 1
 fi
+if [ $DRYRUN -eq 1 ] && { [ -n "$CONFIG" ] || [ $PLOT -eq 1 ] ||
+   [ $COMPARE -eq 1 ] || [ $NOGEN -eq 1 ] || [ $CLEAN -eq 1 ] ||
+   [ $RUNS_GIVEN -eq 1 ] || [ ${#FORWARD[@]} -gt 0 ]; }; then
+  echo "ERROR: --dry-run only generates configurations; it cannot be" \
+       "combined with a CONFIG, -p, -r, --plot-only, --no-gen, --compare," \
+       "--clean or runtime flags"
+  exit 1
+fi
 if [ -n "$CONFIG" ] && [ $PLOT -eq 1 ]; then
   echo "ERROR: -p and --plot-only make no sense for a single configuration"
   exit 1
@@ -110,6 +128,13 @@ BENCHDIR="$MONNOMBASE/experiments/monnom/$TEST"
 if [ ! -f "$BENCHDIR/plotconfig.json" ]; then
   echo "ERROR: $BENCHDIR has no plotconfig.json (not a chartable benchmark)"
   runbench_usage
+fi
+if [ $CLEAN -eq 1 ]; then
+  echo "== removing generated files in $BENCHDIR"
+  rm -rf "$BENCHDIR"/.BM_*
+  rm -f "$BENCHDIR"/results.csv "$BENCHDIR"/*.mnil "$BENCHDIR"/*.manifest \
+        "$BENCHDIR"/llvmir*.lli
+  exit 0
 fi
 MNPS=( "$BENCHDIR"/*.mnp )
 if [ ${#MNPS[@]} -ne 1 ] || [ ! -f "${MNPS[0]}" ]; then
@@ -200,6 +225,21 @@ EXTRA=()
 case "$TEST" in
   sort) EXTRA=(--byfile) ;;
 esac
+
+if [ $DRYRUN -eq 1 ]; then
+  # without -r nombench only generates the configurations
+  rm -rf "$BENCHDIR"/.BM_*
+  echo "== nombench --path $BENCHDIR --project $PROJECT ${EXTRA[*]}"
+  nombench --path "$BENCHDIR" --project "$PROJECT" "${EXTRA[@]}" \
+    || { echo "ERROR: nombench failed"; exit 1; }
+  CONFIGS=( "$BENCHDIR"/.BM_*/ )
+  if [ ! -d "${CONFIGS[0]}" ]; then
+    echo "ERROR: nombench generated no configurations"
+    exit 1
+  fi
+  echo "OK: generated ${#CONFIGS[@]} configuration(s) in $BENCHDIR (not run)"
+  exit 0
+fi
 
 if [ $PLOTONLY -eq 0 ]; then
   # nombench never deletes old out*.txt, and collect.rkt reads them all, so

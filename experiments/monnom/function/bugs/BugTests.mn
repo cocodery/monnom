@@ -99,6 +99,19 @@ class Pair<A, B>
 	public constructor(A a, B b) { First = a; Second = b; }
 }
 
+class GenCell
+{
+	public Int V;
+	public constructor(Int v) { V = v; }
+	public fun Apply<U>(Fun<Int, U> f) : U { return f(V); }
+}
+class GenBox<T>
+{
+	public T V;
+	public constructor(T v) { V = v; }
+	public fun Apply<U>(Fun<T, U> f) : U { return f(V); }
+}
+
 class Main
 {
 	public static fun Pass(String name) : Void
@@ -447,11 +460,11 @@ class Main
 		dyn d = Main.Id("x");
 		dyn dy = d ++ "y";
 		# String == compares references: run_test.sh compares the printed text
-		"Test_StringConcat: COMPARE ".Print();
+		"Test_StringConcat: COMPARE \n".Print();
 		s.Print();
 		" ".Print();
 		dy.Print();
-		"|01234567891011121314151617181920212223242526272829 xy\n".Print();
+		"\n01234567891011121314151617181920212223242526272829 xy\n".Print();
 	}
 	# END Test_StringConcat
 
@@ -495,6 +508,28 @@ class Main
 	}
 	# END Test_GenericInstantiation
 
+	# BEGIN Test_GenericMethod
+	# G1: instance methods with their own type parameters, called as obj.M<X>(...).
+	#     Each step fails until the one before it is fixed:
+	#     - compiler: the call's type is the method's U, not X ("U is not a subtype of Int")
+	#     - compiler: the call's type argument is written as TypeVar(U) instead of X
+	#       (runtime: "Invalid index!" assertion while resolving the method constant)
+	#     - runtime: NomClass::GetDynamicDispatcherLookup treats the method's type
+	#       argument as a value argument (j >= instead of j >), so compiling GenCell throws
+	#     - runtime: NomInterface::GetMethod's third branch, which only these calls reach
+	#       (its second loop had no i++; it may also list the method's type arguments twice)
+	public static fun Test_GenericMethod() : Void
+	{
+		GenCell c = new GenCell(20);
+		Int a = c.Apply<Int>((Int x) => x + 1);
+		GenBox<Int> g = new GenBox<Int>(5);
+		Int b = g.Apply<Int>((Int x) => x * 3);
+		Float h = g.Apply<Float>((Int x) => x * 0.5);
+		if(a == 21 && b == 15 && h == 2.5) { Main.Pass("Test_GenericMethod"); }
+		else { Main.Fail("Test_GenericMethod"); Main.Show(a); Main.Show(b); Main.Show(h); Main.End(); }
+	}
+	# END Test_GenericMethod
+
 	public static fun Main() : Void
 	{
 		# TESTS-BEGIN (run_test.sh keeps one of these lines)
@@ -520,6 +555,7 @@ class Main
 		Main.Test_FloatEqualsDyn();
 		Main.Test_InterfaceExtends();
 		Main.Test_GenericInstantiation();
+		Main.Test_GenericMethod();
 		# TESTS-END
 	}
 }

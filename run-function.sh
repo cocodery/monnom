@@ -2,7 +2,7 @@
 # Compile and run the functional tests in experiments/monnom/function and
 # check that each one passes.
 #
-# usage: ./run-function.sh [TEST...] [--compare] [-- NOM_FLAGS...]
+# usage: ./run-function.sh [TEST...] [--compare | --clean] [-- NOM_FLAGS...]
 #
 #   TEST...         test folders in experiments/monnom/function
 #                   (default: all of them)
@@ -10,6 +10,8 @@
 #                   --trans --sync; all three outputs must be identical
 #   -- FLAGS...     extra flags passed to nom, after the default -o3 so
 #                   they override it (e.g. --trans, -o1)
+#   --clean         delete the files generated for the tests (*.mnil,
+#                   *.manifest, llvmir*.lli) and exit
 #
 # A test passes when nomc compiles it, nom exits with status 0 within
 # RUNFN_TIMEOUT seconds (default 300), and the output has no "FAIL",
@@ -23,7 +25,7 @@ FUNCDIR="$RUNFN_DIR/experiments/monnom/function"
 TIMEOUT="${RUNFN_TIMEOUT:-300}"
 
 runfn_usage() {
-  sed -n '5,12p' "$RUNFN_SELF" | sed 's/^# \{0,1\}//'
+  sed -n '5,14p' "$RUNFN_SELF" | sed 's/^# \{0,1\}//'
   echo "available tests:"
   for d in "$FUNCDIR"/*/; do
     compgen -G "$d*.mnp" > /dev/null && echo "  $(basename "$d")"
@@ -50,10 +52,12 @@ runfn_check_output() {
 
 TESTS=()
 COMPARE=0
+CLEAN=0
 FORWARD=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --compare) COMPARE=1; shift ;;
+    --clean) CLEAN=1; shift ;;
     -h|--help) runfn_usage ;;
     --) shift; FORWARD=("$@"); break ;;
     -*) echo "ERROR: unknown option $1"; runfn_usage ;;
@@ -72,6 +76,13 @@ for T in "${TESTS[@]}"; do
     runfn_usage
   fi
 done
+if [ $CLEAN -eq 1 ]; then
+  for T in "${TESTS[@]}"; do
+    echo "== removing generated files in $FUNCDIR/$T"
+    rm -f "$FUNCDIR/$T"/*.mnil "$FUNCDIR/$T"/*.manifest "$FUNCDIR/$T"/llvmir*.lli
+  done
+  exit 0
+fi
 MODES=("")
 [ $COMPARE -eq 1 ] && MODES=(base trans trans-sync)
 

@@ -1,33 +1,41 @@
 # MonNom bug fixes for review
 
-These bugs came up while porting the GTP benchmarks to MonNom (`gtp-benchmark-monnom/`). Each one has a test function in `tests/BugTests.mn`, named in the table below.
+These bugs came up while porting the GTP benchmarks to MonNom (`gtp-benchmark-monnom/`). Each one has a test function in `BugTests.mn`, named in the table below.
 
-**The runtime fixes are not applied.** `sourcecode/Runtime` is back to `HEAD`, and `sourcecode/Runtime/nom` was rebuilt from it. **The compiler fixes are still applied**: they change `sourcecode/TypeChecker` and `sourcecode/Bytecode`.
+**Status (2026-10-28):**
+- Committed: C1–C9, R1–R3, R6–R11.
+- Applied in the working tree but not committed: R4, R5, R12.
+- In progress: R13, R14.
+- Open: G1 (generic instance methods). It has a test, `Test_GenericMethod`, but no fix yet.
 
 ## Contents of this folder
 
 | Path | Contents |
 |---|---|
-| `files/` | Every changed file, at its repository path, in its fixed version |
-| `runtime.patch` | `git diff` of `sourcecode/Runtime` (bugs R1–R14) |
-| `compiler.patch` | `git diff` of `sourcecode/TypeChecker` and `sourcecode/Bytecode` (bugs C1–C9). These changes are also in the working tree. |
-| `tests/BugTests.mn`, `tests/BugTests.mnp` | One test function per bug |
+| `BugTests.mn`, `BugTests.mnp` | One test function per bug |
 | `run_test.sh` | Compiles and runs the tests |
+| `BUGS.md` | This file |
+
+The reference fixes for R1–R14 are still in `bugfixes/` at the repository root: `bugfixes/runtime.patch` (`git diff` of `sourcecode/Runtime`) and `bugfixes/files/` (the fixed versions of the changed runtime files). The compiler patch for C1–C9 was removed after those fixes were committed.
 
 ## Running the tests
 
 ```bash
-bugfixes/run_test.sh                       # all tests in one process, -o3
-bugfixes/run_test.sh Test_Alignment        # one test only
-bugfixes/run_test.sh -- -o3 --trans        # other nom flags
-NOMC="dotnet <old>/nomc.dll" bugfixes/run_test.sh Test_IfAssign   # another compiler
+T=experiments/monnom/function/bugs/run_test.sh
+$T                                         # all tests in one process, -o3
+$T Test_Alignment                          # one test only
+$T Test_Alignment -- -o0                   # one test, other nom flags
+$T -- -o3 --trans                          # all tests, other nom flags
+NOMC="dotnet <old>/nomc.dll" $T Test_IfAssign   # another compiler
 ```
 
-The runtime compiles every method of `Main` when it loads the class, so one runtime bug in any test crashes the whole run. With a test name, `run_test.sh` deletes every other test's `# BEGIN Test_X` … `# END Test_X` block before compiling. Use that mode to see each bug on its own.
+The script works from any directory. It finds `setpath.sh` by searching upwards from its own folder.
 
-Each test uses only the construct it is about. Results go through `if`/`else`, which avoids Bool arguments (bug R5). The tests also avoid `++` (bug R10) and calls with more than two arguments (bug R2), except in the tests for those bugs. MonNom `==` on strings compares references, so the string test prints `COMPARE got|expected` and `run_test.sh` compares the text.
+The runtime compiles every method of `Main` when it loads the class, so one runtime bug in any test crashes the whole run. A compile error anywhere, such as the open G1 bug, also stops the whole file. With a test name, `run_test.sh` deletes every other test's `# BEGIN Test_X` … `# END Test_X` block before compiling. Use that mode to see each bug on its own.
 
-To apply the runtime fixes: `git apply bugfixes/runtime.patch`, then rebuild the runtime. To undo the compiler fixes: `git apply -R bugfixes/compiler.patch`, then run `./build.sh`.
+Each test uses only the construct it is about. Results go through `if`/`else`, which avoids Bool arguments (bug R5). The tests also avoid `++` (bug R10) and calls with more than two arguments (bug R2), except in the tests for those bugs. MonNom `==` on strings compares references, so the string test prints a `<name>: COMPARE` line, followed by the actual text and then the expected text, one line each. `run_test.sh` compares the two lines and prints PASS or FAIL.
+
+To apply all reference runtime fixes at once: `git apply bugfixes/runtime.patch`, then rebuild the runtime. Most of them are already in the tree, so apply single files with `--include=<path>` instead.
 
 ## Results
 
@@ -55,9 +63,11 @@ To apply the runtime fixes: `git apply bugfixes/runtime.patch`, then rebuild the
 | Test_FloatEqualsDyn | R12 | invalid IR ("Instruction does not dominate all uses") | PASS |
 | Test_InterfaceExtends | R13 | abort (`std::exception*`) | PASS |
 | Test_GenericInstantiation | R14 | abort (`NomString const*` thrown) | PASS |
+| Test_GenericMethod | G1 | compile error ("U is not a subtype of Int") | not fixed yet |
 
 - **Original** means the original runtime for R1–R14 and the original compiler for C1–C9, with each test run alone.
-- **Fixed** means both patches applied. With them, all 22 tests pass under `-o0`, `-o3`, `-o3 --trans` and `-o3 --trans --sync`.
+- **Fixed** means both reference patches applied. With them, the first 22 tests pass under `-o0`, `-o3`, `-o3 --trans` and `-o3 --trans --sync`.
+- `Test_BitOps` now also checks `<<` and `>>` (see R7). With the original compiler it fails earlier, with the parse error `extraneous input '<'`.
 - Several R tests also depend on another R fix: R1, R3 and R4 need R2's argument-array fixes before they can show their own bug.
 
 ---
@@ -156,9 +166,12 @@ The fix allocates `MakeInt32(dispargcount - (V - 1))` entries and stores the arr
 - **Cause:** a lambda's argument registers are the raw `i8*` IMT arguments. `NomLambdaBody::createLLVMElement` called `RTCast::GenerateCast` on each one and discarded the result.
 - **Fix:** each argument is converted to `REFTYPE`, cast-checked, and stored in the register in the declared type's representation, unboxed for `Int`/`Float`.
 
-### R7: `&`, `|` and `^` on `Int`
-- **Cause:** `BinOpInstruction::CompileIntInt` had no cases for them, so it returned a poison value, which the caller turns into "Invalid operation on given operands!".
-- **Fix:** add `CreateAnd`, `CreateOr` and `CreateXor`.
+### R7: `&`, `|`, `^`, `<<` and `>>` on `Int`
+- **Cause:** `BinOpInstruction::CompileIntInt` had no cases for them, so it returned a poison value, which the caller turns into "Invalid operation on given operands!". `<<` and `>>` also failed earlier, in the parser: the lexer's `<<`/`>>` tokens are commented out, because a `>>` token would break nested type arguments like `A<B<C>>`.
+- **Fix:**
+  - Add `CreateAnd`, `CreateOr` and `CreateXor`.
+  - For the shifts, `Parser/Special/NominalGradual.g4` gets two `expr` alternatives that match two adjacent `LANGLE`/`RANGLE` tokens. They sit between `+`/`-` and `&`, so `a + 1 << 2` is `(a + 1) << 2`. The type checker already sent them to `BinOpInstruction` for `Int`.
+  - `CompileIntInt` implements `<<` as `CreateShl` and `>>` as `CreateAShr`, which keeps the sign. Only the low 6 bits of the shift amount are used, as in Java, because LLVM shifts by 64 or more are poison.
 
 ### R8: `**`
 - **Cause:** there was no `Power` case for `Int` or `Float`.
@@ -197,7 +210,25 @@ Fix: return after the case; use `floatBlock`, `floatValue` and `CreateFNeg`; box
   1. builds the environment's type arguments into a `TypeArgumentListStack` frame, with variable `i` at `types[-1-i]` as the subtyping code reads them;
   2. calls the existing `RT_NOM_EnsureUniquedType` on the static type constant;
   3. returns the canonical runtime instance.
-- **R14c, infinite loop:** in `NomInterface::GetMethod`, the loop that copies a method's type arguments after the context's never incremented `i`.
+- **R14c, infinite loop:** in `NomInterface::GetMethod`, the loop that copies a method's type arguments after the context's never incremented `i`. That branch is only reached by calls to generic instance methods, which G1 still blocks.
+
+---
+
+## Open: generic instance methods (G1)
+
+An instance method with its own type parameters, called as `obj.M<X>(…)`, cannot run yet. This applies to methods like `fun Apply<U>(Fun<T, U> f) : U`, whether or not the class itself is generic. Generic **static** methods, such as `Enumerable.Map<T, S>` in `experiments/monnom/float`, take a different path and are not affected.
+
+`Test_GenericMethod` calls `Apply<U>` in three ways:
+- on a non-generic class (`GenCell`);
+- on a generic class with `U = T` (`GenBox<Int>.Apply<Int>`);
+- on a generic class with `U ≠ T` (`GenBox<Int>.Apply<Float>`), so that a wrong type-argument list shows up.
+
+The problems below are listed in the order the test hits them. Each one hides the next.
+
+1. **Compiler, return type not substituted:** the call's type is the method's `U`, not `X`, so `Int a = c.Apply<Int>(…)` fails with "U is not a subtype of Int". This is the same kind of bug as C9, but for method type parameters.
+2. **Compiler, type argument written as a type variable:** the method constant encodes the call as `Apply<TypeVar 0>` (in `GenBox<T>`, `TypeVar 1`): the method's own parameter `U`, not the argument `X`. At runtime, `NomMethodConstant::GetMethod` resolves it in the caller's context and fails the assertion `ArrayRef … Invalid index!` in `NomSubstitutionContextMemberContext::GetTypeVariable`.
+3. **Runtime, off-by-one in `NomClass::GetDynamicDispatcherLookup` (`IR/Data/NomClass.cpp`):** the parameters are `[0]` receiver, `[1..T]` the method's type arguments (`TYPETYPE`), `[T+1..]` the value arguments. The check `j >= meth->GetDirectTypeParametersCount()` should be `j >`. As it is, the type argument is converted like a value, and `EnsurePackedUnpacked(REFTYPE → TYPETYPE)` throws. This happens as soon as any class with a generic instance method is compiled, for example at `new GenCell(20)`, even if the method is never called.
+4. **Runtime, `NomInterface::GetMethod`'s third branch** (R14c's loop): only these calls reach it. The `context` passed in already contains the call's type arguments (`NomMethodConstant::GetMethod` builds it as class arguments followed by method type arguments). The branch then appends `typeArgs` again, so the method's type arguments may end up in the list twice. This can't be checked until 1–3 are fixed.
 
 ---
 
