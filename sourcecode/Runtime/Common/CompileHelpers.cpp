@@ -1,9 +1,11 @@
 #include "CompileHelpers.h"
 #include "CallingConvConf.h"
 #include "CompileEnv.h"
+#include "Defs.h"
 #include "Metadata.h"
 #include "NomJIT.h"
 #include "NomJITLight.h"
+#include "TypeOperations.h"
 
 using namespace llvm;
 using namespace std;
@@ -53,6 +55,9 @@ CallInst *GenerateFunctionCall(NomBuilder &builder, Module &mod, Value *fun,
         continue;
       } else if (argtype == FLOATTYPE) {
         pargs[i] = PackFloat(builder, args[i]);
+        continue;
+      } else if (argtype == BOOLTYPE) {
+        pargs[i] = PackBool(builder, args[i]);
         continue;
       } else if (argtype->isPointerTy()) {
         pargs[i] = builder->CreatePointerCast(args[i], REFTYPE);
@@ -113,6 +118,9 @@ CallInst *GenerateFunctionCall(NomBuilder &builder, Module &mod, Function *fun,
         continue;
       } else if (argtype == FLOATTYPE) {
         pargs[i] = PackFloat(builder, args[i]);
+        continue;
+      } else if (argtype == BOOLTYPE) {
+        pargs[i] = PackBool(builder, args[i]);
         continue;
       } else if (argtype->isPointerTy()) {
         pargs[i] = builder->CreatePointerCast(args[i], REFTYPE);

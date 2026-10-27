@@ -2,10 +2,10 @@
 #include "LibrarySource.h"
 #include "LibraryVersion.h"
 #include "NomProgram.h"
-#include <cstdlib>
-#include <list>
 #include "RTConfig.h"
+#include <cstdlib>
 #include <filesystem>
+#include <list>
 
 namespace Nom {
 namespace Runtime {
@@ -74,7 +74,7 @@ const LibraryVersion *Loader::GetLibrary(const std::string *name) const {
       for (const LibraryDependency &dep : version.Dependencies) {
         GetLibrary(&dep.Name);
       }
-      libraries[name] = lib;
+      libraries[lib->Name] = lib;
       return lib;
     }
   }

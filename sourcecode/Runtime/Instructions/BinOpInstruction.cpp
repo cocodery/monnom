@@ -960,7 +960,7 @@ void BinOpInstruction::Compile(NomBuilder &builder, CompileEnv *env,
         builder->SetInsertPoint(rightPrimitiveIntBlock);
         auto floatEq = builder->CreateFCmpOEQ(
             leftPrimitiveFloat,
-            builder->CreateSIToFP(rightPrimitiveFloat, FLOATTYPE));
+            builder->CreateSIToFP(rightPrimitiveInt, FLOATTYPE));
         builder->CreateCondBr(floatEq, eqblock, neqblock);
       }
       if (rightPrimitiveFloatBlock != nullptr) {
