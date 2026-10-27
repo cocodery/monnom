@@ -71,8 +71,13 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
 
   argarr[0] = (*env)[Receiver];
 
-  for (int i = 1; i <= method.Elem->GetDirectTypeParametersCount(); i++) {
-    argarr[i] = method.TypeArgs[i]->GetLLVMElement(*env->Module);
+  // method.TypeArgs holds the class's type arguments followed by the method's
+  // own; the method's may contain the caller's type variables
+  auto directTypeArgCount = method.Elem->GetDirectTypeParametersCount();
+  auto classTypeArgCount = method.TypeArgs.size() - directTypeArgCount;
+  for (size_t i = 1; i <= directTypeArgCount; i++) {
+    argarr[i] = method.TypeArgs[classTypeArgCount + i - 1]
+                    ->GenerateRTInstantiation(builder, env);
   }
 
   for (int i = env->GetArgCount() - 1; i >= 0; i--) {
@@ -85,7 +90,10 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
 
   Type *pt;
   Type *argt;
-  for (int i = env->GetArgCount(); i >= 0; i--) {
+  // every parameter: [0] receiver, [1..T] type arguments (skipped), then the
+  // value arguments
+  for (int i = env->GetArgCount() + method.Elem->GetDirectTypeParametersCount();
+       i >= 0; i--) {
     if (i > 0 && i <= method.Elem->GetDirectTypeParametersCount()) {
       continue;
     }
@@ -331,10 +339,12 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
 
     Value *methodptr = ObjectHeader::GetDispatchMethodPointer(
         builder, env, Receiver, lineno, method);
-    auto call =
-        builder->CreateCall(method.Elem->GetLLVMFunctionType(), methodptr,
-                            llvm::ArrayRef<llvm::Value *>(
-                                argarr, method.Elem->GetArgumentCount() + 1));
+    // receiver, the method's own type arguments, then the value arguments
+    auto call = builder->CreateCall(
+        method.Elem->GetLLVMFunctionType(), methodptr,
+        llvm::ArrayRef<llvm::Value *>(
+            argarr, method.Elem->GetArgumentCount() +
+                        method.Elem->GetDirectTypeParametersCount() + 1));
     call->setName("calling " + method.Elem->GetName());
     call->setCallingConv(NOMCC);
     RegisterValue(env, NomValue(call, method.Elem->GetReturnType(&nscl), true));

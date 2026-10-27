@@ -72,6 +72,8 @@ namespace Nom.TypeChecker
                     {
                         continue;
                     }
+                    //the method's own type parameters stand for the call's type arguments, like for static methods
+                    var methodEnv = env.Push(method.TypeParameters, typeArguments);
                     bool validTypeArgs = true;
                     foreach (var (tps, targ) in method.TypeParameters.Zip(typeArguments, (x, y) => (x, y)))
                     {
@@ -90,7 +92,7 @@ namespace Nom.TypeChecker
                     List<Language.IType> formalTypes = new List<IType>();
                     foreach (var (paramType, argType) in method.Parameters.Entries.Zip(argumentTypes, (x, y) => (x, y)))
                     {
-                        var formalType = ((ISubstitutable<Language.IType>)paramType.Type).Substitute(env);
+                        var formalType = ((ISubstitutable<Language.IType>)paramType.Type).Substitute(methodEnv);
                         formalTypes.Add(formalType);
                         if (!argType.IsSubtypeOf(formalType, false))
                         {
@@ -108,11 +110,11 @@ namespace Nom.TypeChecker
                     }
                     if (pessimisticArgs)
                     {
-                        references.Add(new CheckedInstanceMethodReference(method, typeArguments, formalTypes, env));
+                        references.Add(new CheckedInstanceMethodReference(method, typeArguments, formalTypes, methodEnv));
                     }
                     else
                     {
-                        references.Add(new OptimisticInstanceMethodReference(method, typeArguments, formalTypes, env));
+                        references.Add(new OptimisticInstanceMethodReference(method, typeArguments, formalTypes, methodEnv));
                     }
                 }
                 if (references.Count == 1)

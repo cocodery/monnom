@@ -174,7 +174,7 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
   NomSubstitutionContextMemberContext nscmc(meth);
   CastedValueCompileEnv cvce = CastedValueCompileEnv(
       meth->GetDirectTypeParameters(), nomRecord->GetAllTypeParameters(), fun,
-      2, paramCount,
+      2, meth->GetArgumentCount(),
       ObjectHeader::GeneratePointerToTypeArguments(builder, varargs[0]));
 
   for (decltype(paramCount) j = 0; j < paramCount; j++) {
@@ -188,7 +188,8 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
         curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
       }
     }
-    if (j >= targCount) {
+    // [0] receiver, [1..targCount] the method's type arguments, then values
+    if (j == 0 || j > targCount) {
       curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
       if (j > targCount) {
         curArg = RTCast::GenerateCast(

@@ -769,9 +769,17 @@ namespace Nom.TypeChecker
                 {
                     throw new TypeCheckException("Method $0 has the same name as a record field", md.Name.Name);
                 }
-                ParametersSpec ps = new ParametersSpec(md.Args.Select(arg => new ArgumentDeclDef(arg.Name, arg.Type.TransformType(env.Context))));
-                TypeParametersSpec tps = new TypeParametersSpec(md.Name.Arguments.Select((arg, i) => new TDTypeArgDeclDef(arg.Name, env.Context.Container.OverallTypeParameterCount + i,/* arg.Variance,*/ arg.UpperBound.TransformType(env.Context), arg.LowerBound.TransformType(env.Context))));
-                StructMethodDef smd = new StructMethodDef(md.Name.Name, tps, ps, md.Returns.TransformType(env.Context), tdstruct);
+                if (md.Name.Arguments.Any())
+                {
+                    //record methods take their type arguments before the receiver, but every
+                    //dispatch path passes the receiver first, so they cannot be called yet
+                    throw new TypeCheckException("Record method $0 cannot have type parameters", md.Name.Name);
+                }
+                TypeParametersSpec tps = new TypeParametersSpec(md.Name.Arguments.Select((arg, i) => new TDTypeArgDeclDef(arg.Name, env.Context.Container.OverallTypeParameterCount + i,/* arg.Variance,*/ arg.UpperBound?.TransformType(env.Context), arg.LowerBound?.TransformType(env.Context))).ToList());
+                //the method's own type parameters are in scope in its signature, as for class methods
+                var methodContext = env.Context.PushVariables(tps);
+                ParametersSpec ps = new ParametersSpec(md.Args.Select(arg => new ArgumentDeclDef(arg.Name, arg.Type.TransformType(methodContext))));
+                StructMethodDef smd = new StructMethodDef(md.Name.Name, tps, ps, md.Returns.TransformType(methodContext), tdstruct);
                 tdstruct.AddMethod(smd);
                 methodPairs.Add((md, smd));
             }

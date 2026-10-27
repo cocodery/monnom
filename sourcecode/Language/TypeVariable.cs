@@ -42,7 +42,8 @@ namespace Nom.Language
         public override bool IsSubtypeOf(IType other, bool optimistic = false)
         {
             TypeVisitor<object, bool> tv = new TypeVisitor<object, bool>();
-            tv.DefaultAction = (t, o) => false;
+            //T <: X whenever T's upper bound is, as IsSupertypeOf uses the lower bound
+            tv.DefaultAction = (t, o) => ParameterSpec.UpperBound.IsSubtypeOf(t, optimistic);
             tv.VisitDynamicType = (dt, o) => true;
             tv.VisitTypeVariable = (tvar, o) => tvar.ParameterSpec.Equals(this.ParameterSpec);
             tv.VisitMaybeType = (mb, o) => mb.IsSupertypeOf(this, optimistic);

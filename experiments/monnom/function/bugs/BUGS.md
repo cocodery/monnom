@@ -3,8 +3,7 @@
 These bugs came up while porting the GTP benchmarks to MonNom (`gtp-benchmark-monnom/`). Each one has a test function in `BugTests.mn`, named in the table below.
 
 **Status (2026-10-28):**
-- Committed: C1–C9, R1-R15.
-- Open: G1 (generic instance methods). It has a test, `Test_GenericMethod`, but no fix yet.
+- Committed: C1–C9, R1-R15, G1 (generic instance methods).
 
 ## Contents of this folder
 
@@ -29,7 +28,7 @@ NOMC="dotnet <old>/nomc.dll" $T Test_IfAssign   # another compiler
 
 The script works from any directory. It finds `setpath.sh` by searching upwards from its own folder.
 
-The runtime compiles every method of `Main` when it loads the class, so one runtime bug in any test crashes the whole run. A compile error anywhere, such as the open G1 bug, also stops the whole file. With a test name, `run_test.sh` deletes every other test's `# BEGIN Test_X` … `# END Test_X` block before compiling. Use that mode to see each bug on its own.
+The runtime compiles every method of `Main` when it loads the class, so one runtime bug in any test crashes the whole run. A compile error anywhere also stops the whole file. With a test name, `run_test.sh` deletes every other test's `# BEGIN Test_X` … `# END Test_X` block before compiling. Use that mode to see each bug on its own.
 
 Each test uses only the construct it is about. Results go through `if`/`else`, which avoids Bool arguments (bug R5). The tests also avoid `++` (bug R10) and calls with more than two arguments (bug R2), except in the tests for those bugs. MonNom `==` on strings compares references, so the string test prints a `<name>: COMPARE` line, followed by the actual text and then the expected text, one line each. `run_test.sh` compares the two lines and prints PASS or FAIL.
 
@@ -62,7 +61,7 @@ To apply all reference runtime fixes at once: `git apply bugfixes/runtime.patch`
 | Test_InterfaceExtends | R13 | abort (`std::exception*`) | PASS |
 | Test_GenericInstantiation | R14 | abort (`NomString const*` thrown) | PASS |
 | Test_BareReturn | R15 | compiler crash (`NullReferenceException` in `VisitReturnStmt`) | PASS |
-| Test_GenericMethod | G1 | compile error ("U is not a subtype of Int") | not fixed yet |
+| Test_GenericMethod | G1 | compile error ("U is not a subtype of Int") | PASS |
 
 - **Original** means the original runtime for R1–R14 and the original compiler for C1–C9, with each test run alone.
 - **Fixed** means both reference patches applied. With them, the first 22 tests pass under `-o0`, `-o3`, `-o3 --trans` and `-o3 --trans --sync`.
@@ -209,7 +208,7 @@ Fix: return after the case; use `floatBlock`, `floatValue` and `CreateFNeg`; box
   1. builds the environment's type arguments into a `TypeArgumentListStack` frame, with variable `i` at `types[-1-i]` as the subtyping code reads them;
   2. calls the existing `RT_NOM_EnsureUniquedType` on the static type constant;
   3. returns the canonical runtime instance.
-- **R14c, infinite loop:** in `NomInterface::GetMethod`, the loop that copies a method's type arguments after the context's never incremented `i`. That branch is only reached by calls to generic instance methods, which G1 still blocks.
+- **R14c, infinite loop:** in `NomInterface::GetMethod`, the loop that copies a method's type arguments after the context's never incremented `i`. That branch is only reached by calls to generic instance methods; see G1, which also fixes how the branch builds the list.
 
 ### R15: a bare `return;`
 R15 is fixed in the compiler (`sourcecode/TypeChecker`), not the runtime.
@@ -226,21 +225,47 @@ R15 is fixed in the compiler (`sourcecode/TypeChecker`), not the runtime.
 
 ---
 
-## Open: generic instance methods (G1)
+## G1: generic instance methods
 
-An instance method with its own type parameters, called as `obj.M<X>(…)`, cannot run yet. This applies to methods like `fun Apply<U>(Fun<T, U> f) : U`, whether or not the class itself is generic. Generic **static** methods, such as `Enumerable.Map<T, S>` in `experiments/monnom/float`, take a different path and are not affected.
+An instance method with its own type parameters, called as `obj.M<X>(…)`, could not run. This applies to methods like `fun Apply<U>(Fun<T, U> f) : U`, whether or not the class itself is generic. Generic **static** methods, such as `Enumerable.Map<T, S>` in `experiments/monnom/float`, take a different path and already worked.
 
-`Test_GenericMethod` calls `Apply<U>` in three ways:
-- on a non-generic class (`GenCell`);
-- on a generic class with `U = T` (`GenBox<Int>.Apply<Int>`);
-- on a generic class with `U ≠ T` (`GenBox<Int>.Apply<Float>`), so that a wrong type-argument list shows up.
+The root cause is the same throughout: the code that handles method calls was written for methods whose only type parameters are the class's. A method's **own** type parameters were left out in four places in the compiler, and the parameter positions they occupy were miscounted in six places in the runtime. Nothing had ever called such a method, so each problem hid the next.
 
-The problems below are listed in the order the test hits them. Each one hides the next.
+`Test_GenericMethod` covers every call path: a class (`GenCell.Apply<Int>`), a generic class with `U = T` and with `U ≠ T` (`GenBox<Int>.Apply<Int>`, `.Apply<Float>`), an interface (`IGenApply.Apply<Int>` on a `GenCell`), a dynamic receiver (`d.Apply<Int>`), generic code passing its own `T` (`GenUser<T>` calling `b.Apply<T>`), and two type parameters plus two values (`Second<U, W>`, typed and dynamic; the second type argument then sits in the overflow array).
 
-1. **Compiler, return type not substituted:** the call's type is the method's `U`, not `X`, so `Int a = c.Apply<Int>(…)` fails with "U is not a subtype of Int". This is the same kind of bug as C9, but for method type parameters.
-2. **Compiler, type argument written as a type variable:** the method constant encodes the call as `Apply<TypeVar 0>` (in `GenBox<T>`, `TypeVar 1`): the method's own parameter `U`, not the argument `X`. At runtime, `NomMethodConstant::GetMethod` resolves it in the caller's context and fails the assertion `ArrayRef … Invalid index!` in `NomSubstitutionContextMemberContext::GetTypeVariable`.
-3. **Runtime, off-by-one in `NomClass::GetDynamicDispatcherLookup` (`IR/Data/NomClass.cpp`):** the parameters are `[0]` receiver, `[1..T]` the method's type arguments (`TYPETYPE`), `[T+1..]` the value arguments. The check `j >= meth->GetDirectTypeParametersCount()` should be `j >`. As it is, the type argument is converted like a value, and `EnsurePackedUnpacked(REFTYPE → TYPETYPE)` throws. This happens as soon as any class with a generic instance method is compiled, for example at `new GenCell(20)`, even if the method is never called.
-4. **Runtime, `NomInterface::GetMethod`'s third branch** (R14c's loop): only these calls reach it. The `context` passed in already contains the call's type arguments (`NomMethodConstant::GetMethod` builds it as class arguments followed by method type arguments). The branch then appends `typeArgs` again, so the method's type arguments may end up in the list twice. This can't be checked until 1–3 are fixed.
+### Compiler (`sourcecode/TypeChecker`, `sourcecode/Language`)
+
+1. **The call's type arguments were never bound to the method's type parameters.** `MethodReferenceVisitor.FilterMethodList` (`TypeChecker/TypeExtensions.cs`) substituted only the class's type arguments (`env.Push(cls.Substitutions)`). So `U` stayed `U` in:
+   - the parameter types used to pick the method;
+   - the call's return type: "U is not a subtype of Int";
+   - the method constant written to the bytecode, `Apply<TypeVar U>` instead of `Apply<Int>`. At runtime that read the caller's type variable `U`, which doesn't exist: an `Invalid index!` assertion.
+
+   **Fix:** `methodEnv = env.Push(method.TypeParameters, typeArguments)`, the same thing generic static methods already do (`ns.PArguments.Push(m.TypeParameters, method.Arguments)` in `CodeTransformEnvironment.GetStaticMethod`), used for the parameter types, the return type and the method constant.
+2. **A type variable was never a subtype of anything but itself.** `TypeVariable.IsSubtypeOf` (`Language/TypeVariable.cs`) had `DefaultAction = false`, so `T ≤ Top` was false. `FilterMethodList` checks each type argument against the method's bound, so `b.Apply<T>(…)` inside generic code found no method. **Fix:** fall back to the variable's upper bound, as `IsSupertypeOf` already falls back to its lower bound.
+3. **Generic methods never matched as overrides.** `MethodDeclDef.Overrides` and `MethodReference.Overrides` compared the signatures directly. The two methods' `U`s are different parameters (`TDTypeArgDeclDef` equality is index *and* parent method), so `GenCell.Apply<U>` didn't implement `IGenApply.Apply<U>`. Both stayed in the class's method list, and every `c.Apply<…>` call was ambiguous (`NotImplementedException` in `FilterMethodList`). **Fix:** read the other method's type parameters as this method's before comparing (the existing `//TODO: type parameter compatibility`; bound compatibility is still a TODO).
+4. **Interface method signatures could not use their own type parameters.** `InitializeMembersPass.HandleInterface` (`TypeChecker/TypeChecker.cs`) resolved the parameter and return types without pushing the method's type parameters, unlike the class branch next to it: "U<> not found!". **Fix:** push them, as for class methods. Record methods had the same scoping bug (`CodeTransformer.VisitStructExpr`), which is fixed too, but they are now rejected with a clear error (see below).
+
+### Runtime (`sourcecode/Runtime`)
+
+A class method's LLVM parameters are `[0]` receiver, `[1..T]` the method's type arguments (`TYPETYPE`), `[T+1..]` the value arguments.
+
+5. **Dispatchers treated the last type argument as a value.** `NomClass::GetDynamicDispatcherLookup` and `NomClass::GetRawInvokeFunction` (`IR/Data/NomClass.cpp`), and the record IMT entries in `Runtime/IMT/NomIMTUtils.cpp`, checked `j >= T` instead of "receiver or `j > T`". Any class with a generic method threw while being compiled (`EnsurePackedUnpacked(REFTYPE → TYPETYPE)`), even if the method was never called. **Fix:** `j == 0 || j > T`.
+6. **`CastedValueCompileEnv::GetTypeArgument` (`Common/CompileEnv.cpp`) could not read a method's own type arguments.** It is used when a value argument's type mentions the method's type parameter (`Fun<Int, U>`). It had four bugs:
+   - it used `i > instanceCount` instead of `>=`, so the method's first type parameter read past the class's type arguments;
+   - it subtracted the class's count twice;
+   - it returned the raw `i8*` slot instead of a `TYPETYPE`;
+   - in the overflow case it cast the array pointer itself to `TYPETYPE` and loaded a type head instead of an entry.
+
+   Separately, `NomClass` (×2) and `NomIMTUtils` passed `paramCount` where the number of **value** arguments is expected.
+7. **`NomInterface::GetMethod`'s third branch listed the method's type arguments twice** (`IR/Data/NomInterface.cpp`). `context` already ends with them, because `NomMethodConstant::GetMethod` builds it as the class's type arguments followed by the method's. **Fix:** take only the class part of `context`, then the call's type arguments, which gives exactly `GetTypeParametersCount()` entries. This is also the branch with R14c's missing `i++`.
+8. **`CallCheckedInstanceMethod::Compile` (`Instructions/CallCheckedInstanceMethod.cpp`) built typed calls wrongly:**
+   - It read the method's `i`-th type argument from `TypeArgs[i]`, but that list starts with the class's type arguments. It is now `TypeArgs[classCount + i - 1]`, and it uses `GenerateRTInstantiation`, so a type argument that contains the caller's type variables works too (R14b).
+   - The loop that converts arguments to the parameter types stopped at `GetArgCount()`, so with type arguments it missed the last value arguments.
+   - The class (vtable) path passed only the receiver and the value arguments, without the type arguments ("Incorrect number of arguments passed to called function").
+
+### Not supported: record methods with type parameters
+
+A record method's LLVM parameters are `[type arguments…, receiver, arguments…]` (`NomRecordMethod::GetLLVMFunctionType`, the same layout as a lambda body), but every call passes the receiver first. For `T = 0` the two orders agree. Supporting `T > 0` means reordering the parameters in every record dispatch path: `NomRecord::GetDynamicDispatcherLookup`, the record call tag, and the IMT entries. Until then the compiler rejects them: "Record method … cannot have type parameters".
 
 ---
 
@@ -252,6 +277,7 @@ The problems below are listed in the order the test hits them. Each one hides th
 - **`NomMaybeType::GenerateRTInstantiation`:** has the same undeclared-function problem as R14b, with `NOM_RTInstantiateMaybe`.
 - **`new Pair<B, A>(…)` inside `Pair<A, B>`:** rejected by the type checker.
 - **"Dictionary entry not found" (27 forth configurations):** comes from the dictionary-field code in `RuntimeData/Headers/RTDictionary/`. Not investigated.
-- **`experiments/monnom/lambdafield`:** no longer compiles, because of the "same name as a record field" check from commit `b87e361d`. That predates these changes.
+- **Lambdas whose parameters use a class type variable,** e.g. `(T x) => x` inside `class Wrap<T>`: the runtime crashes with `ArrayRef … Invalid index!`, because `NomLambdaBody::createLLVMElement` resolves the lambda's argument types without a substitution context (`GetArgumentTypes(nullptr)`). Unrelated to G1; `(dyn x) => x` works.
+- **Record methods with their own type parameters** (`new { fun M<U>(…) }`) are rejected by the compiler ("Record method … cannot have type parameters"). See G1.
 
 The benchmark configurations in `gtp-benchmark-monnom/{forth,sieve,snake,tetris,zombie}/.BM_*` were regenerated and run with all fixes applied. They are generated files, and the folder is now a separate submodule.

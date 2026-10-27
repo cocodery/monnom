@@ -38,12 +38,19 @@ namespace Nom.TypeChecker
         public bool Overrides(IMethodSpec other, ITypeEnvironment<IType> substitutions)
         {
             bool ret = Name == other.Name && TypeParameters.Count() == other.TypeParameters.Count() && Parameters.Entries.Count() == other.Parameters.Entries.Count() && Visibility == other.Visibility;
-            ret = ret && ReturnType.IsSubtypeOf(((ISubstitutable<IType>)other.ReturnType).Substitute(substitutions), true);
+            if (!ret)
+            {
+                return false;
+            }
+            //the other method's own type parameters are read as this method's (U' -> U), so
+            //generic methods can match
+            var renamed = substitutions.Push(other.TypeParameters, TypeParameters.Select(tp => (IType)new TypeVariable(tp)));
+            ret = ret && ReturnType.IsSubtypeOf(((ISubstitutable<IType>)other.ReturnType).Substitute(renamed), true);
             foreach (var tp in Parameters.Entries.Zip(other.Parameters.Entries, (x, y) => new Tuple<IType, IType>(x.Type, y.Type)))
             {
-                ret = ret && ((ISubstitutable<IType>)tp.Item2).Substitute(substitutions).IsSubtypeOf(tp.Item1, true);
+                ret = ret && ((ISubstitutable<IType>)tp.Item2).Substitute(renamed).IsSubtypeOf(tp.Item1, true);
             }
-            //TODO: type parameter compatibility
+            //TODO: type parameter bound compatibility
             return ret;
         }
 

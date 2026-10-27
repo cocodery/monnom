@@ -526,21 +526,28 @@ NomInterface::GetMethod(const NomSubstitutionContext *context,
             meth, context->GetTypeParameters());
       } else {
         // an instance method has its own type parameter like Foo<T>(...)
-        decltype(context->GetTypeArgumentCount()) contextCount =
-            context->GetTypeArgumentCount();
-        auto targArr = (NomTypeRef *)gcalloc(sizeof(NomTypeRef) *
-                                             (contextCount + typeArgs.size()));
-        int i = 0;
-        while (i < contextCount) {
+        // the method is instantiated with the class's type arguments followed
+        // by its own; the context may already end with the call's type
+        // arguments (NomMethodConstant builds it that way), so take only its
+        // class part from it
+        size_t totalCount = meth->GetTypeParametersCount();
+        if (typeArgs.size() > totalCount ||
+            context->GetTypeArgumentCount() < totalCount - typeArgs.size()) {
+          throw new std::exception();
+        }
+        size_t classCount = totalCount - typeArgs.size();
+        auto targArr = (NomTypeRef *)gcalloc(sizeof(NomTypeRef) * totalCount);
+        size_t i = 0;
+        while (i < classCount) {
           targArr[i] = context->GetTypeVariable(i);
           i++;
         }
-        while (i < contextCount + typeArgs.size()) {
-          targArr[i] = typeArgs[i - contextCount];
+        while (i < totalCount) {
+          targArr[i] = typeArgs[i - classCount];
           i++;
         }
         return NomInstantiationRef<const NomMethod>(
-            meth, TypeList(targArr, contextCount + typeArgs.size()));
+            meth, TypeList(targArr, totalCount));
       }
     }
   }

@@ -99,17 +99,24 @@ class Pair<A, B>
 	public constructor(A a, B b) { First = a; Second = b; }
 }
 
-class GenCell
+interface IGenApply { fun Apply<U>(Fun<Int, U> f) : U; }
+class GenCell implements IGenApply
 {
 	public Int V;
 	public constructor(Int v) { V = v; }
 	public fun Apply<U>(Fun<Int, U> f) : U { return f(V); }
+	public fun Second<U, W>(U a, W b) : W { return b; }
 }
 class GenBox<T>
 {
 	public T V;
 	public constructor(T v) { V = v; }
 	public fun Apply<U>(Fun<T, U> f) : U { return f(V); }
+}
+class GenUser<T>
+{
+	public constructor() { }
+	public fun Get(GenBox<T> b) : T { return b.Apply<T>((dyn x) => x); }
 }
 
 class Main
@@ -538,15 +545,11 @@ class Main
 	# END Test_BareReturn
 
 	# BEGIN Test_GenericMethod
-	# G1: instance methods with their own type parameters, called as obj.M<X>(...).
-	#     Each step fails until the one before it is fixed:
-	#     - compiler: the call's type is the method's U, not X ("U is not a subtype of Int")
-	#     - compiler: the call's type argument is written as TypeVar(U) instead of X
-	#       (runtime: "Invalid index!" assertion while resolving the method constant)
-	#     - runtime: NomClass::GetDynamicDispatcherLookup treats the method's type
-	#       argument as a value argument (j >= instead of j >), so compiling GenCell throws
-	#     - runtime: NomInterface::GetMethod's third branch, which only these calls reach
-	#       (its second loop had no i++; it may also list the method's type arguments twice)
+	public static fun UseGenApply(IGenApply m) : Int { return m.Apply<Int>((Int x) => x * 2); }
+	# G1: instance methods with their own type parameters, called as obj.M<X>(...),
+	#     through every call path: a class, a generic class (U = T and U != T), an
+	#     interface, a dynamic receiver, generic code passing its own T, and two type
+	#     parameters plus two values (a type argument then sits in the overflow array)
 	public static fun Test_GenericMethod() : Void
 	{
 		GenCell c = new GenCell(20);
@@ -554,8 +557,15 @@ class Main
 		GenBox<Int> g = new GenBox<Int>(5);
 		Int b = g.Apply<Int>((Int x) => x * 3);
 		Float h = g.Apply<Float>((Int x) => x * 0.5);
-		if(a == 21 && b == 15 && h == 2.5) { Main.Pass("Test_GenericMethod"); }
-		else { Main.Fail("Test_GenericMethod"); Main.Show(a); Main.Show(b); Main.Show(h); Main.End(); }
+		Int i = Main.UseGenApply(c);
+		dyn d = Main.Id(c);
+		dyn e = d.Apply<Int>((Int x) => x + 100);
+		GenUser<Int> u = new GenUser<Int>();
+		Int k = u.Get(g);
+		Float s = c.Second<Int, Float>(7, 1.5);
+		dyn t = d.Second<Int, Int>(7, 8);
+		if(a == 21 && b == 15 && h == 2.5 && i == 40 && e == 120 && k == 5 && s == 1.5 && t == 8) { Main.Pass("Test_GenericMethod"); }
+		else { Main.Fail("Test_GenericMethod"); Main.Show(a); Main.Show(b); Main.Show(h); Main.Show(i); Main.Show(e); Main.Show(k); Main.Show(s); Main.Show(t); Main.End(); }
 	}
 	# END Test_GenericMethod
 

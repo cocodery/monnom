@@ -588,9 +588,11 @@ namespace Nom.TypeChecker
                 {
                     foreach (Parser.MethodDecl md in elem.Methods)
                     {
-                        ParametersSpec ps = new ParametersSpec(md.Args.Select(arg => new ArgumentDeclDef(arg.Name, arg.Type.TransformType(context))));
-                        TypeParametersSpec tps = GenerateParametersSpec(md.Name.Arguments, tci.Container.OverallTypeParameterCount, context); 
-                        var mdecldef = new MethodDeclDef(md.Name.Name, tps, ps, md.Returns.TransformType(context), md.Visibility.Visibility, tci.Container);
+                        //the method's own type parameters are in scope in its signature, as for class methods
+                        TypeParametersSpec tps = GenerateParametersSpec(md.Name.Arguments, tci.Container.OverallTypeParameterCount, context);
+                        var ihcontext = context.PushVariables(tps);
+                        ParametersSpec ps = new ParametersSpec(md.Args.Select(arg => new ArgumentDeclDef(arg.Name, arg.Type.TransformType(ihcontext))));
+                        var mdecldef = new MethodDeclDef(md.Name.Name, tps, ps, md.Returns.TransformType(ihcontext), md.Visibility.Visibility, tci.Container);
                         tci.Definition.AddMethodDeclDef(mdecldef);
                         md.Annotation = mdecldef;
                     }

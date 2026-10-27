@@ -445,7 +445,9 @@ NomValue &CastedValueCompileEnv::operator[](const RegIndex index) {
 }
 NomTypeVarValue CastedValueCompileEnv::GetTypeArgument(NomBuilder &builder,
                                                        int i) {
-  if (i > instanceTypeArgs.size()) {
+  // variables 0 .. instance count - 1 are the instance's, the rest are the
+  // method's own (i is turned into an index into directTypeArgs below)
+  if (i >= (int)instanceTypeArgs.size()) {
     auto fargs = function->arg_begin();
     i -= instanceTypeArgs.size();
     auto funargcount =
@@ -455,18 +457,23 @@ NomTypeVarValue CastedValueCompileEnv::GetTypeArgument(NomBuilder &builder,
       for (int j = 0; j < regularArgsBegin + i; j++) {
         fargs++;
       }
-      return NomTypeVarValue(
-          fargs, new NomTypeVar(directTypeArgs[i - instanceTypeArgs.size()]));
+      // the IMT slots are i8*
+      return NomTypeVarValue(builder->CreatePointerCast(fargs, TYPETYPE),
+                             new NomTypeVar(directTypeArgs[i]));
     } else {
       for (int j = 0; j < function->getFunctionType()->getNumParams() - 1;
            j++) {
         fargs++;
       }
+      // the last slot points to an array of the remaining arguments
+      auto restArgs =
+          builder->CreatePointerCast(fargs, TYPETYPE->getPointerTo());
       return NomTypeVarValue(
-          MakeInvariantLoad(builder,
-                            builder->CreatePointerCast(fargs, TYPETYPE),
-                            MakeInt32(i - (funargcount - 1))),
-          new NomTypeVar(directTypeArgs[i - instanceTypeArgs.size()]));
+          MakeLoad(builder,
+                   builder->CreateGEP(restArgs,
+                                      MakeInt32(i - (funargcount - 1))),
+                   "typeArg", AtomicOrdering::NotAtomic),
+          new NomTypeVar(directTypeArgs[i]));
     }
   } else {
     return NomTypeVarValue(

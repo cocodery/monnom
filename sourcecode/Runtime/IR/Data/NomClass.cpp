@@ -527,7 +527,7 @@ NomClass::GetRawInvokeFunction(llvm::Module &mod,
     NomSubstitutionContextMemberContext nscmc(method);
     CastedValueCompileEnv cvce = CastedValueCompileEnv(
         method->GetDirectTypeParameters(), this->GetAllTypeParameters(), fun, 2,
-        paramCount,
+        method->GetArgumentCount(),
         ObjectHeader::GeneratePointerToTypeArguments(builder, varargs[0]));
     for (decltype(paramCount) j = 0; j < paramCount; j++) {
       Value *curArg = nullptr;
@@ -545,7 +545,9 @@ NomClass::GetRawInvokeFunction(llvm::Module &mod,
             "varArg", AtomicOrdering::NotAtomic);
       }
       auto expectedType = implFunctionType->getParamType(j);
-      if (j >= method->GetDirectTypeParametersCount()) {
+      // parameters: [0] receiver, [1..T] the method's type arguments (left as
+      // type descriptors), [T+1..] value arguments (unpacked and cast)
+      if (j == 0 || j > method->GetDirectTypeParametersCount()) {
         curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
         if (j > method->GetDirectTypeParametersCount()) {
           curArg = RTCast::GenerateCast(
@@ -863,7 +865,7 @@ NomClass::GetDynamicDispatcherLookup(llvm::Module &mod,
       NomSubstitutionContextMemberContext nscmc(meth);
       CastedValueCompileEnv cvce = CastedValueCompileEnv(
           meth->GetDirectTypeParameters(), this->GetAllTypeParameters(), fun, 2,
-          paramCount,
+          meth->GetArgumentCount(),
           ObjectHeader::GeneratePointerToTypeArguments(builder, varargs[0]));
       for (decltype(paramCount) j = 0; j < paramCount; j++) {
         Value *curArg = nullptr;
@@ -881,7 +883,9 @@ NomClass::GetDynamicDispatcherLookup(llvm::Module &mod,
               "varArg", AtomicOrdering::NotAtomic);
         }
         auto expectedType = implFunctionType->getParamType(j);
-        if (j >= meth->GetDirectTypeParametersCount()) {
+        // parameters: [0] receiver, [1..T] the method's type arguments (left
+        // as type descriptors), [T+1..] value arguments (unpacked and cast)
+        if (j == 0 || j > meth->GetDirectTypeParametersCount()) {
           curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
           if (j > meth->GetDirectTypeParametersCount()) {
             curArg = RTCast::GenerateCast(
