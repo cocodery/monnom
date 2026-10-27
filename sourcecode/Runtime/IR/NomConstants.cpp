@@ -237,18 +237,19 @@ NomMethodConstant::GetMethod(NomSubstitutionContextRef context) const {
     }
     auto argarggref = llvm::ArrayRef<NomTypeRef>(carr, targcount);
     auto nsc = NomSubstitutionContextList(argarggref);
-    if (clstype->Named->IsInterface()) {
+    auto callArgTypes =
+        NomConstants::GetTypeList(argTypes)->GetTypeList(context);
+    // resolve call's argument type in the caller's context
+        if (clstype->Named->IsInterface()) {
       method =
           (dynamic_cast<const NomInterface *>(clstype->Named))
-              ->GetMethod(
-                  &nsc, NomConstants::GetString(methodName)->GetText(), targs,
-                  NomConstants::GetTypeList(argTypes)->GetTypeList(&nsc));
+              ->GetMethod(&nsc, NomConstants::GetString(methodName)->GetText(),
+                          targs, callArgTypes);
     } else {
       method =
           (dynamic_cast<const NomClass *>(clstype->Named))
-              ->GetMethod(
-                  &nsc, NomConstants::GetString(methodName)->GetText(), targs,
-                  NomConstants::GetTypeList(argTypes)->GetTypeList(&nsc));
+              ->GetMethod(&nsc, NomConstants::GetString(methodName)->GetText(),
+                          targs, callArgTypes);
     }
   }
   return method;

@@ -329,6 +329,10 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
         argbuf[0] = builder->CreatePointerCast(fun, POINTERTYPE);
         argbuf[1] = typeArgRefStore;
         argbuf[2] = actualResult;
+        // When an untyped value is used as an interface 
+        // its methods return dyn, but the interface promises a type
+        // after call the call-tag in interface call-tag
+        // do cast the return value to the declared type
         auto rvcf =
             RTInterface::GenerateReadReturnValueCheckFunction(builder, iface);
         builder

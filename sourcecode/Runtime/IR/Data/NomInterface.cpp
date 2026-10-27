@@ -47,6 +47,7 @@ NomInterface::GetSuperNameds(llvm::ArrayRef<NomTypeRef> args) const {
   return ret;
 }
 void NomInterface::PreprocessInheritance() const {
+  // copy super interface method into current interface method table
   if (preprocessed == true) {
     return;
   }
@@ -517,11 +518,14 @@ NomInterface::GetMethod(const NomSubstitutionContext *context,
     if (meth->GetName() == methodName->ToStdString() &&
         meth->Satisfies(context, typeArgs, argTypes)) {
       if (context->GetTypeArgumentCount() == 0) {
+        // no class type arguments and no method type arguments
         return NomInstantiationRef<const NomMethod>(meth, typeArgs);
       } else if (typeArgs.size() == 0) {
+        // class type arguments and no method type arguments
         return NomInstantiationRef<const NomMethod>(
             meth, context->GetTypeParameters());
       } else {
+        // an instance method has its own type parameter like Foo<T>(...)
         decltype(context->GetTypeArgumentCount()) contextCount =
             context->GetTypeArgumentCount();
         auto targArr = (NomTypeRef *)gcalloc(sizeof(NomTypeRef) *
@@ -533,6 +537,7 @@ NomInterface::GetMethod(const NomSubstitutionContext *context,
         }
         while (i < contextCount + typeArgs.size()) {
           targArr[i] = typeArgs[i - contextCount];
+          i++;
         }
         return NomInstantiationRef<const NomMethod>(
             meth, TypeList(targArr, contextCount + typeArgs.size()));
@@ -701,7 +706,20 @@ llvm::Constant *NomInterface::GetCheckReturnTypeFunction(
       auto llvmReturnType =
           crtp.second->CallableVersion->FunType->getReturnType();
       if (crtp.second->Method->GetContainer() != this) {
-        throw new std::exception(); // TODO: implement
+        auto superInst =
+            instantiations.find(crtp.second->Method->GetContainer());
+        if (superInst == instantiations.end()) {
+          throw new std::exception();
+        }
+        // turn type arguments into a substitution context
+        NomSubstitutionContextList nscl(superInst->second);
+        CastedValueCompileEnv cvce = CastedValueCompileEnv(
+            crtp.second->Method->GetDirectTypeParameters(),
+            this->GetAllTypeParameters(), fun, 3,
+            crtp.second->Method->GetArgumentCount(), typeArgsPtrArg);
+        RTCast::GenerateCast(builder, &cvce, checkValue,
+                             crtp.second->Method->GetReturnType(&nscl));
+        builder->CreateBr(nextBlock);
       } else {
         CastedValueCompileEnv cvce = CastedValueCompileEnv(
             crtp.second->Method->GetDirectTypeParameters(),

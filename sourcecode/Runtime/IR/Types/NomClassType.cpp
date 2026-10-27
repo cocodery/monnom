@@ -13,12 +13,14 @@
 #include "NomJIT.h"
 #include "NomMaybeType.h"
 #include "NomTopType.h"
+#include "NomTypeRegistry.h"
 #include "NomTypeVar.h"
 #include "RTClass.h"
 #include "RTClassType.h"
 #include "RTInterface.h"
 #include "RTOutput.h"
 #include "RTSubstStack.h"
+#include "RTSubtyping.h"
 #include "RTTypeEq.h"
 #include "RTVTable.h"
 #include "RefValueHeader.h"
@@ -524,22 +526,35 @@ NomClassType::createLLVMElement(llvm::Module &mod,
 llvm::Value *NomClassType::GenerateRTInstantiation(NomBuilder &builder,
                                                    CompileEnv *env) const {
   if (this->ContainsVariables()) {
-    llvm::Value *argarr[2];
-    argarr[0] = this->Named->GetLLVMElement(*(env->Module));
-    if (this->Arguments.size() > 0) {
-      llvm::AllocaInst *typesarr =
-          builder->CreateAlloca(RTTypeHead::GetLLVMType()->getPointerTo(),
-                                MakeInt<int32_t>(this->Arguments.size()));
-      for (size_t i = 0; i < this->Arguments.size(); i++) {
-        MakeStore(builder, (*(env->Module)),
-                  this->Arguments[i]->GenerateRTInstantiation(builder, env),
-                  builder->CreateGEP(typesarr, MakeInt<int32_t>(i)));
-      }
-      argarr[1] = typesarr;
+    size_t count =
+        env->GetEnvTypeArgumentCount() + env->GetLocalTypeArgumentCount();
+    llvm::AllocaInst *typesarr =
+        builder->CreateAlloca(TYPETYPE, MakeInt32(count), "typeArgs");
+    for (size_t i = 0; i < count; i++) {
+      builder->CreateStore(
+          builder->CreatePointerCast(env->GetTypeArgument(builder, i),
+                                     TYPETYPE),
+          builder->CreateGEP(typesarr, MakeInt32(count - 1 - i)));
     }
-
-    return builder->CreateCall(
-        env->Module->getFunction("NOM_RTInstantiateClass"), argarr);
+    auto substType = RTSubtyping::TypeArgumentListStackType();
+    auto subst = builder->CreateAlloca(substType, MakeInt32(1), "typeSubst");
+    builder->CreateStore(
+        ConstantPointerNull::get(substType->getPointerTo()),
+        builder->CreateGEP(
+            subst,
+            {MakeInt32(0), MakeInt32(TypeArgumentListStackFields::Next)}));
+    builder->CreateStore(
+        builder->CreateGEP(typesarr, MakeInt32(count)),
+        builder->CreateGEP(
+            subst,
+            {MakeInt32(0), MakeInt32(TypeArgumentListStackFields::Types)}));
+    auto uniqueFun = TypeRegistry::Instance().GetLLVMElement(*(env->Module));
+    auto call = builder->CreateCall(
+        uniqueFun, {builder->CreatePointerCast(
+                        this->GetLLVMElement(*(env->Module)), TYPETYPE),
+                    subst});
+    call->setCallingConv(uniqueFun->getCallingConv());
+    return call;
   } else {
     return this->GetLLVMElement(*(env->Module));
   }
