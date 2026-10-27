@@ -32,17 +32,21 @@ namespace Nom.TypeChecker
             ParentEnv = parentEnv;
             //not registering for changes in parent env because that would unnecessarily put stuff into the closure
 
+            StructContext = new StructTypeCheckLookup(ParentEnv.Context);
+            // the parameter and return types were resolved in the parent context; the
+            // lambda only knows the type variables it captures (its closure type
+            // parameters), so e.g. the class's T in (T x) => x must become a captured one
+            Parameters = Parameters.Select(argdef => new ArgumentDeclDef(argdef.Identifier, StructContext.CaptureType(argdef.Type))).ToList();
 
-            foreach (var argdef in args)
+            foreach (var argdef in Parameters)
             {
                 AddLocalVariable(argdef.Identifier, argdef.Type, CreateRegister());
             }
 
-            lambda = ParentEnv.Context.Container.CreateLambda(new TypeParametersSpec(new List<ITypeParameterSpec>()), new ParametersSpec(args), new Language.DynamicType());
+            lambda = ParentEnv.Context.Container.CreateLambda(new TypeParametersSpec(new List<ITypeParameterSpec>()), new ParametersSpec(Parameters), new Language.DynamicType());
 
-            StructContext = new StructTypeCheckLookup(ParentEnv.Context);
             Context = StructContext.PushVariables(lambda.TypeParameters);
-            ExpectedReturnType = expectedReturnType.InjectOptional();
+            ExpectedReturnType = StructContext.CaptureType(expectedReturnType).InjectOptional();
         }
 
         public IExprTransformResult Compile(Block b, ISourceSpan locs)
@@ -106,7 +110,7 @@ namespace Nom.TypeChecker
                 var plv = ParentEnv.GetLocalVariable(ident.Name);
                 if (plv.HasElem)
                 {
-                    TDLambdaField fs = new TDLambdaField(ident, plv.Elem.Type, lambda);
+                    TDLambdaField fs = new TDLambdaField(ident, StructContext.CaptureType(plv.Elem.Type), lambda);
                     lambda.AddFieldDef(fs);
                     fields.Add(ident.Name, new CaptureField(fs, new LocalVariableRef(ident, plv.Elem)));
                     return new LambdaFieldReference(ident, fs).InjectOptional();
@@ -123,7 +127,7 @@ namespace Nom.TypeChecker
                     || outer.Elem is LambdaFieldReference // parent is a lambda and request a captured field
                     || (outer.Elem is IInstanceFieldReference && outer.Elem.IsReadOnly)))
                 {
-                    TDLambdaField fs = new TDLambdaField(ident, outer.Elem.Type, lambda);
+                    TDLambdaField fs = new TDLambdaField(ident, StructContext.CaptureType(outer.Elem.Type), lambda);
                     lambda.AddFieldDef(fs);
                     fields.Add(ident.Name, new CaptureField(fs, outer.Elem));
                     return new LambdaFieldReference(ident, fs).InjectOptional();

@@ -169,7 +169,7 @@ class MaybeList<T>
 }
 # END Test_MaybeInstantiation
 
-# BEGIN Test_PairSwap K7
+# BEGIN Test_PairSwap
 class SwapPair<A, B>
 {
 	public A First;
@@ -179,11 +179,21 @@ class SwapPair<A, B>
 }
 # END Test_PairSwap
 
-# BEGIN Test_LambdaClassTypeVar K8
+# BEGIN Test_LambdaClassTypeVar
 class LambdaHolder<T>
 {
-	public constructor() { }
+	public T Kept;
+	public constructor(T k) { Kept = k; }
+	# a parameter of type T
 	public fun Go(T v) : dyn { dyn f = (T x) => x; return f(v); }
+	# a return type and a local of type T
+	public fun Typed(T v) : dyn { dyn f = (T x) => { T y = x; return y; } : T; return f(v); }
+	# a captured local of type T
+	public fun Captured(T v) : dyn { T c = v; dyn f = () => c; return f(); }
+	# a nested lambda capturing a parameter of type T
+	public fun Nested(T v) : dyn { dyn f = (T x) => { dyn g = () => x; return g(); } : dyn; return f(v); }
+	# two parameters of type T, one from a field
+	public fun Two(T v) : dyn { dyn f = (T x, T y) => y; return f(v, Kept); }
 }
 # END Test_LambdaClassTypeVar
 
@@ -794,28 +804,30 @@ class Main
 	}
 	# END Test_MaybeInstantiation
 
-	# BEGIN Test_PairSwap K7
-	# K7: new SwapPair<B, A>(...) inside SwapPair<A, B> is rejected (now: compile error
-	# "SwapPair<B, A> does not have a constructor that matches the given arguments")
+	# BEGIN Test_PairSwap
+	# K7: new SwapPair<B, A>(...) inside SwapPair<A, B>, the class's own name with other
+	# type arguments (was: "SwapPair<B, A> does not have a constructor that matches ...")
 	public static fun Test_PairSwap() : Void
 	{
 		SwapPair<Int, String> p = new SwapPair<Int, String>(1, "a");
 		SwapPair<String, Int> q = p.Swap();
-		if(q.Second == 1) { Main.Pass("Test_PairSwap"); }
-		else { Main.Fail("Test_PairSwap"); Main.Show(q.Second); Main.End(); }
+		SwapPair<Int, String> r = q.Swap(); # swapped back
+		if(q.Second == 1 && r.First == 1) { Main.Pass("Test_PairSwap"); }
+		else { Main.Fail("Test_PairSwap"); Main.Show(q.Second); Main.Show(r.First); Main.End(); }
 	}
 	# END Test_PairSwap
 
-	# BEGIN Test_LambdaClassTypeVar K8
-	# K8: a lambda whose parameter uses the class's type variable, (T x) => x inside
-	# LambdaHolder<T>: NomLambdaBody::createLLVMElement resolves the argument types
-	# without a substitution context (now: "ArrayRef ... Invalid index!" assertion)
+	# BEGIN Test_LambdaClassTypeVar
+	# K8: lambdas whose parameter, return or captured types use the class's type
+	# variable, e.g. (T x) => x inside LambdaHolder<T> (was: "ArrayRef ... Invalid index!")
 	public static fun Test_LambdaClassTypeVar() : Void
 	{
-		LambdaHolder<Int> h = new LambdaHolder<Int>();
-		dyn r = h.Go(5);
-		if(r == 5) { Main.Pass("Test_LambdaClassTypeVar"); }
-		else { Main.Fail("Test_LambdaClassTypeVar"); Main.Show(r); Main.End(); }
+		LambdaHolder<Int> h = new LambdaHolder<Int>(7);
+		LambdaHolder<Box> b = new LambdaHolder<Box>(new Box(4)); # T a class type
+		dyn r = h.Go(5); dyn t = h.Typed(6); dyn c = h.Captured(8); dyn n = h.Nested(9);
+		dyn w = h.Two(1); dyn bg = b.Typed(new Box(3)); dyn bw = b.Two(new Box(2));
+		if(r == 5 && t == 6 && c == 8 && n == 9 && w == 7 && bg.V == 3 && bw.V == 4) { Main.Pass("Test_LambdaClassTypeVar"); }
+		else { Main.Fail("Test_LambdaClassTypeVar"); Main.Show(r); Main.Show(t); Main.Show(c); Main.Show(n); Main.Show(w); Main.End(); }
 	}
 	# END Test_LambdaClassTypeVar
 

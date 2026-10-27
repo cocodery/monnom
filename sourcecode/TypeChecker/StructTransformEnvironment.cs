@@ -79,6 +79,15 @@ namespace Nom.TypeChecker
             return capturedTypeParameters.Single(stps => stps.Original == tps);
         }
 
+        /// <summary>
+        /// A type resolved in the parent context, with its type variables replaced by the
+        /// captured ones (registering them), as if it had been resolved in this context
+        /// </summary>
+        public Language.IType CaptureType(Language.IType type)
+        {
+            return type.Visit(StructTypeParameterBoundVisitor.Instance, this);
+        }
+
         public ITypeEnvironment<Language.IType> TypeEnvironment
         {
             get

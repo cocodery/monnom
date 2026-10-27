@@ -3,8 +3,8 @@
 These bugs came up while porting the GTP benchmarks to MonNom (`gtp-benchmark-monnom/`). Each one has a test function in `BugTests.mn`, named in the table below.
 
 **Status (2026-10-28):**
-- Committed: C1–C9, R1-R15, G1 (generic instance methods).
-- Applied in the working tree but not committed: K2 (static fields), K11 (`ToString` for `Bool` and `String`).
+- Committed: C1–C9, R1-R15, G1, K2, K11.
+- Applied in the working tree but not committed: K7 (a generic class naming itself with other type arguments), K8 (lambdas using a class type variable).
 
 ## Contents of this folder
 
@@ -24,11 +24,11 @@ $T                                         # all tests in one process, -o3
 $T Test_Alignment                          # one test only
 $T Test_Alignment -- -o0                   # one test, other nom flags
 $T -- -o3 --trans                          # all tests, other nom flags
-KNOWN=1 $T                                 # also the known-issue tests K1, K3–K8 (stops at the first one)
+KNOWN=1 $T                                 # also the known-issue tests K1, K3–K6 (stops at the first one)
 NOMC="dotnet <old>/nomc.dll" $T Test_IfAssign   # another compiler
 ```
 
-A full run leaves out the tests for the known issues K1 and K3–K8 (see "Known remaining issues"), which still fail. They are recognized by the issue ID on their block line, as in `# BEGIN Test_StaticField K2`. Run one by name to see its failure, or set `KNOWN=1` to include them all.
+A full run leaves out the tests for the known issues K1 and K3–K6 (see "Known remaining issues"), which still fail. They are recognized by the issue ID on their block line, as in `# BEGIN Test_StaticField K2`. Run one by name to see its failure, or set `KNOWN=1` to include them all.
 
 The script works from any directory. It finds `setpath.sh` by searching upwards from its own folder.
 
@@ -66,6 +66,8 @@ To apply all reference runtime fixes at once: `git apply bugfixes/runtime.patch`
 | Test_GenericInstantiation | R14 | abort (`NomString const*` thrown) | PASS |
 | Test_BareReturn | R15 | compiler crash (`NullReferenceException` in `VisitReturnStmt`) | PASS |
 | Test_StaticField | K2 | compiler `NotImplementedException` | PASS |
+| Test_PairSwap | K7 | compile error ("SwapPair<B, A> does not have a constructor that matches the given arguments") | PASS |
+| Test_LambdaClassTypeVar | K8 | "ArrayRef … Invalid index!" assertion | PASS |
 | Test_GenericMethod | G1 | compile error ("U is not a subtype of Int") | PASS |
 
 - **Original** means the original runtime for R1–R14 and the original compiler for C1–C9, with each test run alone.
@@ -342,9 +344,46 @@ true false true false hello true dyn hello!true
 
 ---
 
+## K7: a generic class naming itself with other type arguments
+
+Inside `class SwapPair<A, B>`, the type `SwapPair<B, A>` was read as `SwapPair<A, B>`. Two errors followed:
+- `new SwapPair<B, A>(Second, First)` failed with "SwapPair<B, A> does not have a constructor that matches the given arguments": the constructor wanted `(A, B)` and got `(B, A)`.
+- A method declared `: SwapPair<B, A>` returned `SwapPair<A, B>` to its callers, so `SwapPair<String, Int> q = p.Swap()` failed with "SwapPair<Int, String> is not a subtype of SwapPair<String, Int>".
+
+A different class, as in `new Q<B, A>(…)`, was fine.
+
+**Cause:** the type checker looks up a name relative to the current container. `ALookupContext.GetPossibleChildPaths` (`TypeChecker/LookupContext.cs`) compares the name with the path to the container by name and number of type arguments only. When the name is the container itself, it yields the empty path, and `FindChildren` then returns the container's own reference, `Root`. That reference holds the container's own type parameters (`A -> A, B -> B`), so the type arguments written in the name were dropped.
+
+**Fix:** the empty path is now used only for a container without type parameters. A generic container's name is looked up the normal way, through the enclosing namespace, which binds the type arguments written in the name. Writing the class's own parameters, as in `SwapPair<A, B>`, gives the same type as before.
+
+`Test_PairSwap` swaps a pair and swaps it back.
+
+---
+
+## K8: lambdas using a class type variable
+
+Inside `class LambdaHolder<T>`, a lambda such as `(T x) => x` compiled, but the runtime failed the assertion `ArrayRef … Invalid index!` while compiling the lambda body. The same happened for a captured local of type `T` (`T c = v; () => c`). With a declared return type, as in `(T x) => { T y = x; return y; } : T`, the compiler already failed, with "T is not a subtype of T".
+
+**Cause:** this is a compiler bug. The old description, a missing substitution context in `NomLambdaBody::createLLVMElement`, was wrong: methods use `GetArgumentTypes(nullptr)` the same way. A lambda is closure-converted. It has no parent context at runtime (`NomClassLoaded::AddLambda` passes `nullptr`), so the only type variables it knows are its closure type parameters. The compiler collects these in the lambda's `StructTypeCheckLookup`: each type variable resolved through it becomes a captured parameter, and `CreateClosure` passes the enclosing type arguments for them. Types written in the lambda body went through that lookup. Three kinds of types didn't:
+- the parameter types,
+- the declared return type,
+- the types of captured variables.
+
+`VisitLambdaExpr` resolves the first two in the enclosing method's context, and the capture code copies the third from the enclosing variable. They kept the class's `T`, which is type variable 0 of the class. The lambda had no closure type parameters, so variable 0 didn't exist in its context. Inside the body, `T y` was the captured `T` while `x` had the class's `T`, so `y = x` didn't type-check either.
+
+**Fix** (`TypeChecker/StructTransformEnvironment.cs`, `TypeChecker/LambdaTransformEnvironment.cs`):
+- The new `StructTypeCheckLookup.CaptureType` rewrites a type resolved in the parent context into the lambda's context. It uses the visitor that already does this for the bounds of captured type parameters, and registers each type variable it meets.
+- `LambdaTransformEnvironment` applies it to the parameter types and the expected return type before creating the lambda, and to the field type of each captured variable.
+
+Records already resolve their field types in their own lookup, so they didn't need the change.
+
+`Test_LambdaClassTypeVar` checks, with `T = Int` and with `T = Box`: a parameter of type `T`, a declared return type and a local of type `T`, a captured local of type `T`, a nested lambda that captures a `T` parameter, and two `T` parameters, one of them taken from a field.
+
+---
+
 ## Known remaining issues, not fixed
 
-The issues are numbered K1–K12. K2 (static fields) and K11 (`ToString` for `Bool` and `String`) are fixed; see their sections above. Each remaining issue that can be shown in a small program (K1, K3–K8) has a test in `BugTests.mn`, whose `# BEGIN` line carries the ID. The test shows what the program should do once the issue is fixed. Any types it needs are inside its own `# BEGIN/# END` blocks, so it can't affect the other tests.
+The issues are numbered K1–K12. K2 (static fields), K7 (a generic class naming itself with other type arguments), K8 (lambdas using a class type variable) and K11 (`ToString` for `Bool` and `String`) are fixed; see their sections above. Each remaining issue that can be shown in a small program (K1, K3–K6) has a test in `BugTests.mn`, whose `# BEGIN` line carries the ID. The test shows what the program should do once the issue is fixed. Any types it needs are inside its own `# BEGIN/# END` blocks, so it can't affect the other tests.
 
 | ID | Issue | Test | Fails now with |
 |---|---|---|---|
@@ -353,8 +392,6 @@ The issues are numbered K1–K12. K2 (static fields) and K11 (`ToString` for `Bo
 | K4 | `ifobj` on a value that may be null | `Test_IfObj` | "Local variable b … is never null, then-branch never taken" |
 | K5 | Casting `T?` to `T` | `Test_MaybeCast` | "Expected type Box?, but found Box" |
 | K6 | `NomMaybeType::GenerateRTInstantiation` | `Test_MaybeInstantiation` | segfault while compiling `Make` |
-| K7 | `new Pair<B, A>(…)` inside `Pair<A, B>` | `Test_PairSwap` | "SwapPair<B, A> does not have a constructor that matches the given arguments" |
-| K8 | Lambda parameter typed with a class type variable | `Test_LambdaClassTypeVar` | "ArrayRef … Invalid index!" assertion |
 
 - **K1, casting a structural value to a second unrelated interface:** prints `UNIMPLEMENTED!` (`RuntimeData/Headers/StructuralValueHeader.cpp`, the `castTag` / `singleCastBlock` paths). It needs a list of cast types per value. This is the largest remaining cause of failing structural configurations (76 of forth's 180).
 - **K3, `if (x : T)`:** `CodeTransformer.VisitIfTypeStmt` is `throw new NotImplementedException()`.
@@ -362,8 +399,6 @@ The issues are numbered K1–K12. K2 (static fields) and K11 (`ToString` for `Bo
   - **K4, `ifobj (b)`** on a value that may be null (here the result of a method returning `Box?`) is rejected with "is never null, then-branch never taken". The null analysis seems inverted for `ifobj`, whose then-branch is the non-null case.
   - **K5, the cast `(Box) b`** from `Box?` fails to type-check with "Expected type Box?, but found Box".
 - **K6, `NomMaybeType::GenerateRTInstantiation`** (`IR/Types/NomMaybeType.cpp`): has the same undeclared-function problem as R14b. It calls `env->Module->getFunction("NOM_RTInstantiateMaybe")`, which returns null. Any maybe type containing a type variable that needs a runtime descriptor reaches it, for example `new ArrayList<T?>()` inside a generic class.
-- **K7, `new Pair<B, A>(…)` inside `Pair<A, B>`:** rejected by the type checker.
-- **K8, lambdas whose parameters use a class type variable,** e.g. `(T x) => x` inside `class Wrap<T>`: the runtime fails the assertion `ArrayRef … Invalid index!`, because `NomLambdaBody::createLLVMElement` resolves the lambda's argument types without a substitution context (`GetArgumentTypes(nullptr)`). This is unrelated to G1; `(dyn x) => x` works.
 
 Not covered by a test:
 - **K9, "Dictionary entry not found" (27 forth configurations):** comes from the dictionary-field code in `RuntimeData/Headers/RTDictionary/`. It has not been investigated, so there is no known small program that triggers it. The failing forth configurations are the reproduction for now.

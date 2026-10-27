@@ -368,7 +368,11 @@ namespace Nom.TypeChecker
                     }
                     else
                     {
-                        if (i == previousLevels.Count - 1)
+                        // the name is the root itself; the empty path stands for the
+                        // root with its own type parameters, so a generic root's name
+                        // (e.g. P<B, A> inside P<A, B>) is looked up normally instead,
+                        // which uses the type arguments given in the name
+                        if (i == previousLevels.Count - 1 && current.Arguments.Count() == 0)
                         {
                             yield return new Parser.AQName<IArgIdentifier<string, X>>(false);
                         }
