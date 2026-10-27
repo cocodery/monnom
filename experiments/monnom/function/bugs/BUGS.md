@@ -286,6 +286,7 @@ Static fields were parsed, but every other layer was missing:
 - `SFCounter`'s static fields: literal initializers of every kind, the defaults without one, `readonly`, and `private`;
 - reads and writes from a constructor, an instance method, a static method, a lambda and another class;
 - static methods of another class: arguments and results, a bare call to another static method of the same class, recursion, a call from an instance method by bare name, type parameters (`Pick<T>`), a factory (`Make`), and a call inside a lambda.
+- static fields holding class objects: one of another class (`Keep : Box`), and one of the class's own type (`Latest : SFCounter`, set by `Make`). The test checks that writing a field doesn't change an object read from it earlier, and that methods can be called and fields read on the stored object.
 
 It passes in a full run at `-o0`, `-o3`, `-o3 --trans` and `-o3 --trans --sync`.
 
@@ -306,18 +307,17 @@ It passes in a full run at `-o0`, `-o3`, `-o3 --trans` and `-o3 --trans --sync`.
 - `GetStaticFieldAccessVariable` resolves `Class.Field` in both the expression and the assignment path. The accessor-chain path used to look up `Class.Field` itself as a class, which is fixed too.
 - A constructor's `FindField` now also finds static fields.
 
-**Bytecode** (`Bytecode/Instructions/StaticFieldInstructions.cs`): two new opcodes, `ReadStaticField = 53` and `WriteStaticField = 54`. Each carries:
-- a register;
-- the field name, the owning class and the field type;
-- the initializer, as a kind byte and a 64-bit payload: the `Int` value, the `Float`'s bits, `0`/`1` for `Bool`, or a string constant ID.
+**Bytecode:**
+- **Declarations:** a class's static fields are part of the class record (`Bytecode/Reps/StaticFieldRep.cs`, written by `ClassRep` right after the instance fields, marker `StaticField = 207`). Each record holds the name, type, visibility, `readonly` flag, and the initializer as a kind byte and a 64-bit payload: the `Int` value, the `Float`'s bits, `0`/`1` for `Bool`, or a string constant ID. `ClassRep` also reads these records back, so a project can use the static fields of a library class.
+- **Accesses:** two new opcodes, `ReadStaticField = 53` and `WriteStaticField = 54` (`Bytecode/Instructions/StaticFieldInstructions.cs`). Each carries a register, the field name, the owning class and the field type.
 
-Because every access carries the initializer, the class format doesn't change, and existing `.mnil` files stay valid.
+The class format changed, so `.mnil` files compiled before this change have to be recompiled.
 
-**Runtime** (`Instructions/StaticFieldInstructions.cpp`):
-- **Storage:** each field (class, name) has one slot, created on first use. It's `gcalloc_uncollectable` memory, so the GC scans it and the stored value stays alive. Generated code embeds the slot's address as a constant, so every JIT module, IMT entries included, uses the same slot.
-- **Values:** the slot holds the packed value (`REFTYPE`), or `0` until the field is first written or read. `0` is never a packed value.
-- **Reads:** if the slot is still `0`, the read stores the initial value first. The result is then converted to the field type's representation (unboxed for `Int`/`Float`), like instance field reads.
-- **Writes:** pack the value and store it.
+**Runtime:**
+- **Declarations:** `BytecodeReader::ReadStaticField` reads the records into the class (`NomStaticField`, `IR/Data/NomStaticField.h`, in `NomClass::StaticFields`). The fields' types and string initializers count as the class's dependencies (`NomClassLoaded::PushDependencies`), so they are loaded with it.
+- **Allocation at class load** (`AllocateStaticFields`, `Instructions/StaticFieldInstructions.cpp`): `RTModule` calls it for every class of a module *before* compiling the classes. It allocates one slot per static field of the class, whether or not anything uses it. A slot is `gcalloc_uncollectable` memory, which the GC scans, so the stored value stays alive. It also emits one function per class, `MONNOM_STATICINIT_<class>`, that stores each field's initial value: the initializer, or `0`, `0.0`, `false` or `null` by the field's type.
+- **Initialization:** right after `RTModule` adds the module to the JIT, and before any of its code runs, `RunPendingStaticFieldInitializers` calls these functions once. This can't happen any earlier, because initial values can be runtime objects (`true`, `null`, strings, boxed numbers) that only have addresses once the module is in the JIT. For example, `Int` values that don't fit the packed encoding are boxed here.
+- **Accesses:** generated code embeds the slot's address as a constant, so every JIT module, IMT entries included, uses the same slot. A **read is a single load**, with no check whether the field is initialized, followed by the conversion to the field type's representation (unboxed for `Int`/`Float`), like instance field reads. A **write** packs the value and stores it.
 
 ---
 

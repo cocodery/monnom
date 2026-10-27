@@ -46,7 +46,8 @@ enum class BytecodeInternalElementType : unsigned char {
   Method = 203,
   Constructor = 204,
   Lambda = 205,
-  Record = 206
+  Record = 206,
+  StaticField = 207
 };
 
 class BytecodeReader {
@@ -81,6 +82,7 @@ public:
   NomConstructor *ReadConstructor(NomClassLoaded *cls);
 
   NomTypedField *ReadField(NomClassLoaded *cls);
+  void ReadStaticField(NomClassLoaded *cls);
 
   NomInstruction *ReadInstruction();
 

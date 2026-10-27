@@ -638,7 +638,19 @@ namespace Nom.TypeChecker
             var ret = expr.Accessor.Visit(AccessorVisitor<IExprTransformResult>.Instance, new AccessorTransformEnvironment<IExprTransformResult>(env,
                 etr =>
                 expr.Identifier.Arguments.Count() == 0 ? env.GetFieldAccessVariable(etr, expr.Identifier.Name).Elem.GenerateReadAccess(env) : throw new NotImplementedException(),
-                qn => throw new NotImplementedException(),
+                qn =>
+                {
+                    //Class.Field: a static field
+                    IOptional<IVariableReference> sfr = env.Context.GetChild(qn).Visit(new ParamRefVisitor<object, IOptional<IVariableReference>, Language.IType>(
+                        (elem, arg) => { throw new TypeCheckException("$0 is not a class", qn); },
+                        (elem, arg) => { throw new TypeCheckException("$0 is not a class", qn); },
+                        (elem, arg) => env.GetStaticFieldAccessVariable(elem, expr.Identifier.Name)));
+                    if (!sfr.HasElem)
+                    {
+                        throw new TypeCheckException("$0 does not contain an accessible static field named $1", qn, expr.Identifier.Name);
+                    }
+                    return sfr.Elem.GenerateReadAccess(env);
+                },
                 etr => expr.Identifier.Arguments.Count() == 0 ? env[expr.Identifier.Name].Elem.GenerateReadAccess(env) : throw new NotImplementedException()));
             expr.TypeAnnotation = ret.Type.GetParserType();
             return ret;
@@ -1166,7 +1178,8 @@ namespace Nom.TypeChecker
                         {
                             throw new TypeCheckException("$0 is not an accessible namespace, interface, or class.", qn);
                         }
-                        return env.Context.GetChild(qn).Visit(new Language.ParamRefVisitor<object, T, Language.IType>(
+                        //not a nested type, so a static field of the class typeref
+                        return env.Context.GetChild(typeref).Visit(new Language.ParamRefVisitor<object, T, Language.IType>(
                             (elem, arg) => throw new TypeCheckException("$0 is not an accessible namespace, interface, or class.", qn),
                             (elem, arg) => throw new TypeCheckException("$0 is not an accessible namespace, interface, or class.", qn),
                             (elem, arg) =>
@@ -1178,9 +1191,9 @@ namespace Nom.TypeChecker
                                 }
                                 if (sfs.Visibility < env.Context.MembersVisibleAt(elem.Element))
                                 {
-                                    throw new TypeCheckException("$0 is a static field of $2, but insufficiently accessible", expr.Identifier.Name, typeref);
+                                    throw new TypeCheckException("$0 is a static field of $1, but insufficiently accessible", expr.Identifier.Name, typeref);
                                 }
-                                return env.ValueResultHandler(null);//TODO: implement static field access
+                                return env.ValueResultHandler(env.GetStaticFieldAccessVariable(elem, expr.Identifier.Name).Elem.GenerateReadAccess(env));
                             }));
                     },
                     etr =>

@@ -153,7 +153,10 @@ class SFCounter
 	public static fun Fact(Int n) : Int { if(n <= 1) { return 1; } return n * Fact(n - 1); }
 	public fun IdPlus(Int k) : Int { return Add(Id, k); }
 	public static fun Pick<T>(T x, T y) : T { return y; }
-	public static fun Make() : SFCounter { return new SFCounter(); }
+	public static fun Make() : SFCounter { SFCounter c = new SFCounter(); Latest = c; return c; }
+	# static fields holding class objects: another class, and the class itself
+	public static Box Keep;
+	public static SFCounter Latest;
 	public static fun Thunk() : dyn { return () => { return SFCounter.Twice(21); } : dyn; }
 }
 # END Test_StaticField
@@ -699,12 +702,20 @@ class Main
 		Int statics = 0;
 		if(sum == 5 && twice == 8 && fact == 120 && idPlus == 106 && picked == 2
 			&& fromThunk == 42 && calls == 4 && made.Id == createdBefore + 1) { statics = 1; }
+		SFCounter.Keep = new Box(5); # Keep = Box(5)
+		Box kept = SFCounter.Keep; # the same object
+		SFCounter.Keep = new Box(6); # Keep = Box(6), kept is still Box(5)
+		Int latestPlus = SFCounter.Latest.IdPlus(1); # Latest = made: 1002 + 1
+		Int objects = 0;
+		if(SFCounter.Keep.V == 6 && kept.V == 5 && SFCounter.Latest.Id == made.Id
+			&& latestPlus == made.Id + 1) { objects = 1; }
 		Int inits = 0;
-		if(SFCounter.Flag && SFCounter.Scale == 1.5 && SFCounter.Limit == 0 - 3 
+		if(SFCounter.Flag && SFCounter.Scale == 1.5 && SFCounter.Limit == 0 - 3
 			&& SFCounter.Plain == 0 && !SFCounter.PlainB) { inits = 1; }
 		if(Main.StaticCounter == 7 && first == 100 && a.Id == 101 && b.Id == 102 
 			&& bumped == 112 && hidden == 8 && fromLambda == 1001 
-			&& createdBefore == 1001 && SFCounter.Last.V == 9 && inits == 1 && statics == 1)
+			&& createdBefore == 1001 && SFCounter.Last.V == 9 && inits == 1 && statics == 1
+			&& objects == 1)
 				{ Main.Pass("Test_StaticField"); }
 		else { 
 			Main.Fail("Test_StaticField"); 
@@ -713,7 +724,8 @@ class Main
 			Main.Show(bumped); Main.Show(hidden); Main.Show(fromLambda); 
 			Main.Show(createdBefore); Main.Show(inits);
 			Main.Show(sum); Main.Show(twice); Main.Show(fact); Main.Show(idPlus);
-			Main.Show(picked); Main.Show(fromThunk); Main.Show(calls); Main.Show(made.Id); Main.End();
+			Main.Show(picked); Main.Show(fromThunk); Main.Show(calls); Main.Show(made.Id);
+			Main.Show(objects); Main.Show(kept.V); Main.Show(latestPlus); Main.End();
 		}
 	}
 	# END Test_StaticField

@@ -604,14 +604,24 @@ namespace Nom.TypeChecker
             public Language.IType Type => Field.Type;
 
 
+            //a static field has no receiver, so its accesses are the same in every frame
+            //(also inside lambdas and records)
             public IExprTransformResult GenerateReadAccess(ICodeTransformEnvironment env)
             {
-                throw new NotImplementedException();
+                ReadStaticFieldInstruction rsfi = new ReadStaticFieldInstruction(Field, null, env.CreateRegister());
+                return new ExprTransformResult(Type, rsfi.Register, rsfi.Singleton());
             }
 
             public IStmtTransformResult GenerateWriteAccess(IExprTransformResult value, ICodeTransformEnvironment env)
             {
-                throw new NotImplementedException();
+                if (IsReadOnly)
+                {
+                    throw new TypeCheckException("Static field $0 is read-only", Identifier);
+                }
+                IExprTransformResult actualValue = value.EnsureType(Type, env);
+                List<IInstruction> instructions = new List<IInstruction>(actualValue);
+                instructions.Add(new WriteStaticFieldInstruction(Field, null, actualValue.Register));
+                return new StmtTransformResult(instructions, env, false, false, false);
             }
         }
 
@@ -769,7 +779,17 @@ namespace Nom.TypeChecker
 
         public override IOptional<IVariableReference> GetStaticFieldAccessVariable(IParamRef<INamespaceSpec, Language.IType> ns, Identifier ident)
         {
-            throw new NotImplementedException();
+            IParamRef<IClassSpec, Language.IType> cls = ns.Visit(new ParamRefVisitor<object, IParamRef<IClassSpec, Language.IType>, Language.IType>((x, arg) => null, (x, arg) => null, (x, arg) => x));
+            if (cls == null)
+            {
+                return Optional<IVariableReference>.Empty;
+            }
+            IStaticFieldSpec sfs = cls.Element.StaticFields.FirstOrDefault(sf => sf.Name == ident.Name && sf.Visibility >= this.Context.MembersVisibleAt(cls.Element));
+            if (sfs == null)
+            {
+                return Optional<IVariableReference>.Empty;
+            }
+            return new StaticFieldReference(ident, sfs).InjectOptional();
         }
 
         public override IOptional<ICallableReference> GetStaticMethod(IParamRef<INamespaceSpec, Language.IType> ns, IArgIdentifier<Identifier, Language.IType> method, IEnumerable<Language.IType> argTypes)
@@ -1308,7 +1328,7 @@ namespace Nom.TypeChecker
 
         protected override IOptional<IVariableReference> FindField(Identifier ident)
         {
-            return fieldVariables.Values.FirstOrDefault(fd => fd.Name == ident.Name).InjectOptional().Bind(fv => new LocalVariableRef(ident, fv));
+            return fieldVariables.Values.FirstOrDefault(fd => fd.Name == ident.Name).InjectOptional().Bind(fv => (IVariableReference)new LocalVariableRef(ident, fv)).Coalesce(() => FindStaticField(ident));
         }
 
         public IVariableReference GetFieldVariable(FieldSpec field)

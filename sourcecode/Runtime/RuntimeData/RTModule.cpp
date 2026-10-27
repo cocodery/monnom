@@ -15,6 +15,7 @@
 #include "RTRecord.h"
 #include "boehmgcinterface.h"
 #include "llvm/IR/Module.h"
+#include "StaticFieldInstructions.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <fstream>
@@ -84,6 +85,11 @@ RTModule::RTModule(NomModule *mod)
     iface->GetLLVMElement(*theModule.get());
   }
   NomBoolObjects::GetInstance()->GetLLVMElement(*theModule.get());
+  // the classes' static fields exist before any code that accesses them is
+  // compiled; their initial values are stored once the module is in the JIT
+  for (auto &cls : clses) {
+    AllocateStaticFields(cls, *theModule.get());
+  }
   for (auto &cls : clses) {
     cls->CompileLLVM(theModule.get());
   }

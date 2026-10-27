@@ -88,8 +88,9 @@ namespace Nom.TypeChecker
 
         public override IEnumerable<IParamRef<IInterfaceSpec, Language.IType>> ImmediateSuperTypes => SuperClass.AsEnumerable().Concat(base.ImmediateSuperTypes);
 
-        IEnumerable<IStaticFieldDecl> IClass.StaticFields => throw new NotImplementedException();
-        public IEnumerable<IStaticFieldSpec> StaticFields { get { yield break; } } //TODO: implement static fields
+        private List<StaticFieldSpec> staticFields = new List<StaticFieldSpec>();
+        IEnumerable<IStaticFieldDecl> IClass.StaticFields => staticFields.ToList();
+        public IEnumerable<IStaticFieldSpec> StaticFields => staticFields.ToList();
 
         private List<TDStruct> structs = new List<TDStruct>();
         public IEnumerable<ITDStruct> Structs => structs.ToList();
@@ -162,6 +163,18 @@ namespace Nom.TypeChecker
                 }
                 fields.Add(fd);
                 localFields.Add(fd);
+            }
+            foreach (StaticFieldSpec sfd in def.StaticFieldDefinitions)
+            {
+                if (staticFields.Any(xsfd => xsfd.Name == sfd.Name) || fields.Any(xfd => xfd.Name == sfd.Name))
+                {
+                    throw new TypeCheckException("Field $0 already exists", sfd.Identifier);
+                }
+                if (methods.Any(xmd => xmd.Name == sfd.Name) || staticMethods.Any(xsmd => xsmd.Name == sfd.Name))
+                {
+                    throw new TypeCheckException("Static field $0 has the same name as a method", sfd.Identifier);
+                }
+                staticFields.Add(sfd);
             }
             foreach (ConstructorDef cd in def.Constructors)
             {

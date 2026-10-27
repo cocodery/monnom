@@ -65,7 +65,12 @@ namespace Nom.Bytecode
             structs.Add(structrep);
         }
 
-        public IEnumerable<IStaticFieldSpec> StaticFields => throw new NotImplementedException();
+        private List<StaticFieldRep> staticFields = new List<StaticFieldRep>();
+        public IEnumerable<IStaticFieldSpec> StaticFields => staticFields;
+        public void AddStaticField(StaticFieldRep sfr)
+        {
+            staticFields.Add(sfr);
+        }
 
         private List<ConstructorDefRep> constructors = new List<ConstructorDefRep>();
         public IEnumerable<IConstructorSpec> Constructors => constructors;
@@ -102,6 +107,12 @@ namespace Nom.Bytecode
             foreach (FieldRep fr in fields)
             {
                 fr.WriteByteCode(ws);
+            }
+            UInt64 staticFieldCount = (ulong)staticFields.LongCount();
+            ws.WriteValue(staticFieldCount);
+            foreach (StaticFieldRep sfr in staticFields)
+            {
+                sfr.WriteByteCode(ws);
             }
             UInt64 staticMethodCount = (ulong)staticMethods.LongCount();
             ws.WriteValue(staticMethodCount);
@@ -158,6 +169,11 @@ namespace Nom.Bytecode
             for (UInt64 i = 0; i < fieldCount; i++)
             {
                 cls.AddField(FieldRep.Read(cls, ws, rcs));
+            }
+            UInt64 staticFieldCount = ws.ReadULong();
+            for (UInt64 i = 0; i < staticFieldCount; i++)
+            {
+                cls.AddStaticField(StaticFieldRep.Read(cls, ws, rcs));
             }
             UInt64 staticMethodCount = ws.ReadULong();
             for (UInt64 i = 0; i < staticMethodCount; i++)

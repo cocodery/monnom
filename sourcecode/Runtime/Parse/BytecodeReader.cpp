@@ -28,6 +28,7 @@
 #include "ReadFieldInstruction.h"
 #include "ReturnInstruction.h"
 #include "ReturnVoidInstruction.h"
+#include "StaticFieldInstructions.h"
 #include "UnaryOpInstruction.h"
 #include "WriteFieldInstruction.h"
 #include <exception>
@@ -201,6 +202,19 @@ NomInstruction *BytecodeReader::ReadInstruction() {
                                     context.GetGlobalID(fieldName),
                                     context.GetGlobalID(receiverType));
   }
+  case OpCode::ReadStaticField:
+  case OpCode::WriteStaticField: {
+    RegIndex reg = stream.read<RegIndex>();
+    ConstantID fieldName = context.GetGlobalID(stream.read<LocalConstantID>());
+    ConstantID ownerClass = context.GetGlobalID(stream.read<LocalConstantID>());
+    ConstantID fieldType = context.GetGlobalID(stream.read<LocalConstantID>());
+    if (opcode == OpCode::ReadStaticField) {
+      return new ReadStaticFieldInstruction(reg, fieldName, ownerClass,
+                                            fieldType);
+    }
+    return new WriteStaticFieldInstruction(reg, fieldName, ownerClass,
+                                           fieldType);
+  }
   case OpCode::PhiNode: {
     int incoming = stream.read<int>();
     PhiNode *pn = new PhiNode(incoming);
@@ -364,6 +378,11 @@ NomClass *BytecodeReader::ReadClass(NomModule *mod,
   while (fieldCount > 0) {
     ReadField(cls);
     fieldCount--;
+  }
+  uint64_t staticFieldCount = stream.read<uint64_t>();
+  while (staticFieldCount > 0) {
+    ReadStaticField(cls);
+    staticFieldCount--;
   }
   uint64_t staticMethodCount = stream.read<uint64_t>();
   while (staticMethodCount > 0) {
@@ -623,6 +642,25 @@ NomTypedField *BytecodeReader::ReadField(NomClassLoaded *cls) {
   NomTypedField *field = cls->AddField(
       name, type, visibility, (flags & '\1') == '\1', (flags & '\2') == '\2');
   return field;
+}
+
+void BytecodeReader::ReadStaticField(NomClassLoaded *cls) {
+  if (stream.read_char() !=
+      (unsigned char)BytecodeInternalElementType::StaticField) {
+    throw "Expected static field, but did not encounter static field marker";
+  }
+  NomStaticField field;
+  field.Name = context.GetGlobalID(stream.read<LocalConstantID>());
+  field.Type = context.GetGlobalID(stream.read<LocalConstantID>());
+  stream.read<Visibility>(); // visibility is checked by the compiler
+  unsigned char flags = stream.read<unsigned char>();
+  field.IsReadOnly = (flags & '\1') == '\1';
+  field.InitKind = (StaticFieldInitKind)stream.read_char();
+  field.InitPayload = stream.read<uint64_t>();
+  if (field.InitKind == StaticFieldInitKind::String) {
+    field.InitPayload = context.GetGlobalID((LocalConstantID)field.InitPayload);
+  }
+  cls->AddStaticField(field);
 }
 
 BytecodeTopElementType BytecodeReader::GetNextElementType(bool peek) {

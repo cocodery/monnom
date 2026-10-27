@@ -583,6 +583,54 @@ namespace Nom.TypeChecker
                     }
                     return tps;
                 }
+                /// <summary>
+                /// Static field initializers are literals (the grammar allows only default expressions);
+                /// Int, Float, Bool, null and String literals are supported
+                /// </summary>
+                private static StaticFieldSpec CreateStaticFieldSpec(Parser.StaticFieldDecl sfd, LType type, INamespaceSpec container)
+                {
+                    StaticFieldInitKind kind = StaticFieldInitKind.None;
+                    long initInt = 0;
+                    double initFloat = 0.0;
+                    string initString = null;
+                    LType initType = null;
+                    switch (sfd.InitExpr)
+                    {
+                        case null:
+                            break;
+                        case Parser.DefaultIntExpr ie:
+                            kind = StaticFieldInitKind.Int;
+                            initInt = Int64.Parse(ie.Value);
+                            initType = StdLib.Int.Instance.ClassType;
+                            break;
+                        case Parser.DefaultFloatExpr fe:
+                            kind = StaticFieldInitKind.Float;
+                            initFloat = Double.Parse(fe.Value);
+                            initType = StdLib.Float.Instance.ClassType;
+                            break;
+                        case Parser.DefaultBoolExpr be:
+                            kind = StaticFieldInitKind.Bool;
+                            initInt = be.Value.ToLower() == "true" ? 1 : 0;
+                            initType = StdLib.Bool.Instance.ClassType;
+                            break;
+                        case Parser.DefaultNullExpr ne:
+                            kind = StaticFieldInitKind.Null;
+                            initType = StdLib.StdLib.NullType;
+                            break;
+                        case Parser.DefaultStringExpr se:
+                            kind = StaticFieldInitKind.String;
+                            initString = se.Value;
+                            initType = StdLib.String.Instance.ClassType;
+                            break;
+                        default:
+                            throw new TypeCheckException("Static field $0 can only be initialized with an Int, Float, Bool, String or null literal", sfd.Ident);
+                    }
+                    if (initType != null && !initType.IsSubtypeOf(type, true))
+                    {
+                        throw new TypeCheckException("The initial value of static field $0 does not have type $1", sfd.Ident, type);
+                    }
+                    return new StaticFieldSpec(container, sfd.Ident, type, sfd.Visibility.Visibility, sfd.IsReadOnly, kind, initInt, initFloat, initString);
+                }
                 public static InitializeMembersPass Instance = new InitializeMembersPass();
                 protected override void HandleInterface(InterfaceDef elem, InterfaceTypeCheckInfo tci, TypeCheckBlock tcb, ITypeCheckLookup<Language.IType, Language.ITypeArgument> context)
                 {
@@ -622,6 +670,17 @@ namespace Nom.TypeChecker
                         FieldSpec fs = new FieldSpec(tci.Container, fd.Ident, fd.Type.TransformType(context), fd.Visibility.Visibility, fd.IsReadOnly, true);
                         tcb.FieldDefs[fd] = fs;
                         tci.Definition.AddFieldDef(fs);
+                    }
+                    foreach (Parser.StaticFieldDecl sfd in elem.StaticFields)
+                    {
+                        LType sftype = sfd.Type.TransformType(context);
+                        if (StaticFieldSpec.ContainsTypeVariables(sftype))
+                        {
+                            throw new TypeCheckException("Static field $0 cannot have a type that uses type variables", sfd.Ident);
+                        }
+                        StaticFieldSpec sfs = CreateStaticFieldSpec(sfd, sftype, tci.Container);
+                        tci.Definition.AddStaticFieldDef(sfs);
+                        sfd.Annotation = sfs;
                     }
                     foreach (Parser.StaticMethodDef smd in elem.StaticMethods)
                     {
@@ -692,16 +751,7 @@ namespace Nom.TypeChecker
                             tcb.FieldDefs[fd].DefaultValueExpr = Optional<IExprTransformResult>.Empty;
                         }
                     }
-                    foreach (Parser.StaticFieldDecl sfd in elem.StaticFields)
-                    {
-                        if (sfd.InitExpr != null)
-                        {
-                            throw new NotImplementedException(); //TODO: implement default static field initializers
-                        }
-                        else
-                        {
-                        }
-                    }
+                    //static field initializers are handled when the static fields are created
                 }
             }
 

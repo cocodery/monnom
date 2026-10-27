@@ -56,6 +56,13 @@ namespace Nom.TypeChecker
             fieldDefinitions.Add(fs);
         }
 
+        private List<StaticFieldSpec> staticFieldDefinitions = new List<StaticFieldSpec>();
+        public IEnumerable<StaticFieldSpec> StaticFieldDefinitions => staticFieldDefinitions.ToList();
+        public void AddStaticFieldDef(StaticFieldSpec sfs)
+        {
+            staticFieldDefinitions.Add(sfs);
+        }
+
 
         private List<StaticMethodDef> staticMethodDefinitions = new List<StaticMethodDef>();
         public IEnumerable<StaticMethodDef> StaticMethodDefinitions => staticMethodDefinitions.ToList();

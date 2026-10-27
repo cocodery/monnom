@@ -28,6 +28,8 @@ namespace Nom.Bytecode
         CallFinal = 113,
         WriteField = 51,
         ReadField = 52,
+        ReadStaticField = 53,
+        WriteStaticField = 54,
         Cast = 61,
         Branch = 31,
         CondBranch = 32,

@@ -39,6 +39,7 @@ namespace Nom.Bytecode
         Method = 203,
         Constructor = 204,
         Lambda = 205,
-        Struct = 206
+        Struct = 206,
+        StaticField = 207
     };
 }

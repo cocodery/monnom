@@ -80,6 +80,11 @@ namespace Nom.Bytecode
                 FieldRep fr = new FieldRep(cr, bcu.GetStringConstant(fd.Name), bcu.GetTypeConstant(fd.Type), fd.IsReadonly, fd.IsVolatile, fd.Visibility);
                 cr.AddField(fr);
             }
+            foreach (TypeChecker.StaticFieldSpec sfs in cls.StaticFields)
+            {
+                var (initKind, initPayload) = InstructionConverter.StaticFieldInit(sfs, bcu);
+                cr.AddStaticField(new StaticFieldRep(cr, bcu.GetStringConstant(sfs.Name), bcu.GetTypeConstant(sfs.Type), sfs.IsReadonly, sfs.Visibility, initKind, initPayload));
+            }
             foreach (TypeChecker.IStaticMethodDef smd in cls.StaticMethods)
             {
                 List<IInstruction> instructions = new List<IInstruction>();
@@ -178,7 +183,25 @@ namespace Nom.Bytecode
 
             public Func<WriteInstanceFieldInstruction, BytecodeUnit, IInstruction> VisitWriteInstanceFieldInstruction => (instr, bcu) => new WriteFieldInstruction(instr.Value.Index, instr.Receiver.Index, bcu.GetStringConstant(instr.Field.Name), bcu.GetClassConstant(instr.Field.Container));
 
-            public Func<ReadStaticFieldInstruction, BytecodeUnit, IInstruction> VisitReadStaticFieldInstruction => (instr, bcu) => throw new NotImplementedException();
+            public Func<TypeChecker.ReadStaticFieldInstruction, BytecodeUnit, IInstruction> VisitReadStaticFieldInstruction => (instr, bcu) =>
+                new ReadStaticFieldInstruction(instr.Register.Index, bcu.GetStringConstant(instr.Field.Name), bcu.GetClassConstant((Language.IClassSpec)instr.Field.Container), bcu.GetTypeConstant(instr.Field.Type));
+
+            /// <summary>how a static field is initialized, encoded as in StaticFieldRep</summary>
+            internal static (byte, ulong) StaticFieldInit(TypeChecker.StaticFieldSpec sfs, BytecodeUnit bcu)
+            {
+                switch (sfs.InitKind)
+                {
+                    case TypeChecker.StaticFieldInitKind.Int:
+                    case TypeChecker.StaticFieldInitKind.Bool:
+                        return ((byte)sfs.InitKind, unchecked((ulong)sfs.InitInt));
+                    case TypeChecker.StaticFieldInitKind.Float:
+                        return ((byte)sfs.InitKind, unchecked((ulong)BitConverter.DoubleToInt64Bits(sfs.InitFloat)));
+                    case TypeChecker.StaticFieldInitKind.String:
+                        return ((byte)sfs.InitKind, bcu.GetStringConstant(sfs.InitString).ConstantID);
+                    default:
+                        return ((byte)sfs.InitKind, 0);
+                }
+            }
 
             public Func<WriteExpandoFieldInstruction, BytecodeUnit, IInstruction> VisitWriteExpandoFieldInstruction => (instr, bcu) => new WriteFieldInstruction(instr.Value.Index, instr.Receiver.Index, bcu.GetStringConstant(instr.FieldName), bcu.GetEmptyClassConstant());
 
@@ -186,7 +209,8 @@ namespace Nom.Bytecode
 
             public Func<ReadExpandoFieldInstruction, BytecodeUnit, IInstruction> VisitReadExpandoFieldInstruction => (instr, bcu) => new ReadFieldInstruction(instr.Register.Index, instr.Receiver.Index, bcu.GetStringConstant(instr.FieldName), bcu.GetEmptyClassConstant());
 
-            public Func<WriteStaticFieldInstruction, BytecodeUnit, IInstruction> VisitWriteStaticFieldInstruction => (instr, bcu) => throw new NotImplementedException();
+            public Func<TypeChecker.WriteStaticFieldInstruction, BytecodeUnit, IInstruction> VisitWriteStaticFieldInstruction => (instr, bcu) =>
+                new WriteStaticFieldInstruction(instr.Register.Index, bcu.GetStringConstant(instr.Field.Name), bcu.GetClassConstant((Language.IClassSpec)instr.Field.Container), bcu.GetTypeConstant(instr.Field.Type));
 
             public Func<TypeChecker.ReturnInstruction, BytecodeUnit, IInstruction> VisitReturnInstruction => (instr, bcu) => new ReturnInstruction(instr.Register.Index);
 

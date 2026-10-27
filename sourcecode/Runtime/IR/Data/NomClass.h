@@ -8,6 +8,7 @@
 #include "NomLambda.h"
 #include "NomMethod.h"
 #include "NomRecord.h"
+#include "NomStaticField.h"
 #include "NomStaticMethod.h"
 #include "NomString.h"
 #include "RTClass.h"
@@ -37,6 +38,8 @@ private:
 
 protected:
   std::vector<NomTypedField *> Fields;
+  // allocated when the class is loaded, see AllocateStaticFields
+  mutable std::vector<NomStaticField> StaticFields;
   mutable std::vector<NomTypedField *> AllFields;
   std::vector<NomLambda *> Lambdas;
   std::vector<NomRecord *> Structs;
@@ -142,6 +145,10 @@ public:
   void AddLambda(NomLambda *lambda) { Lambdas.push_back(lambda); }
   void AddStruct(NomRecord *strct) { Structs.push_back(strct); }
   void AddField(NomTypedField *field) { Fields.push_back(field); }
+  void AddStaticField(const NomStaticField &field) {
+    StaticFields.push_back(field);
+  }
+  std::vector<NomStaticField> &GetStaticFields() const { return StaticFields; }
 };
 
 class NomClassLoaded : public virtual NomClass, public NomInterfaceLoaded {
@@ -201,6 +208,15 @@ public:
     }
     for (auto field : Fields) {
       field->PushDependencies(set);
+    }
+    // the static fields' types (and string initializers) are needed when the
+    // class is loaded, to give the fields their initial values
+    for (auto &field : StaticFields) {
+      set.insert(field.Name);
+      set.insert(field.Type);
+      if (field.InitKind == StaticFieldInitKind::String) {
+        set.insert((ConstantID)field.InitPayload);
+      }
     }
   }
 };

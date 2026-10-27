@@ -67,6 +67,10 @@ namespace Nom.Bytecode
                     return WriteFieldInstruction.Read(s, rcs);
                 case OpCode.ReadField:
                     return ReadFieldInstruction.Read(s, rcs);
+                case OpCode.ReadStaticField:
+                    return ReadStaticFieldInstruction.Read(s, rcs);
+                case OpCode.WriteStaticField:
+                    return WriteStaticFieldInstruction.Read(s, rcs);
                 case OpCode.Cast:
                     return CastInstruction.Read(s, rcs);
                 case OpCode.Branch:
