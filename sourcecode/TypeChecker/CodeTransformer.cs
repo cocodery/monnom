@@ -104,11 +104,20 @@ namespace Nom.TypeChecker
 
         public Func<ReturnStmt, ICodeTransformEnvironment, IStmtTransformResult> VisitReturnStmt => (stmt, env) =>
         {
-            IExprTransformResult etr = stmt.Expr.Visit(this, env);
             if (!env.ExpectedReturnType.HasElem)
             {
                 throw new TypeCheckException("Return statement encountered in context that does not allow returns (@0)", stmt.Locs);
             }
+            if (stmt.Expr == null)
+            {
+                if (!StdLib.StdLib.VoidType.IsSubtypeOf(env.ExpectedReturnType.Elem, false))
+                {
+                    throw new TypeCheckException("Return statement at @0 needs a value of type $1", stmt.Locs, env.ExpectedReturnType.Elem);
+                }
+                env.BestReturnType = StdLib.StdLib.VoidType; //Assignment here actually implemented as join
+                return new StmtTransformResult(new List<IInstruction> { new ReturnVoidInstruction() }, env, true, false, true);
+            }
+            IExprTransformResult etr = stmt.Expr.Visit(this, env);
             if (!etr.Type.IsSubtypeOf(env.ExpectedReturnType.Elem, true))
             {
                 throw new TypeCheckException("Expression at @0 does not have expected return type " + env.ExpectedReturnType.ToString(), stmt.Expr.Locs);

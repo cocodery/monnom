@@ -508,6 +508,35 @@ class Main
 	}
 	# END Test_GenericInstantiation
 
+	# BEGIN Test_BareReturn
+	public static fun CountEarly(Counter c, Int x) : Void
+	{
+		if(x > 0)
+		{
+			c.N = c.N + 1;
+			return;
+		}
+		c.N = c.N + 100;
+	}
+	# R15: a bare "return;" crashed the compiler (NullReferenceException in VisitReturnStmt),
+	#      and a lambda body that reached its end without a return had no terminator
+	#      (invalid IR: "Basic Block ... does not have terminator")
+	public static fun Test_BareReturn() : Void
+	{
+		Counter c = new Counter();
+		Main.CountEarly(c, 1);
+		Main.CountEarly(c, 0);
+		Counter z = new Counter();
+		dyn bump = (Counter k) => { if(k.N > 0) { k.N = k.N + 10; return; } k.N = k.N + 1000; } : dyn;
+		dyn touch = (Counter k) => { k.N = k.N + 5; } : dyn;
+		bump(c);
+		bump(z);
+		touch(z);
+		if(c.N == 111 && z.N == 1005) { Main.Pass("Test_BareReturn"); }
+		else { Main.Fail("Test_BareReturn"); Main.Show(c.N); Main.Show(z.N); Main.End(); }
+	}
+	# END Test_BareReturn
+
 	# BEGIN Test_GenericMethod
 	# G1: instance methods with their own type parameters, called as obj.M<X>(...).
 	#     Each step fails until the one before it is fixed:
@@ -555,6 +584,7 @@ class Main
 		Main.Test_FloatEqualsDyn();
 		Main.Test_InterfaceExtends();
 		Main.Test_GenericInstantiation();
+		Main.Test_BareReturn();
 		Main.Test_GenericMethod();
 		# TESTS-END
 	}

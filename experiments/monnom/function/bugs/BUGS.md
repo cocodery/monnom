@@ -3,9 +3,7 @@
 These bugs came up while porting the GTP benchmarks to MonNom (`gtp-benchmark-monnom/`). Each one has a test function in `BugTests.mn`, named in the table below.
 
 **Status (2026-10-28):**
-- Committed: C1–C9, R1–R3, R6–R11.
-- Applied in the working tree but not committed: R4, R5, R12.
-- In progress: R13, R14.
+- Committed: C1–C9, R1-R15.
 - Open: G1 (generic instance methods). It has a test, `Test_GenericMethod`, but no fix yet.
 
 ## Contents of this folder
@@ -63,6 +61,7 @@ To apply all reference runtime fixes at once: `git apply bugfixes/runtime.patch`
 | Test_FloatEqualsDyn | R12 | invalid IR ("Instruction does not dominate all uses") | PASS |
 | Test_InterfaceExtends | R13 | abort (`std::exception*`) | PASS |
 | Test_GenericInstantiation | R14 | abort (`NomString const*` thrown) | PASS |
+| Test_BareReturn | R15 | compiler crash (`NullReferenceException` in `VisitReturnStmt`) | PASS |
 | Test_GenericMethod | G1 | compile error ("U is not a subtype of Int") | not fixed yet |
 
 - **Original** means the original runtime for R1–R14 and the original compiler for C1–C9, with each test run alone.
@@ -212,6 +211,19 @@ Fix: return after the case; use `floatBlock`, `floatValue` and `CreateFNeg`; box
   3. returns the canonical runtime instance.
 - **R14c, infinite loop:** in `NomInterface::GetMethod`, the loop that copies a method's type arguments after the context's never incremented `i`. That branch is only reached by calls to generic instance methods, which G1 still blocks.
 
+### R15: a bare `return;`
+R15 is fixed in the compiler (`sourcecode/TypeChecker`), not the runtime.
+- **Symptoms:**
+  - Any `return;` without a value crashed the compiler with a `NullReferenceException`.
+  - Separately, a lambda body that could reach its end without a `return` compiled, but the runtime rejected it: "Basic Block in function 'RT_NOM_LambdaBody_…' does not have terminator!".
+- **Causes:**
+  - `VisitReturnStmt` (`TypeChecker/CodeTransformer.cs`) started with `stmt.Expr.Visit(…)`, and `Expr` is `null` for a bare `return;`.
+  - `LambdaTransformEnvironment.Compile` used the body's instructions as they were. Methods (`TypeChecker.cs`) and record methods (`CodeTransformer.cs`) append a `ReturnVoidInstruction` when the body does not always return. Lambdas did not, so the last block had no terminator.
+- **Fixes:**
+  - In `VisitReturnStmt`, a bare `return;` emits `ReturnVoidInstruction` if the expected return type accepts `Void` (`Void`, `dyn`), the same rule as for falling off the end of a method. Otherwise it is a type error: "Return statement at … needs a value of type Int".
+  - In `LambdaTransformEnvironment.Compile`, a body that does not always return gets a trailing `ReturnVoidInstruction`. If the lambda's declared return type does not accept `Void`, that is the error "Not all paths in the lambda at … return a value". The runtime's `ReturnVoid` returns the `Void` object, which works for every function that returns a reference, including lambda bodies.
+- **Test:** `Test_BareReturn` uses an early `return;` in a `Void` method, a `return;` inside a lambda's `if` that falls off its end on the other path, and a lambda without any `return`.
+
 ---
 
 ## Open: generic instance methods (G1)
@@ -239,7 +251,6 @@ The problems below are listed in the order the test hits them. Each one hides th
 - **`if (x : T)`, `ifnull`/`ifobj` and `T?`/`T!`:** not implemented or not working.
 - **`NomMaybeType::GenerateRTInstantiation`:** has the same undeclared-function problem as R14b, with `NOM_RTInstantiateMaybe`.
 - **`new Pair<B, A>(…)` inside `Pair<A, B>`:** rejected by the type checker.
-- **A bare `return;`:** crashes the compiler, because `VisitReturnStmt` dereferences a null expression.
 - **"Dictionary entry not found" (27 forth configurations):** comes from the dictionary-field code in `RuntimeData/Headers/RTDictionary/`. Not investigated.
 - **`experiments/monnom/lambdafield`:** no longer compiles, because of the "same name as a record field" check from commit `b87e361d`. That predates these changes.
 

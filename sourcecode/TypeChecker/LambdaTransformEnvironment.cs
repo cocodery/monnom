@@ -48,6 +48,15 @@ namespace Nom.TypeChecker
         public IExprTransformResult Compile(Block b, ISourceSpan locs)
         {
             IStmtTransformResult str = b.Visit(CodeTransformer.Instance, this);
+            if (!str.AlwaysGoesElsewhere)
+            {
+                if (ExpectedReturnType.HasElem && !StdLib.StdLib.VoidType.IsSubtypeOf(ExpectedReturnType.Elem, false))
+                {
+                    throw new TypeCheckException("Not all paths in the lambda at @0 return a value", locs);
+                }
+                BestReturnType = StdLib.StdLib.VoidType;
+                str = new StmtTransformResult(str.Snoc(new ReturnVoidInstruction()), this, true, false, true);
+            }
             List<ArgumentDeclDef> consparameters = new List<ArgumentDeclDef>();
 
             foreach (CaptureField cf in fields.Values)
