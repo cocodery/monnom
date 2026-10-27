@@ -1,8 +1,13 @@
 #include "BoolClass.h"
 #include "CompileHelpers.h"
+#include "NomAlloc.h"
+#include "NomClassType.h"
+#include "NomMethod.h"
 #include "ObjectClass.h"
 #include "RTTypeHead.h"
 #include "RefValueHeader.h"
+#include "StringClass.h"
+#include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <iostream>
 
@@ -14,6 +19,9 @@ NomBoolClass::NomBoolClass()
   SetSuperClass(
       NomInstantiationRef<NomClass>(NomObjectClass::GetInstance(), TypeList()));
   SetSuperInterfaces();
+
+  llvm::sys::DynamicLibrary::AddSymbol("LIB_NOM_Bool_ToString_1",
+                                       (void *)&LIB_NOM_Bool_ToString_1);
 }
 
 NomBoolClass *NomBoolClass::GetInstance() {
@@ -22,6 +30,14 @@ NomBoolClass *NomBoolClass::GetInstance() {
   if (once) {
     once = false;
     NomObjectClass::GetInstance();
+    NomStringClass::GetInstance();
+
+    NomMethodInternal *toString = new NomMethodInternal(
+        &nbc, "ToString", "LIB_NOM_Bool_ToString_1", true);
+    toString->SetDirectTypeParameters();
+    toString->SetArgumentTypes();
+    toString->SetReturnType(NomStringClass::GetInstance()->GetType());
+    nbc.AddMethod(toString);
   }
   return &nbc;
 }
@@ -121,3 +137,13 @@ llvm::Constant *NomBoolObjects::findLLVMElement(llvm::Module &mod) const {
 //}
 } // namespace Runtime
 } // namespace Nom
+
+// a Bool is one of the two objects in RT_NOM_BOOLEANS; field 0 holds 0 or 1
+extern "C" DLLEXPORT const void *LIB_NOM_Bool_ToString_1(void *value) {
+  bool b = (intptr_t)Nom::Runtime::GetReadFieldFunction()(value, 0) != 0;
+  // not atomic: the string's character buffer is a separate GC allocation
+  Nom::Runtime::NomString *nomstring =
+      new (Nom::Runtime::gcalloc(sizeof(Nom::Runtime::NomString)))
+          Nom::Runtime::NomString(b ? "true" : "false");
+  return nomstring->GetStringObject();
+}

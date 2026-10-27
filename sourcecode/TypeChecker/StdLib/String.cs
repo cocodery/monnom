@@ -22,6 +22,7 @@ namespace Nom.TypeChecker.StdLib
                     methods = new List<IMethodSpec>();
                     methods.Add(new MethodSpec("Print", this, new TypeParametersSpec(new List<ITypeParameterSpec>()), new ParametersSpec(new List<IParameterSpec>()), StdLib.VoidType));
                     methods.Add(new MethodSpec("Concat", this, new TypeParametersSpec(new List<ITypeParameterSpec>()), new ParametersSpec(new List<IParameterSpec> { new ParameterSpec("other", ClassType) }), ClassType));
+                    methods.Add(new MethodSpec("ToString", this, new TypeParametersSpec(new List<ITypeParameterSpec>()), new ParametersSpec(new List<IParameterSpec>()), ClassType));
                 }
                 return methods;
             }

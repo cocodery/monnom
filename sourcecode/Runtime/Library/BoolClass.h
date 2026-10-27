@@ -37,3 +37,5 @@ public:
 
 } // namespace Runtime
 } // namespace Nom
+
+extern "C" DLLEXPORT const void *LIB_NOM_Bool_ToString_1(void *value);

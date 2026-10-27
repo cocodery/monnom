@@ -108,6 +108,11 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
         argarr[i] = UnpackFloat(builder, argarr[i]);
         continue;
       }
+      // a Bool computed by a comparison is a raw i1, e.g. (x < 5).ToString()
+      if (pt->isPointerTy() && argt->isIntegerTy(1)) {
+        argarr[i] = PackBool(builder, argarr[i]);
+        continue;
+      }
       if (pt->isPointerTy() && argt->isIntegerTy()) {
         argarr[i] = PackInt(builder, argarr[i]);
         continue;

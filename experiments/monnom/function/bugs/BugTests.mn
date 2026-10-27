@@ -119,6 +119,71 @@ class GenUser<T>
 	public fun Get(GenBox<T> b) : T { return b.Apply<T>((dyn x) => x); }
 }
 
+# Types used only by one test are inside that test's # BEGIN/# END
+# blocks, so that a known issue in them cannot break the other tests.
+
+# BEGIN Test_StructuralSecondInterface K1
+interface ITwoFacedA { fun KA() : Int; }
+interface ITwoFacedB { fun KB() : Int; }
+# END Test_StructuralSecondInterface
+
+# BEGIN Test_StaticField
+class SFCounter
+{
+	public static Int Created = 100;
+	public static Float Scale = 1.5;
+	public static Bool Flag = true;
+	public static readonly Int Limit = -3;
+	public static Int Plain;
+	public static Bool PlainB;
+	public static dyn Last = null;
+	private static Int hidden = 7;
+	public Int Id;
+	public constructor() { Created = Created + 1; Id = Created; }
+	public fun Bump() : Int { Created = Created + 10; return Created; }
+	public static fun Reset(Int v) : Void { Created = v; hidden = hidden + 1; }
+	public static fun Hidden() : Int { return hidden; }
+	public fun Later() : dyn { return () => { Created = Created + 1000; return Created; } : dyn; }
+	# static methods: arguments and a result, a bare call to another static method,
+	# recursion, a call from an instance method, type parameters, a factory, and a
+	# qualified call inside a lambda (a bare one there is not supported yet)
+	public static Int Calls = 0;
+	public static fun Add(Int x, Int y) : Int { Calls = Calls + 1; return x + y; }
+	public static fun Twice(Int x) : Int { return Add(x, x); }
+	public static fun Fact(Int n) : Int { if(n <= 1) { return 1; } return n * Fact(n - 1); }
+	public fun IdPlus(Int k) : Int { return Add(Id, k); }
+	public static fun Pick<T>(T x, T y) : T { return y; }
+	public static fun Make() : SFCounter { return new SFCounter(); }
+	public static fun Thunk() : dyn { return () => { return SFCounter.Twice(21); } : dyn; }
+}
+# END Test_StaticField
+
+# BEGIN Test_MaybeInstantiation K6
+class MaybeList<T>
+{
+	public constructor() { }
+	public fun Make() : dyn { return new ArrayList<T?>(); }
+}
+# END Test_MaybeInstantiation
+
+# BEGIN Test_PairSwap K7
+class SwapPair<A, B>
+{
+	public A First;
+	public B Second;
+	public constructor(A a, B b) { First = a; Second = b; }
+	public fun Swap() : SwapPair<B, A> { return new SwapPair<B, A>(Second, First); }
+}
+# END Test_PairSwap
+
+# BEGIN Test_LambdaClassTypeVar K8
+class LambdaHolder<T>
+{
+	public constructor() { }
+	public fun Go(T v) : dyn { dyn f = (T x) => x; return f(v); }
+}
+# END Test_LambdaClassTypeVar
+
 class Main
 {
 	public static fun Pass(String name) : Void
@@ -564,10 +629,183 @@ class Main
 		Int k = u.Get(g);
 		Float s = c.Second<Int, Float>(7, 1.5);
 		dyn t = d.Second<Int, Int>(7, 8);
-		if(a == 21 && b == 15 && h == 2.5 && i == 40 && e == 120 && k == 5 && s == 1.5 && t == 8) { Main.Pass("Test_GenericMethod"); }
-		else { Main.Fail("Test_GenericMethod"); Main.Show(a); Main.Show(b); Main.Show(h); Main.Show(i); Main.Show(e); Main.Show(k); Main.Show(s); Main.Show(t); Main.End(); }
+		if(a == 21 && b == 15 && h == 2.5 && i == 40 
+			&& e == 120 && k == 5 && s == 1.5 && t == 8) 
+			{ Main.Pass("Test_GenericMethod"); }
+		else { 
+			Main.Fail("Test_GenericMethod"); Main.Show(a); Main.Show(b); 
+			Main.Show(h); Main.Show(i); Main.Show(e); Main.Show(k); 
+			Main.Show(s); Main.Show(t); Main.End(); 
+		}
 	}
 	# END Test_GenericMethod
+
+	# Known issues K1, K3-K8, not fixed yet (see "Known remaining issues" in BUGS.md). Each test
+	# below shows what the program should do once the issue is fixed; today it fails
+	# as described in its comment. Their # BEGIN lines carry the issue ID, and run_test.sh
+	# leaves those tests out of a full run unless KNOWN=1 is set; run one by name to see
+	# its failure.
+
+	# BEGIN Test_StructuralSecondInterface K1
+	public static fun MkTwoFaced() : dyn
+	{
+		return new { fun KA() : Int { return 1; } fun KB() : Int { return 2; } };
+	}
+	# K1: casting one structural value to a second, unrelated interface is not implemented
+	# (now: "UNIMPLEMENTED!" from StructuralValueHeader's castTag / singleCastBlock paths)
+	public static fun Test_StructuralSecondInterface() : Void
+	{
+		dyn r = Main.MkTwoFaced();
+		ITwoFacedA a = r;
+		ITwoFacedB b = r;
+		Int s = a.KA() * 10 + b.KB();
+		if(s == 12) { Main.Pass("Test_StructuralSecondInterface"); }
+		else { Main.Fail("Test_StructuralSecondInterface"); Main.Show(s); Main.End(); }
+	}
+	# END Test_StructuralSecondInterface
+
+	# BEGIN Test_StaticField
+	public static Int StaticCounter;
+	# K2 (fixed): static fields were not implemented (compiler NotImplementedException).
+	#     Checks Main's own static field (as Main.X and as a bare name) and SFCounter's:
+	#     literal initializers, the defaults without one, readonly, private, and reads
+	#     and writes from a constructor, an instance method, a static method, a lambda
+	#     and other classes; and static methods of another class: arguments and results,
+	#     bare calls between static methods, recursion, calls from an instance method,
+	#     type parameters, a factory, and a call inside a lambda
+	public static fun Test_StaticField() : Void
+	{
+		Main.StaticCounter = 3;
+		StaticCounter = StaticCounter + 4;
+		Int first = SFCounter.Created; # Created = 100
+		SFCounter a = new SFCounter(); # Id = 100
+		SFCounter b = new SFCounter(); # Id = 100
+		Int bumped = a.Bump(); # Created = 110
+		SFCounter.Reset(1); # Created = 1 hidden = 8
+		Int hidden = SFCounter.Hidden(); # 8
+		dyn later = a.Later();
+		dyn fromLambda = later(); # Created = 1001 
+		SFCounter.Last = new Box(9); # Box(9)
+		Int sum = SFCounter.Add(2, 3); # 5 calls = 1
+		Int twice = SFCounter.Twice(4); # 8 Calls = 2
+		Int fact = SFCounter.Fact(5); # 120
+		Int idPlus = a.IdPlus(5); # 101 + 5 = 106 Calls = 3
+		Int picked = SFCounter.Pick<Int>(1, 2); # 2
+		dyn thunk = SFCounter.Thunk();
+		dyn fromThunk = thunk(); # 42 Id = 8 Calls = 4
+		Int calls = SFCounter.Calls; # Add ran 4 times: sum, twice, idPlus, fromThunk
+		Int createdBefore = SFCounter.Created; # 1001
+		SFCounter made = SFCounter.Make(); # Created = 1002 Id = 1002
+		Int statics = 0;
+		if(sum == 5 && twice == 8 && fact == 120 && idPlus == 106 && picked == 2
+			&& fromThunk == 42 && calls == 4 && made.Id == createdBefore + 1) { statics = 1; }
+		Int inits = 0;
+		if(SFCounter.Flag && SFCounter.Scale == 1.5 && SFCounter.Limit == 0 - 3 
+			&& SFCounter.Plain == 0 && !SFCounter.PlainB) { inits = 1; }
+		if(Main.StaticCounter == 7 && first == 100 && a.Id == 101 && b.Id == 102 
+			&& bumped == 112 && hidden == 8 && fromLambda == 1001 
+			&& createdBefore == 1001 && SFCounter.Last.V == 9 && inits == 1 && statics == 1)
+				{ Main.Pass("Test_StaticField"); }
+		else { 
+			Main.Fail("Test_StaticField"); 
+			Main.Show(Main.StaticCounter); 
+			Main.Show(first); Main.Show(a.Id); Main.Show(b.Id); 
+			Main.Show(bumped); Main.Show(hidden); Main.Show(fromLambda); 
+			Main.Show(createdBefore); Main.Show(inits);
+			Main.Show(sum); Main.Show(twice); Main.Show(fact); Main.Show(idPlus);
+			Main.Show(picked); Main.Show(fromThunk); Main.Show(calls); Main.Show(made.Id); Main.End();
+		}
+	}
+	# END Test_StaticField
+
+	# BEGIN Test_IfType K3
+	# K3: if (x : T) is not implemented (now: compiler NotImplementedException, VisitIfTypeStmt)
+	public static fun Test_IfType() : Void
+	{
+		dyn x = Main.Id(5);
+		dyn y = Main.Id("s");
+		Int hits = 0;
+		if(x : Int) { hits = hits + 1; }
+		if(y : Int) { hits = hits + 10; }
+		if(hits == 1) { Main.Pass("Test_IfType"); }
+		else { Main.Fail("Test_IfType"); Main.Show(hits); Main.End(); }
+	}
+	# END Test_IfType
+
+	# BEGIN Test_IfObj K4
+	public static fun SomeBox(Int v) : Box?
+	{
+		if(v > 0) { return new Box(v); }
+		return null;
+	}
+	# K4: ifobj on a value that may be null is rejected (now: compile error "Local variable b
+	# is never null, then-branch never taken"); ifnull on the same kind of value works
+	public static fun Test_IfObj() : Void
+	{
+		Box? b = Main.SomeBox(4);
+		Box? n = Main.SomeBox(0);
+		Int r = 0;
+		ifobj(b) { r = r + b.V; }
+		ifnull(n) { r = r + 100; }
+		if(r == 104) { Main.Pass("Test_IfObj"); }
+		else { Main.Fail("Test_IfObj"); Main.Show(r); Main.End(); }
+	}
+	# END Test_IfObj
+
+	# BEGIN Test_MaybeCast K5
+	public static fun SomeBox2(Int v) : Box?
+	{
+		if(v > 0) { return new Box(v); }
+		return null;
+	}
+	# K5: casting a maybe value T? to T is rejected (now: compile error "Expected type Box?,
+	# but found Box")
+	public static fun Test_MaybeCast() : Void
+	{
+		Box? b = Main.SomeBox2(4);
+		Box c = (Box) b;
+		if(c.V == 4) { Main.Pass("Test_MaybeCast"); }
+		else { Main.Fail("Test_MaybeCast"); Main.Show(c.V); Main.End(); }
+	}
+	# END Test_MaybeCast
+
+	# BEGIN Test_MaybeInstantiation K6
+	# K6: a maybe type that contains a type variable, here T? in new ArrayList<T?>() inside a
+	# generic class, needs a runtime instantiation: NomMaybeType::GenerateRTInstantiation
+	# calls NOM_RTInstantiateMaybe, which is never declared (the same problem as R14b),
+	# so CreateCall gets a null function (now: segfault while compiling Make)
+	public static fun Test_MaybeInstantiation() : Void
+	{
+		MaybeList<Int> h = new MaybeList<Int>();
+		dyn l = h.Make();
+		Main.Pass("Test_MaybeInstantiation");
+	}
+	# END Test_MaybeInstantiation
+
+	# BEGIN Test_PairSwap K7
+	# K7: new SwapPair<B, A>(...) inside SwapPair<A, B> is rejected (now: compile error
+	# "SwapPair<B, A> does not have a constructor that matches the given arguments")
+	public static fun Test_PairSwap() : Void
+	{
+		SwapPair<Int, String> p = new SwapPair<Int, String>(1, "a");
+		SwapPair<String, Int> q = p.Swap();
+		if(q.Second == 1) { Main.Pass("Test_PairSwap"); }
+		else { Main.Fail("Test_PairSwap"); Main.Show(q.Second); Main.End(); }
+	}
+	# END Test_PairSwap
+
+	# BEGIN Test_LambdaClassTypeVar K8
+	# K8: a lambda whose parameter uses the class's type variable, (T x) => x inside
+	# LambdaHolder<T>: NomLambdaBody::createLLVMElement resolves the argument types
+	# without a substitution context (now: "ArrayRef ... Invalid index!" assertion)
+	public static fun Test_LambdaClassTypeVar() : Void
+	{
+		LambdaHolder<Int> h = new LambdaHolder<Int>();
+		dyn r = h.Go(5);
+		if(r == 5) { Main.Pass("Test_LambdaClassTypeVar"); }
+		else { Main.Fail("Test_LambdaClassTypeVar"); Main.Show(r); Main.End(); }
+	}
+	# END Test_LambdaClassTypeVar
 
 	public static fun Main() : Void
 	{
@@ -596,6 +834,14 @@ class Main
 		Main.Test_GenericInstantiation();
 		Main.Test_BareReturn();
 		Main.Test_GenericMethod();
+		Main.Test_StructuralSecondInterface();
+		Main.Test_StaticField();
+		Main.Test_IfType();
+		Main.Test_IfObj();
+		Main.Test_MaybeCast();
+		Main.Test_MaybeInstantiation();
+		Main.Test_PairSwap();
+		Main.Test_LambdaClassTypeVar();
 		# TESTS-END
 	}
 }

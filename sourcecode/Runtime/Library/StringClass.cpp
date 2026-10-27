@@ -145,6 +145,13 @@ NomStringClass *NomStringClass::GetInstance() {
     concat->SetArgumentTypes(TypeList(stringTypeArr, 1));
     concat->SetReturnType(nsc.GetType());
     nsc.AddMethod(concat);
+
+    NomMethodInternal *toString = new NomMethodInternal(
+        &nsc, "ToString", "LIB_NOM_String_ToString_1", true);
+    toString->SetDirectTypeParameters();
+    toString->SetArgumentTypes();
+    toString->SetReturnType(nsc.GetType());
+    nsc.AddMethod(toString);
     // nsc.PreprocessInheritance();
   }
   return &nsc;
@@ -171,6 +178,9 @@ extern "C" DLLEXPORT void *LIB_NOM_String_Concat_1(void *str, void *other) {
   result->append(*right);
   return result->GetStringObject();
 }
+
+// strings are immutable, so a string is its own text
+extern "C" DLLEXPORT void *LIB_NOM_String_ToString_1(void *str) { return str; }
 
 llvm::Function *GetDebugPrint(llvm::Module *mod) {
   Function *ret = mod->getFunction("LIB_NOM_DEBUG_PRINT");

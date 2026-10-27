@@ -4,6 +4,7 @@ These bugs came up while porting the GTP benchmarks to MonNom (`gtp-benchmark-mo
 
 **Status (2026-10-28):**
 - Committed: C1–C9, R1-R15, G1 (generic instance methods).
+- Applied in the working tree but not committed: K2 (static fields), K11 (`ToString` for `Bool` and `String`).
 
 ## Contents of this folder
 
@@ -23,8 +24,11 @@ $T                                         # all tests in one process, -o3
 $T Test_Alignment                          # one test only
 $T Test_Alignment -- -o0                   # one test, other nom flags
 $T -- -o3 --trans                          # all tests, other nom flags
+KNOWN=1 $T                                 # also the known-issue tests K1, K3–K8 (stops at the first one)
 NOMC="dotnet <old>/nomc.dll" $T Test_IfAssign   # another compiler
 ```
+
+A full run leaves out the tests for the known issues K1 and K3–K8 (see "Known remaining issues"), which still fail. They are recognized by the issue ID on their block line, as in `# BEGIN Test_StaticField K2`. Run one by name to see its failure, or set `KNOWN=1` to include them all.
 
 The script works from any directory. It finds `setpath.sh` by searching upwards from its own folder.
 
@@ -61,6 +65,7 @@ To apply all reference runtime fixes at once: `git apply bugfixes/runtime.patch`
 | Test_InterfaceExtends | R13 | abort (`std::exception*`) | PASS |
 | Test_GenericInstantiation | R14 | abort (`NomString const*` thrown) | PASS |
 | Test_BareReturn | R15 | compiler crash (`NullReferenceException` in `VisitReturnStmt`) | PASS |
+| Test_StaticField | K2 | compiler `NotImplementedException` | PASS |
 | Test_GenericMethod | G1 | compile error ("U is not a subtype of Int") | PASS |
 
 - **Original** means the original runtime for R1–R14 and the original compiler for C1–C9, with each test run alone.
@@ -269,15 +274,100 @@ A record method's LLVM parameters are `[type arguments…, receiver, arguments�
 
 ---
 
+## K2: static fields
+
+Static fields were parsed, but every other layer was missing:
+- **Type checker:** `TDClass.StaticFields` was always empty (`//TODO: implement static fields`). Reading or writing one (`StaticFieldReference`), `Class.Field` lookups, and initializers all threw `NotImplementedException`.
+- **Bytecode generator:** it threw on the type checker's `ReadStaticFieldInstruction`/`WriteStaticFieldInstruction`.
+- **Bytecode format and runtime:** they had no static field support at all.
+
+`Test_StaticField` checks:
+- `Main`'s own static field, as `Main.X` and as a bare name;
+- `SFCounter`'s static fields: literal initializers of every kind, the defaults without one, `readonly`, and `private`;
+- reads and writes from a constructor, an instance method, a static method, a lambda and another class;
+- static methods of another class: arguments and results, a bare call to another static method of the same class, recursion, a call from an instance method by bare name, type parameters (`Pick<T>`), a factory (`Make`), and a call inside a lambda.
+
+It passes in a full run at `-o0`, `-o3`, `-o3 --trans` and `-o3 --trans --sync`.
+
+### What is supported
+
+- **Declarations:** `[visibility] static [readonly] Type Name [= literal];` in a class.
+- **Initializers:** an `Int` (also negative), `Float`, `Bool`, `String` or `null` literal, which is all the grammar allows (`defaultexpr`). Other forms, and a literal whose type doesn't fit the field, are compile errors.
+- **Defaults:** without an initializer, a field starts as `0`, `0.0`, `false` or `null`, depending on its type.
+- **Access:** as a bare name in the class's instance methods, static methods and constructors, and in lambdas and records inside them. Elsewhere it's `Class.Field`, which includes accessor chains (`SFCounter.Last.V`). Visibility is checked like for static methods.
+- **`readonly`:** a `readonly` static field can only be set by its initializer. Writing it is the compile error "Static field … is read-only".
+- **No type variables:** a static field is shared by all instantiations of its class, so its type must not use type variables ("Static field … cannot have a type that uses type variables").
+
+### How it works
+
+**Compiler:**
+- `StaticFieldSpec` (`TypeChecker/StaticFieldSpec.cs`) is created in `InitializeMembersPass.HandleClass`, and `TDClass` collects the specs, like instance fields.
+- `StaticFieldReference` emits `ReadStaticFieldInstruction`/`WriteStaticFieldInstruction`. Writes convert the value to the field's type first.
+- `GetStaticFieldAccessVariable` resolves `Class.Field` in both the expression and the assignment path. The accessor-chain path used to look up `Class.Field` itself as a class, which is fixed too.
+- A constructor's `FindField` now also finds static fields.
+
+**Bytecode** (`Bytecode/Instructions/StaticFieldInstructions.cs`): two new opcodes, `ReadStaticField = 53` and `WriteStaticField = 54`. Each carries:
+- a register;
+- the field name, the owning class and the field type;
+- the initializer, as a kind byte and a 64-bit payload: the `Int` value, the `Float`'s bits, `0`/`1` for `Bool`, or a string constant ID.
+
+Because every access carries the initializer, the class format doesn't change, and existing `.mnil` files stay valid.
+
+**Runtime** (`Instructions/StaticFieldInstructions.cpp`):
+- **Storage:** each field (class, name) has one slot, created on first use. It's `gcalloc_uncollectable` memory, so the GC scans it and the stored value stays alive. Generated code embeds the slot's address as a constant, so every JIT module, IMT entries included, uses the same slot.
+- **Values:** the slot holds the packed value (`REFTYPE`), or `0` until the field is first written or read. `0` is never a packed value.
+- **Reads:** if the slot is still `0`, the read stores the initial value first. The result is then converted to the field type's representation (unboxed for `Int`/`Float`), like instance field reads.
+- **Writes:** pack the value and store it.
+
+---
+
+## K11: `ToString` for `Bool` and `String`
+
+`true.ToString()` and `"x".ToString()`, also through `dyn`, failed at runtime with "No such method!". The runtime's `NomBoolClass` had no methods at all, and `NomStringClass` only had `Print` and `Concat`, whereas `Int` and `Float` define `ToString`. The compiler's standard library didn't declare it either, so a typed call like `b.ToString()` with `b : Bool` didn't compile. K11 was found while testing K2, and has no test of its own.
+
+**Fixes:**
+- **Runtime:**
+  - `Bool.ToString` (`Library/BoolClass.cpp`, `LIB_NOM_Bool_ToString_1`) returns a new `"true"` or `"false"`. A `Bool` is one of the two objects in `RT_NOM_BOOLEANS`, and its field 0 holds `0` or `1`. The new `NomString` is allocated with `gcalloc`, for the reason given in R11.
+  - `String.ToString` (`Library/StringClass.cpp`, `LIB_NOM_String_ToString_1`) returns the string itself, since strings are immutable.
+
+  Both are registered like `Int.ToString`: a final `NomMethodInternal` without arguments that returns `String`.
+- **Compiler:** `TypeChecker/StdLib/Bool.cs` and `String.cs` declare `ToString() : String`.
+- **Calls:** a `Bool` computed by a comparison is a raw `i1`. When it is the receiver of a typed call, as in `(x < 5).ToString()`, the argument conversion in `CallCheckedInstanceMethod::Compile` used to call `PackInt` on it, which throws. It now boxes it with `PackBool`.
+
+**Checked:** typed and dynamic receivers, raw comparisons, and use inside `++` all give the right text at `-o0`, `-o3` and `-o3 --trans`:
+
+```
+true false true false hello true dyn hello!true
+```
+
+---
+
 ## Known remaining issues, not fixed
 
-- **Casting a structural value to a second unrelated interface:** prints `UNIMPLEMENTED!` (`RuntimeData/Headers/StructuralValueHeader.cpp`, the `castTag` / `singleCastBlock` paths). It needs a list of cast types per value. This is the largest remaining cause of failing structural configurations (76 of forth's 180).
-- **Static fields:** not implemented. The type checker throws `NotImplementedException`, and there is no bytecode or runtime support.
-- **`if (x : T)`, `ifnull`/`ifobj` and `T?`/`T!`:** not implemented or not working.
-- **`NomMaybeType::GenerateRTInstantiation`:** has the same undeclared-function problem as R14b, with `NOM_RTInstantiateMaybe`.
-- **`new Pair<B, A>(…)` inside `Pair<A, B>`:** rejected by the type checker.
-- **"Dictionary entry not found" (27 forth configurations):** comes from the dictionary-field code in `RuntimeData/Headers/RTDictionary/`. Not investigated.
-- **Lambdas whose parameters use a class type variable,** e.g. `(T x) => x` inside `class Wrap<T>`: the runtime crashes with `ArrayRef … Invalid index!`, because `NomLambdaBody::createLLVMElement` resolves the lambda's argument types without a substitution context (`GetArgumentTypes(nullptr)`). Unrelated to G1; `(dyn x) => x` works.
-- **Record methods with their own type parameters** (`new { fun M<U>(…) }`) are rejected by the compiler ("Record method … cannot have type parameters"). See G1.
+The issues are numbered K1–K12. K2 (static fields) and K11 (`ToString` for `Bool` and `String`) are fixed; see their sections above. Each remaining issue that can be shown in a small program (K1, K3–K8) has a test in `BugTests.mn`, whose `# BEGIN` line carries the ID. The test shows what the program should do once the issue is fixed. Any types it needs are inside its own `# BEGIN/# END` blocks, so it can't affect the other tests.
+
+| ID | Issue | Test | Fails now with |
+|---|---|---|---|
+| K1 | Casting a structural value to a second, unrelated interface | `Test_StructuralSecondInterface` | `UNIMPLEMENTED!` |
+| K3 | `if (x : T)` | `Test_IfType` | compiler `NotImplementedException` |
+| K4 | `ifobj` on a value that may be null | `Test_IfObj` | "Local variable b … is never null, then-branch never taken" |
+| K5 | Casting `T?` to `T` | `Test_MaybeCast` | "Expected type Box?, but found Box" |
+| K6 | `NomMaybeType::GenerateRTInstantiation` | `Test_MaybeInstantiation` | segfault while compiling `Make` |
+| K7 | `new Pair<B, A>(…)` inside `Pair<A, B>` | `Test_PairSwap` | "SwapPair<B, A> does not have a constructor that matches the given arguments" |
+| K8 | Lambda parameter typed with a class type variable | `Test_LambdaClassTypeVar` | "ArrayRef … Invalid index!" assertion |
+
+- **K1, casting a structural value to a second unrelated interface:** prints `UNIMPLEMENTED!` (`RuntimeData/Headers/StructuralValueHeader.cpp`, the `castTag` / `singleCastBlock` paths). It needs a list of cast types per value. This is the largest remaining cause of failing structural configurations (76 of forth's 180).
+- **K3, `if (x : T)`:** `CodeTransformer.VisitIfTypeStmt` is `throw new NotImplementedException()`.
+- **`T?`:** a declaration such as `Box? b = …`, `ifnull`, and `T!` all work. Two things don't:
+  - **K4, `ifobj (b)`** on a value that may be null (here the result of a method returning `Box?`) is rejected with "is never null, then-branch never taken". The null analysis seems inverted for `ifobj`, whose then-branch is the non-null case.
+  - **K5, the cast `(Box) b`** from `Box?` fails to type-check with "Expected type Box?, but found Box".
+- **K6, `NomMaybeType::GenerateRTInstantiation`** (`IR/Types/NomMaybeType.cpp`): has the same undeclared-function problem as R14b. It calls `env->Module->getFunction("NOM_RTInstantiateMaybe")`, which returns null. Any maybe type containing a type variable that needs a runtime descriptor reaches it, for example `new ArrayList<T?>()` inside a generic class.
+- **K7, `new Pair<B, A>(…)` inside `Pair<A, B>`:** rejected by the type checker.
+- **K8, lambdas whose parameters use a class type variable,** e.g. `(T x) => x` inside `class Wrap<T>`: the runtime fails the assertion `ArrayRef … Invalid index!`, because `NomLambdaBody::createLLVMElement` resolves the lambda's argument types without a substitution context (`GetArgumentTypes(nullptr)`). This is unrelated to G1; `(dyn x) => x` works.
+
+Not covered by a test:
+- **K9, "Dictionary entry not found" (27 forth configurations):** comes from the dictionary-field code in `RuntimeData/Headers/RTDictionary/`. It has not been investigated, so there is no known small program that triggers it. The failing forth configurations are the reproduction for now.
+- **K12, a method called by its bare name inside a lambda,** e.g. `() => Twice(21)` in a class method, where `Twice` is a method of the class, either static or instance: the compiler throws `NotImplementedException` in `LambdaTransformEnvironment.GetLocalCallable`, on purpose (`//TODO: need to make parent refer back to this environment when generating this pointer method access`). For an instance method, the parent would build the call with its own `this` register, which is the same frame problem as C6. A qualified call works, as in `SFCounter.Twice(21)` or `this.Foo()`.
+- **K10, record methods with their own type parameters** (`new { fun M<U>(…) }`): the compiler rejects them on purpose ("Record method … cannot have type parameters"). Record methods take their type arguments before the receiver, but every dispatch path passes the receiver first (see G1). A test belongs with the change that adds support.
 
 The benchmark configurations in `gtp-benchmark-monnom/{forth,sieve,snake,tetris,zombie}/.BM_*` were regenerated and run with all fixes applied. They are generated files, and the folder is now a separate submodule.
