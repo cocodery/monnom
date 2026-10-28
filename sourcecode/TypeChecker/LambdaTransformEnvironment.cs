@@ -280,16 +280,32 @@ namespace Nom.TypeChecker
 
         public IOptional<ICallableReference> GetLocalCallable(IArgIdentifier<Identifier, Language.IType> callableName, IEnumerable<Language.IType> argTypes)
         {
-            if (callableName.Arguments.Count() == 0 && localVariables.ContainsKey(callableName.Name.Name))
+            // the same order as in a method, but every access is made from this frame
+            // (#0 is the closure here, not this): the parent's own lookup would build the
+            // read or the receiver with the parent's registers
+            if (callableName.Arguments.Count() == 0)
             {
-                return AsCallable(new LocalVariableRef(callableName.Name, localVariables[callableName.Name.Name]).GenerateReadAccess(this), argTypes);
+                // the lambda's parameters and locals, then the enclosing variables and
+                // fields, which the indexer captures into the closure
+                var lc = this[callableName.Name].Join(v => AsCallable(v.GenerateReadAccess(this), argTypes));
+                if (lc.HasElem)
+                {
+                    return lc;
+                }
             }
-            var parentResult = ParentEnv.GetLocalCallable(callableName, argTypes);
-            if (parentResult.HasElem)
+            // a method of the enclosing object, called on the captured this
+            var thisVar = this[new Identifier("this", callableName.Name.Locs)];
+            if (thisVar.HasElem)
             {
-                throw new NotImplementedException(); //TODO: need to make parent refer back to this environment when generating this pointer method access
+                var method = GetMethod(thisVar.Elem.GenerateReadAccess(this), callableName, argTypes);
+                if (method.HasElem)
+                {
+                    return method;
+                }
             }
-            return parentResult;
+            // what remains is a static method of the enclosing class, whose call does not
+            // use the parent's frame
+            return ParentEnv.GetLocalCallable(callableName, argTypes);
         }
 
         public IOptional<ILocalVariable> GetLocalVariable(string name)

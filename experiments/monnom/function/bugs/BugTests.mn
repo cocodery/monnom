@@ -122,9 +122,11 @@ class GenUser<T>
 # Types used only by one test are inside that test's # BEGIN/# END
 # blocks, so that a known issue in them cannot break the other tests.
 
-# BEGIN Test_StructuralSecondInterface K1
+# BEGIN Test_StructuralSecondInterface
 interface ITwoFacedA { fun KA() : Int; }
 interface ITwoFacedB { fun KB() : Int; }
+interface ITwoFacedC { fun KC() : ITwoFacedA; }
+interface IGetter<T> { fun Get() : T; }
 # END Test_StructuralSecondInterface
 
 # BEGIN Test_StaticField
@@ -196,6 +198,28 @@ class LambdaHolder<T>
 	public fun Two(T v) : dyn { dyn f = (T x, T y) => y; return f(v, Kept); }
 }
 # END Test_LambdaClassTypeVar
+
+# BEGIN Test_LambdaBareMethodCall
+class BareCalls
+{
+	public Int N;
+	public constructor(Int n) { N = n; }
+	public fun Inc(Int k) : Int { N = N + k; return N; }
+	public static fun Twice(Int x) : Int { return x + x; }
+	# a static method, from a lambda in an instance method
+	public fun StaticCall() : dyn { dyn f = () => Twice(21); return f(); }
+	# a static method, from a lambda in a static method
+	public static fun StaticCallInStatic() : dyn { dyn f = (Int x) => Twice(x); return f(4); }
+	# an instance method: runs on this, so it changes N
+	public fun InstanceCall() : dyn { dyn f = () => Inc(5); return f(); }
+	# a lambda parameter with a method's name comes first
+	public fun ParamShadows() : dyn { dyn f = (dyn Twice) => Twice(3); return f((Int y) => y * 100); }
+	# a local variable of the enclosing method, captured, comes before the method
+	public fun LocalShadows() : dyn { dyn Inc = (Int y) => y - 1; dyn f = () => Inc(50); return f(); }
+	# nested lambdas
+	public fun Nested() : dyn { dyn f = () => { dyn g = () => Inc(Twice(1)); return g(); } : dyn; return f(); }
+}
+# END Test_LambdaBareMethodCall
 
 class Main
 {
@@ -659,20 +683,29 @@ class Main
 	# leaves those tests out of a full run unless KNOWN=1 is set; run one by name to see
 	# its failure.
 
-	# BEGIN Test_StructuralSecondInterface K1
+	# BEGIN Test_StructuralSecondInterface
 	public static fun MkTwoFaced() : dyn
 	{
-		return new { fun KA() : Int { return 1; } fun KB() : Int { return 2; } };
+		return new {
+			fun KA() : Int { return 1; }
+			fun KB() : Int { return 2; }
+			fun KC() : dyn { return new { fun KA() : Int { return 5; } }; }
+			fun Get() : Int { return 7; } };
 	}
-	# K1: casting one structural value to a second, unrelated interface is not implemented
-	# (now: "UNIMPLEMENTED!" from StructuralValueHeader's castTag / singleCastBlock paths)
+	public static fun AsGetter<T>(dyn r) : IGetter<T> { IGetter<T> g = r; return g; }
+	# K1: casting one structural value to a second, unrelated interface
+	# (was: "UNIMPLEMENTED!" from StructuralValueHeader's castTag / singleCastBlock paths)
 	public static fun Test_StructuralSecondInterface() : Void
 	{
 		dyn r = Main.MkTwoFaced();
-		ITwoFacedA a = r;
-		ITwoFacedB b = r;
-		Int s = a.KA() * 10 + b.KB();
-		if(s == 12) { Main.Pass("Test_StructuralSecondInterface"); }
+		ITwoFacedA a = r; # first cast: a single cast type
+		ITwoFacedB b = r; # second, unrelated: the cast data becomes a list
+		ITwoFacedC c = r; # third
+		ITwoFacedA a2 = r; # already in the list
+		IGetter<Int> g = Main.AsGetter<Int>(r); # a type with variables, from a generic method
+		# KC's result is checked against the return types of all the cast types
+		Int s = a.KA() * 10000 + b.KB() * 1000 + c.KC().KA() * 100 + a2.KA() * 10 + g.Get();
+		if(s == 12517) { Main.Pass("Test_StructuralSecondInterface"); }
 		else { Main.Fail("Test_StructuralSecondInterface"); Main.Show(s); Main.End(); }
 	}
 	# END Test_StructuralSecondInterface
@@ -831,6 +864,24 @@ class Main
 	}
 	# END Test_LambdaClassTypeVar
 
+	# BEGIN Test_LambdaBareMethodCall
+	# K12: a method called by its bare name inside a lambda, () => Twice(21), where Twice is
+	# a static or instance method of the enclosing class (was: compiler NotImplementedException
+	# in LambdaTransformEnvironment.GetLocalCallable)
+	public static fun Test_LambdaBareMethodCall() : Void
+	{
+		BareCalls o = new BareCalls(10);
+		dyn st = o.StaticCall(); # 42
+		dyn ss = BareCalls.StaticCallInStatic(); # 8
+		dyn ic = o.InstanceCall(); # N: 10 -> 15
+		dyn ps = o.ParamShadows(); # the parameter: 300
+		dyn ls = o.LocalShadows(); # the local: 49, N unchanged
+		dyn ne = o.Nested(); # N: 15 -> 17
+		if(st == 42 && ss == 8 && ic == 15 && ps == 300 && ls == 49 && ne == 17 && o.N == 17) { Main.Pass("Test_LambdaBareMethodCall"); }
+		else { Main.Fail("Test_LambdaBareMethodCall"); Main.Show(st); Main.Show(ss); Main.Show(ic); Main.Show(ps); Main.Show(ls); Main.Show(ne); Main.Show(o.N); Main.End(); }
+	}
+	# END Test_LambdaBareMethodCall
+
 	public static fun Main() : Void
 	{
 		# TESTS-BEGIN (run_test.sh keeps one of these lines)
@@ -866,6 +917,7 @@ class Main
 		Main.Test_MaybeInstantiation();
 		Main.Test_PairSwap();
 		Main.Test_LambdaClassTypeVar();
+		Main.Test_LambdaBareMethodCall();
 		# TESTS-END
 	}
 }

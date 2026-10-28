@@ -3,6 +3,7 @@
 #include "CompileEnv.h"
 #include "CompileHelpers.h"
 #include "Metadata.h"
+#include "NomAlloc.h"
 #include "NomClassType.h"
 #include "NomTypeRegistry.h"
 #include "RTCast.h"
@@ -23,6 +24,95 @@ namespace Runtime {
 static const char *unimplementedMsg = "UNIMPLEMENTED!";
 static const char *notAFunctionalInterfaceMsg =
     "Trying to cast lambda to non-functional interface!";
+
+extern "C" DLLEXPORT void RT_NOM_AddStructuralCastType(void **castDataSlot,
+                                                       void *castType) {
+  // current cast data
+  intptr_t old = __atomic_load_n((intptr_t *)castDataSlot, __ATOMIC_ACQUIRE);
+  while (true) {
+    intptr_t replacement;
+    if (old == 0) { // never cast yet
+      replacement = (intptr_t)castType;
+    } else {
+      auto node =
+          (StructuralCastListNode *)gcalloc(sizeof(StructuralCastListNode));
+      node->Type = castType;
+      if (old & 1) { // already a list
+        node->Next = (StructuralCastListNode *)(old & ~(intptr_t)1);
+      } else { // single cast
+        auto first =
+            (StructuralCastListNode *)gcalloc(sizeof(StructuralCastListNode));
+        first->Type = (void *)old;
+        first->Next = nullptr;
+        node->Next = first;
+      }
+      replacement = (intptr_t)node | 1;
+    }
+    // If another thread changed the slot in the meantime
+    // the CAS writes the current value into old and the loop rebuilds from that
+    if (__atomic_compare_exchange_n((intptr_t *)castDataSlot, &old, replacement,
+                                    false, __ATOMIC_ACQ_REL,
+                                    __ATOMIC_ACQUIRE)) {
+      return;
+    }
+  }
+}
+
+static llvm::Function *GetAddStructuralCastTypeFunction(llvm::Module &mod) {
+  llvm::Function *fun = mod.getFunction("RT_NOM_AddStructuralCastType");
+  if (fun == nullptr) {
+    fun = Function::Create(
+        FunctionType::get(Type::getVoidTy(LLVMCONTEXT),
+                          {POINTERTYPE->getPointerTo(), POINTERTYPE}, false),
+        GlobalValue::LinkageTypes::ExternalLinkage,
+        "RT_NOM_AddStructuralCastType", mod);
+  }
+  return fun;
+}
+
+static llvm::Value *GenerateCastDataSlot(NomBuilder &builder,
+                                         llvm::Value *sValue) {
+  return builder->CreatePointerCast(
+      builder->CreateGEP(
+          builder->CreatePointerCast(
+              sValue, StructuralValueHeader::GetLLVMType()->getPointerTo()),
+          {MakeInt32(0), MakeInt32(StructuralValueHeaderFields::CastData)}),
+      POINTERTYPE->getPointerTo());
+}
+
+llvm::Value *
+StructuralValueHeader::GenerateCastListNode(NomBuilder &builder,
+                                            llvm::Value *castData) {
+  return builder->CreateIntToPtr(
+      builder->CreateAnd(builder->CreatePtrToInt(castData, numtype(intptr_t)),
+                         MakeInt<intptr_t>(~(intptr_t)1)),
+      POINTERTYPE->getPointerTo());
+}
+
+llvm::Value *
+StructuralValueHeader::GenerateReadCastListType(NomBuilder &builder,
+                                                llvm::Value *node) {
+  return MakeLoad(builder, builder->CreateGEP(node, MakeInt32(0)),
+                  "castListType", AtomicOrdering::NotAtomic);
+}
+
+llvm::Value *
+StructuralValueHeader::GenerateReadCastListNext(NomBuilder &builder,
+                                                llvm::Value *node) {
+  return builder->CreatePointerCast(
+      MakeLoad(builder, builder->CreateGEP(node, MakeInt32(1)), "castListNext",
+               AtomicOrdering::NotAtomic),
+      POINTERTYPE->getPointerTo());
+}
+
+void StructuralValueHeader::GenerateAddCastType(NomBuilder &builder,
+                                                llvm::Value *sValue,
+                                                llvm::Value *castType) {
+  auto fun = GetAddStructuralCastTypeFunction(
+      *builder->GetInsertBlock()->getParent()->getParent());
+  builder->CreateCall(fun, {GenerateCastDataSlot(builder, sValue),
+                            builder->CreatePointerCast(castType, POINTERTYPE)});
+}
 llvm::StructType *StructuralValueHeader::GetLLVMType() {
   static llvm::StructType *shst =
       StructType::create(LLVMCONTEXT, "RT_NOM_StructHeader");
@@ -211,6 +301,20 @@ void StructuralValueHeader::GenerateMonotonicStructuralCast(
       } else {
         castWriteType = rightType->GetLLVMElement(*fun->getParent());
       }
+      // a value that has been cast before (to an unrelated type, see below)
+      // gets the type added to its cast data
+      BasicBlock *writeFirstCastTypeBlock =
+          BasicBlock::Create(LLVMCONTEXT, "writeFirstCastType", fun);
+      BasicBlock *addCastTypeBlock =
+          BasicBlock::Create(LLVMCONTEXT, "addCastType", fun);
+      builder->CreateCondBr(builder->CreateIsNull(currentCastData),
+                            writeFirstCastTypeBlock, addCastTypeBlock,
+                            GetLikelyFirstBranchMetadata());
+      builder->SetInsertPoint(addCastTypeBlock);
+      StructuralValueHeader::GenerateAddCastType(builder, value, castWriteType);
+      builder->CreateBr(successBlock);
+
+      builder->SetInsertPoint(writeFirstCastTypeBlock);
       auto cmpxresult =
           StructuralValueHeader::GenerateWriteCastTypePointerCMPXCHG(
               builder, value,
@@ -233,18 +337,60 @@ void StructuralValueHeader::GenerateMonotonicStructuralCast(
   {
     BasicBlock *singleCastBlock =
         BasicBlock::Create(LLVMCONTEXT, "checkSinglyCastSubtyping", fun);
+    BasicBlock *castListBlock =
+        BasicBlock::Create(LLVMCONTEXT, "checkCastListSubtyping", fun);
+    // none of the cast types so far is a subtype of the right type: the value
+    // is checked as for a first cast, then the type is added
+    BasicBlock *unrelatedCastBlock =
+        BasicBlock::Create(LLVMCONTEXT, "unrelatedCast", fun);
 
     builder->SetInsertPoint(notFirstCastBlock);
     Value *castTag = builder->CreateTrunc(
         builder->CreatePtrToInt(currentCastData, numtype(intptr_t)),
         inttype(1));
-    builder->CreateCondBr(castTag, unimplementedBlock, singleCastBlock,
+    builder->CreateCondBr(castTag, castListBlock, singleCastBlock,
                           GetLikelySecondBranchMetadata());
 
     builder->SetInsertPoint(singleCastBlock);
     RTSubtyping::CreateInlineSubtypingCheck(
         builder, builder->CreatePointerCast(currentCastData, TYPETYPE), nullptr,
-        rightType, outerStack, successBlock, nullptr, unimplementedBlock);
+        rightType, outerStack, successBlock, nullptr, unrelatedCastBlock);
+
+    {
+      BasicBlock *loopHeadBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Head", fun);
+      BasicBlock *loopBodyBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Body", fun);
+      BasicBlock *loopNextBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Next", fun);
+      builder->SetInsertPoint(castListBlock);
+      auto firstNode =
+          StructuralValueHeader::GenerateCastListNode(builder, currentCastData);
+      builder->CreateBr(loopHeadBlock);
+
+      builder->SetInsertPoint(loopHeadBlock);
+      auto node = builder->CreatePHI(firstNode->getType(), 2, "castListNode");
+      node->addIncoming(firstNode, castListBlock);
+      builder->CreateCondBr(builder->CreateIsNull(node), unrelatedCastBlock,
+                            loopBodyBlock);
+
+      builder->SetInsertPoint(loopBodyBlock);
+      RTSubtyping::CreateInlineSubtypingCheck(
+          builder,
+          builder->CreatePointerCast(
+              StructuralValueHeader::GenerateReadCastListType(builder, node),
+              TYPETYPE),
+          nullptr, rightType, outerStack, successBlock, nullptr, loopNextBlock);
+
+      builder->SetInsertPoint(loopNextBlock);
+      node->addIncoming(
+          StructuralValueHeader::GenerateReadCastListNext(builder, node),
+          loopNextBlock);
+      builder->CreateBr(loopHeadBlock);
+    }
+
+    builder->SetInsertPoint(unrelatedCastBlock);
+    builder->CreateBr(firstCastBlock);
   }
 }
 
@@ -279,6 +425,7 @@ void StructuralValueHeader::GenerateMonotonicStructuralCast(
       StructuralValueHeader::GenerateReadCastData(builder, value);
   auto hasBeenCast = builder->CreateIsNotNull(currentCastData);
   Value *lambdaCastTypeOnFirstFail = nullptr;
+  PHINode *writeCastData = nullptr;
 
   BasicBlock *firstCastBlock =
       BasicBlock::Create(LLVMCONTEXT, "LambdaCast$firstCast", fun);
@@ -301,6 +448,11 @@ void StructuralValueHeader::GenerateMonotonicStructuralCast(
             : tryWriteTypeCastBlock;
 
     builder->SetInsertPoint(firstCastBlock);
+    // the cast data seen when the checks below start: null for a first cast,
+    // or the cast data of a value cast before to unrelated types only
+    writeCastData = builder->CreatePHI(currentCastData->getType(), 2,
+                                       "castDataBeforeWrite");
+    writeCastData->addIncoming(currentCastData, incomingBlock);
 
     BasicBlock *lambdaBlock = nullptr, *recordBlock = nullptr,
                *partialAppBlock = nullptr;
@@ -375,11 +527,23 @@ void StructuralValueHeader::GenerateMonotonicStructuralCast(
     if (NomCastStats) {
       builder->CreateCall(GetIncImpositionsFunction(*fun->getParent()), {});
     }
+    BasicBlock *writeFirstCastTypeBlock =
+        BasicBlock::Create(LLVMCONTEXT, "writeFirstCastType", fun);
+    BasicBlock *addCastTypeBlock =
+        BasicBlock::Create(LLVMCONTEXT, "addCastType", fun);
+    builder->CreateCondBr(builder->CreateIsNull(writeCastData),
+                          writeFirstCastTypeBlock, addCastTypeBlock,
+                          GetLikelyFirstBranchMetadata());
+    builder->SetInsertPoint(addCastTypeBlock);
+    StructuralValueHeader::GenerateAddCastType(builder, value, uniquedType);
+    builder->CreateBr(successBlock);
+
+    builder->SetInsertPoint(writeFirstCastTypeBlock);
     auto cmpxresult =
         StructuralValueHeader::GenerateWriteCastTypePointerCMPXCHG(
             builder, value,
             builder->CreatePointerCast(uniquedType, POINTERTYPE),
-            currentCastData);
+            writeCastData);
     auto updateSuccess = builder->CreateExtractValue(
         cmpxresult, ArrayRef<unsigned int>(extractIndex + 1, 1));
     builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
@@ -413,6 +577,27 @@ void StructuralValueHeader::GenerateMonotonicStructuralCast(
                           singleCastEntryBlock,
                           GetLikelySecondBranchMetadata());
 
+    // none of the cast types so far is a subtype of the right type: the value
+    // is checked as for a first cast, then the type is added
+    BasicBlock *unrelatedCastBlock =
+        BasicBlock::Create(LLVMCONTEXT, "unrelatedCast", fun);
+    auto generateSubtypingCheck = [&](Value *leftType,
+                                      BasicBlock *notSubtypeBlock) {
+      auto subtypingCall = builder->CreateCall(
+          subtypingFun,
+          {builder->CreatePointerCast(leftType, TYPETYPE), rightType,
+           ConstantPointerNull::get(
+               RTSubtyping::TypeArgumentListStackType()->getPointerTo()),
+           outerStack});
+      subtypingCall->setCallingConv(subtypingFun->getCallingConv());
+      auto subtypingSuccess =
+          builder->CreateICmpEQ(subtypingCall, MakeIntLike(subtypingCall, 3));
+      builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                               {subtypingSuccess, MakeUInt(1, 1)});
+      builder->CreateCondBr(subtypingSuccess, successBlock, notSubtypeBlock,
+                            GetLikelyFirstBranchMetadata());
+    };
+
     builder->SetInsertPoint(singleCastEntryBlock);
     auto cleanLeftType = builder->CreateIntToPtr(
         builder->CreateAnd(
@@ -421,22 +606,41 @@ void StructuralValueHeader::GenerateMonotonicStructuralCast(
                 llvm::ConstantInt::getAllOnesValue(numtype(intptr_t)),
                 MakeInt<intptr_t>(7))),
         TYPETYPE);
-    auto subtypingCall = builder->CreateCall(
-        subtypingFun,
-        {cleanLeftType, rightType,
-         ConstantPointerNull::get(
-             RTSubtyping::TypeArgumentListStackType()->getPointerTo()),
-         outerStack});
-    subtypingCall->setCallingConv(subtypingFun->getCallingConv());
-    auto subtypingSuccess =
-        builder->CreateICmpEQ(subtypingCall, MakeIntLike(subtypingCall, 3));
-    builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
-                             {subtypingSuccess, MakeUInt(1, 1)});
-    builder->CreateCondBr(subtypingSuccess, successBlock, unimplementedBlock,
-                          GetLikelyFirstBranchMetadata());
+    generateSubtypingCheck(cleanLeftType, unrelatedCastBlock);
 
-    builder->SetInsertPoint(multiCastListBlock);
-    builder->CreateBr(unimplementedBlock);
+    {
+      BasicBlock *loopHeadBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Head", fun);
+      BasicBlock *loopBodyBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Body", fun);
+      BasicBlock *loopNextBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Next", fun);
+      builder->SetInsertPoint(multiCastListBlock);
+      auto firstNode = StructuralValueHeader::GenerateCastListNode(
+          builder, lambdaCastTypePHI);
+      builder->CreateBr(loopHeadBlock);
+
+      builder->SetInsertPoint(loopHeadBlock);
+      auto node = builder->CreatePHI(firstNode->getType(), 2, "castListNode");
+      node->addIncoming(firstNode, multiCastListBlock);
+      builder->CreateCondBr(builder->CreateIsNull(node), unrelatedCastBlock,
+                            loopBodyBlock);
+
+      builder->SetInsertPoint(loopBodyBlock);
+      generateSubtypingCheck(
+          StructuralValueHeader::GenerateReadCastListType(builder, node),
+          loopNextBlock);
+
+      builder->SetInsertPoint(loopNextBlock);
+      node->addIncoming(
+          StructuralValueHeader::GenerateReadCastListNext(builder, node),
+          loopNextBlock);
+      builder->CreateBr(loopHeadBlock);
+    }
+
+    builder->SetInsertPoint(unrelatedCastBlock);
+    writeCastData->addIncoming(lambdaCastTypePHI, unrelatedCastBlock);
+    builder->CreateBr(firstCastBlock);
   }
 }
 } // namespace Runtime

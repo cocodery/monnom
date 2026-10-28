@@ -3,8 +3,8 @@
 These bugs came up while porting the GTP benchmarks to MonNom (`gtp-benchmark-monnom/`). Each one has a test function in `BugTests.mn`, named in the table below.
 
 **Status (2026-10-28):**
-- Committed: C1–C9, R1-R15, G1, K2, K11.
-- Applied in the working tree but not committed: K7 (a generic class naming itself with other type arguments), K8 (lambdas using a class type variable).
+- Committed: C1–C9, R1-R15, G1, K2, K7, K8, K11.
+- Applied in the working tree but not committed: K1 (casting a structural value to several unrelated interfaces), K12 (a method called by its bare name inside a lambda).
 
 ## Contents of this folder
 
@@ -24,11 +24,11 @@ $T                                         # all tests in one process, -o3
 $T Test_Alignment                          # one test only
 $T Test_Alignment -- -o0                   # one test, other nom flags
 $T -- -o3 --trans                          # all tests, other nom flags
-KNOWN=1 $T                                 # also the known-issue tests K1, K3–K6 (stops at the first one)
+KNOWN=1 $T                                 # also the known-issue tests K3–K6 (stops at the first one)
 NOMC="dotnet <old>/nomc.dll" $T Test_IfAssign   # another compiler
 ```
 
-A full run leaves out the tests for the known issues K1 and K3–K6 (see "Known remaining issues"), which still fail. They are recognized by the issue ID on their block line, as in `# BEGIN Test_StaticField K2`. Run one by name to see its failure, or set `KNOWN=1` to include them all.
+A full run leaves out the tests for the known issues K3–K6 (see "Known remaining issues"), which still fail. They are recognized by the issue ID on their block line, as in `# BEGIN Test_StaticField K2`. Run one by name to see its failure, or set `KNOWN=1` to include them all.
 
 The script works from any directory. It finds `setpath.sh` by searching upwards from its own folder.
 
@@ -65,9 +65,11 @@ To apply all reference runtime fixes at once: `git apply bugfixes/runtime.patch`
 | Test_InterfaceExtends | R13 | abort (`std::exception*`) | PASS |
 | Test_GenericInstantiation | R14 | abort (`NomString const*` thrown) | PASS |
 | Test_BareReturn | R15 | compiler crash (`NullReferenceException` in `VisitReturnStmt`) | PASS |
+| Test_StructuralSecondInterface | K1 | `UNIMPLEMENTED!` | PASS |
 | Test_StaticField | K2 | compiler `NotImplementedException` | PASS |
 | Test_PairSwap | K7 | compile error ("SwapPair<B, A> does not have a constructor that matches the given arguments") | PASS |
 | Test_LambdaClassTypeVar | K8 | "ArrayRef … Invalid index!" assertion | PASS |
+| Test_LambdaBareMethodCall | K12 | compiler `NotImplementedException` | PASS |
 | Test_GenericMethod | G1 | compile error ("U is not a subtype of Int") | PASS |
 
 - **Original** means the original runtime for R1–R14 and the original compiler for C1–C9, with each test run alone.
@@ -276,6 +278,31 @@ A record method's LLVM parameters are `[type arguments…, receiver, arguments�
 
 ---
 
+## K1: casting a structural value to several unrelated interfaces
+
+A record or lambda can be cast to any number of interfaces. The second cast to an interface that is not a supertype of the first one printed `UNIMPLEMENTED!` and aborted:
+
+```
+dyn r = new { fun KA() : Int { … } fun KB() : Int { … } };
+ITwoFacedA a = r;
+ITwoFacedB b = r;   // UNIMPLEMENTED!
+```
+
+**Cause:** a structural value remembers the types it was cast to in its header's cast data (`StructuralValueHeader`, field `CastData`). The design reserves three states: null before the first cast, a single type pointer, and a list of types tagged with bit 0. Only the first two were implemented:
+- In the cast (`GenerateMonotonicStructuralCast`), a second cast compared the single type with the target. If it wasn't a subtype, or the cast data was a list, the cast went to the `UNIMPLEMENTED!` block.
+- The interface call tag (`NomInterfaceCallTag::createLLVMElement`) checks a method's result against the return type promised by the interface the value was cast to. For a list it also went to `UNIMPLEMENTED!`.
+
+**Fix:**
+- **List and adding a type** (`RuntimeData/Headers/StructuralValueHeader.h`/`.cpp`): a list node is `StructuralCastListNode { Type, Next }`, in GC memory. The cast data points to the first node, with bit 0 set. Boehm recognizes interior pointers (`GC_get_all_interior_pointers()` is 1), so the tagged pointer keeps the list alive. The new C function `RT_NOM_AddStructuralCastType` adds a type at the front with a compare-and-swap loop. On the first addition, the single type so far becomes the second node. Nodes are never changed once published, so readers need no locking.
+- **The cast:** a value cast before now checks each of its cast types, the single one or every list entry, against the target. If one is a subtype, the cast succeeds, as before. Otherwise the cast runs the same checks as a first cast: a lambda needs a functional interface, and a record needs an invoke method if the interface has one. It then adds the target type with `RT_NOM_AddStructuralCastType`. A first cast still writes the single type directly. Both variants of `GenerateMonotonicStructuralCast` are changed. The one with a run-time target type has no callers at present.
+- **The call tag:** for a value with a list, the result is passed to the return-value check function (`NOM_RT_CRT_<interface>`) of every type in the list, with that type's arguments. That's the same check the single-type case does for a mismatching interface. Interfaces that don't have the method ignore the call.
+
+`Test_StructuralSecondInterface` casts one record to three unrelated interfaces, then again to one already in its list, then to `IGetter<Int>` in a generic method, which is a type with variables and a substitution stack. It calls a method through each of them. `ITwoFacedC.KC()` returns a record, whose result goes through the list check. As a negative check (not in the test), a `KC` that returns `5` fails with "Cast failed!" when the value has a list, exactly as when it was cast to `ITwoFacedC` only.
+
+**forth:** all 324 configurations were regenerated with `tools/bench.sh` (in a scratch copy) and run with and without the fix. The same 144 pass both ways. The configurations that printed `UNIMPLEMENTED!` drop from 29 to 20. Those 20 fail in a different place: a value that is neither a lambda nor a record (the third case of `GenerateStructuralValueKindSwitch`) is cast to an interface. Most other failures are nondeterministic: 45 configurations change outcome between two runs of the same runtime. So the remaining forth failures can't be compared run by run.
+
+---
+
 ## K2: static fields
 
 Static fields were parsed, but every other layer was missing:
@@ -381,19 +408,50 @@ Records already resolve their field types in their own lookup, so they didn't ne
 
 ---
 
+## K12: a method called by its bare name inside a lambda
+
+Inside a lambda in a class method, a call such as `() => Twice(21)` crashed the compiler with `NotImplementedException`, where `Twice` is a static or instance method of the class. Qualified calls (`BareCalls.Twice(21)`, `this.Inc(5)`) worked.
+
+**Cause:** this is a type-checker problem, not a parser one. `Twice(21)` parses as a call of a bare name, and `CodeTransformer` resolves the name with `GetLocalCallable` on the current environment. In a lambda, that is `LambdaTransformEnvironment.GetLocalCallable`. It looked the name up among the lambda's own parameters and locals, and otherwise asked the enclosing method's environment. When the enclosing method found something, it threw on purpose (`//TODO: need to make parent refer back to this environment when generating this pointer method access`). The method's lookup builds its result for the method's own frame:
+- a variable is read from the method's register;
+- an instance method is called on the method's `this` register.
+
+In the lambda's frame those registers don't exist. Register `#0` is the closure there, as in C4–C7. Using the result would have read the wrong registers.
+
+**Lookup order:** `AMemberCodeTransformEnvirnment.GetLocalCallable` already searches in the order one would expect, so the order didn't need changing:
+1. variables: parameters and locals, then fields;
+2. instance methods, on `this`;
+3. static methods of the enclosing class.
+
+There are no unqualified global functions: a method of another class needs its class name. A variable that holds a function comes before a method of the same name.
+
+**Fix** (`TypeChecker/LambdaTransformEnvironment.cs`): the lambda now follows the same order, with every access made from its own frame:
+1. **Variables:** it looks up the name with the lambda's indexer. That finds the lambda's own parameters and locals first. It then finds the enclosing method's variables, which the indexer captures into closure fields, and the enclosing object's fields, read through the captured `this`. The value is read in the lambda's frame and called through `AsCallable`.
+2. **Instance methods:** it looks up `this` the same way, which captures it into the closure, and resolves the method with `GetMethod` on that value.
+3. **Static methods:** only then does it ask the enclosing environment. Nothing in its frame matched, so what the enclosing environment can still find is a static method of the class. The reference for a static call takes the calling environment when the call is generated, so it doesn't depend on the enclosing frame.
+
+Nested lambdas work the same way: the inner lambda's indexer captures from the outer lambda. Code that compiled before resolves exactly as before. The old method only succeeded for the lambda's own parameters and locals, and those are still checked first.
+
+`Test_LambdaBareMethodCall` checks, in `class BareCalls`:
+- a static method from a lambda in an instance method, and from a lambda in a static method;
+- an instance method, which changes the object's field, so it really runs on `this`;
+- a lambda parameter with a method's name, which is called instead of the method;
+- a captured local of the enclosing method with a method's name, which is also called instead of the method;
+- an instance method and a static method from a nested lambda.
+
+---
+
 ## Known remaining issues, not fixed
 
-The issues are numbered K1–K12. K2 (static fields), K7 (a generic class naming itself with other type arguments), K8 (lambdas using a class type variable) and K11 (`ToString` for `Bool` and `String`) are fixed; see their sections above. Each remaining issue that can be shown in a small program (K1, K3–K6) has a test in `BugTests.mn`, whose `# BEGIN` line carries the ID. The test shows what the program should do once the issue is fixed. Any types it needs are inside its own `# BEGIN/# END` blocks, so it can't affect the other tests.
+The issues are numbered K1–K12. K1 (casting a structural value to several unrelated interfaces), K2 (static fields), K7 (a generic class naming itself with other type arguments), K8 (lambdas using a class type variable), K11 (`ToString` for `Bool` and `String`) and K12 (a method called by its bare name inside a lambda) are fixed; see their sections above. Each remaining issue that can be shown in a small program (K3–K6) has a test in `BugTests.mn`, whose `# BEGIN` line carries the ID. The test shows what the program should do once the issue is fixed. Any types it needs are inside its own `# BEGIN/# END` blocks, so it can't affect the other tests.
 
 | ID | Issue | Test | Fails now with |
 |---|---|---|---|
-| K1 | Casting a structural value to a second, unrelated interface | `Test_StructuralSecondInterface` | `UNIMPLEMENTED!` |
 | K3 | `if (x : T)` | `Test_IfType` | compiler `NotImplementedException` |
 | K4 | `ifobj` on a value that may be null | `Test_IfObj` | "Local variable b … is never null, then-branch never taken" |
 | K5 | Casting `T?` to `T` | `Test_MaybeCast` | "Expected type Box?, but found Box" |
 | K6 | `NomMaybeType::GenerateRTInstantiation` | `Test_MaybeInstantiation` | segfault while compiling `Make` |
 
-- **K1, casting a structural value to a second unrelated interface:** prints `UNIMPLEMENTED!` (`RuntimeData/Headers/StructuralValueHeader.cpp`, the `castTag` / `singleCastBlock` paths). It needs a list of cast types per value. This is the largest remaining cause of failing structural configurations (76 of forth's 180).
 - **K3, `if (x : T)`:** `CodeTransformer.VisitIfTypeStmt` is `throw new NotImplementedException()`.
 - **`T?`:** a declaration such as `Box? b = …`, `ifnull`, and `T!` all work. Two things don't:
   - **K4, `ifobj (b)`** on a value that may be null (here the result of a method returning `Box?`) is rejected with "is never null, then-branch never taken". The null analysis seems inverted for `ifobj`, whose then-branch is the non-null case.
@@ -402,7 +460,6 @@ The issues are numbered K1–K12. K2 (static fields), K7 (a generic class naming
 
 Not covered by a test:
 - **K9, "Dictionary entry not found" (27 forth configurations):** comes from the dictionary-field code in `RuntimeData/Headers/RTDictionary/`. It has not been investigated, so there is no known small program that triggers it. The failing forth configurations are the reproduction for now.
-- **K12, a method called by its bare name inside a lambda,** e.g. `() => Twice(21)` in a class method, where `Twice` is a method of the class, either static or instance: the compiler throws `NotImplementedException` in `LambdaTransformEnvironment.GetLocalCallable`, on purpose (`//TODO: need to make parent refer back to this environment when generating this pointer method access`). For an instance method, the parent would build the call with its own `this` register, which is the same frame problem as C6. A qualified call works, as in `SFCounter.Twice(21)` or `this.Foo()`.
 - **K10, record methods with their own type parameters** (`new { fun M<U>(…) }`): the compiler rejects them on purpose ("Record method … cannot have type parameters"). Record methods take their type arguments before the receiver, but every dispatch path passes the receiver first (see G1). A test belongs with the change that adds support.
 
 The benchmark configurations in `gtp-benchmark-monnom/{forth,sieve,snake,tetris,zombie}/.BM_*` were regenerated and run with all fixes applied. They are generated files, and the folder is now a separate submodule.

@@ -231,6 +231,7 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
   if (((!RTConfig_OmitCallTagCasts) || simpleReturnType) &&
       !(RTConfig_EnableTransition &&
         calledFunctionType->getReturnType() == REFTYPE)) {
+    // a structural value remember the types it cast to in its header cast data
     auto structCastType =
         StructuralValueHeader::GenerateReadCastData(builder, argbuf[1]);
     auto structCastTypeAsInt =
@@ -239,9 +240,8 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
         builder->CreateTrunc(structCastTypeAsInt, inttype(1));
     builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
                              {structCastTypeTag, MakeUInt(1, 0)});
-    static const char *unimplemented_msg = "UNIMPLEMENTED!";
     BasicBlock *multiCastListBlock =
-        RTOutput_Fail::GenerateFailOutputBlock(builder, unimplemented_msg);
+        BasicBlock::Create(LLVMCONTEXT, "multiCastList", fun);
     static const char *castfail_msg = "Cast failed!";
     BasicBlock *castFailBlock =
         RTOutput_Fail::GenerateFailOutputBlock(builder, castfail_msg);
@@ -329,7 +329,7 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
         argbuf[0] = builder->CreatePointerCast(fun, POINTERTYPE);
         argbuf[1] = typeArgRefStore;
         argbuf[2] = actualResult;
-        // When an untyped value is used as an interface 
+        // When an untyped value is used as an interface
         // its methods return dyn, but the interface promises a type
         // after call the call-tag in interface call-tag
         // do cast the return value to the declared type
@@ -355,6 +355,62 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
         outPHI->addIncoming(actualResult, builder->GetInsertBlock());
         builder->CreateBr(outBlock);
       }
+    }
+
+    {
+      BasicBlock *loopHeadBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Head", fun);
+      BasicBlock *loopBodyBlock =
+          BasicBlock::Create(LLVMCONTEXT, "castList$Body", fun);
+      builder->SetInsertPoint(multiCastListBlock);
+      auto typeArgRefStore =
+          builder->CreateAlloca(TYPETYPE->getPointerTo(), MakeUInt(64, 1));
+      auto firstNode =
+          StructuralValueHeader::GenerateCastListNode(builder, structCastType);
+      builder->CreateBr(loopHeadBlock);
+
+      builder->SetInsertPoint(loopHeadBlock);
+      auto node = builder->CreatePHI(firstNode->getType(), 2, "castListNode");
+      node->addIncoming(firstNode, multiCastListBlock);
+      builder->CreateCondBr(builder->CreateIsNull(node), outBlock,
+                            loopBodyBlock);
+      outPHI->addIncoming(actualResult, loopHeadBlock);
+
+      builder->SetInsertPoint(loopBodyBlock);
+      auto castType =
+          StructuralValueHeader::GenerateReadCastListType(builder, node);
+      auto iface =
+          RTClassType::GenerateReadClassDescriptorLink(builder, castType);
+      MakeStore(
+          builder,
+          builder->CreatePointerCast(
+              builder->CreateGEP(
+                  builder->CreatePointerCast(
+                      castType, RTClassType::GetLLVMType()->getPointerTo()),
+                  {MakeInt32(0), MakeInt32(RTClassTypeFields::TypeArgs)}),
+              TYPETYPE->getPointerTo()),
+          typeArgRefStore, AtomicOrdering::NotAtomic);
+
+      Value **checkArgs =
+          makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
+      for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
+           i < 3 + RTConfig_NumberOfVarargsArguments; i++) {
+        checkArgs[i] = argbuf[i];
+      }
+      checkArgs[0] = builder->CreatePointerCast(fun, POINTERTYPE);
+      checkArgs[1] = typeArgRefStore;
+      checkArgs[2] = actualResult;
+      auto rvcf =
+          RTInterface::GenerateReadReturnValueCheckFunction(builder, iface);
+      builder
+          ->CreateCall(GetCheckReturnValueFunctionType(), rvcf,
+                       llvm::ArrayRef<Value *>(
+                           checkArgs, 3 + RTConfig_NumberOfVarargsArguments))
+          ->setCallingConv(NOMCC);
+      node->addIncoming(
+          StructuralValueHeader::GenerateReadCastListNext(builder, node),
+          builder->GetInsertBlock());
+      builder->CreateBr(loopHeadBlock);
     }
 
     builder->SetInsertPoint(outBlock);
