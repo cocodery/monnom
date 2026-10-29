@@ -1,0 +1,74 @@
+interface IShape
+{
+	fun Area() : Int;
+	fun Perimeter() : Int;
+}
+
+interface IGet
+{
+	fun Get() : Int;
+}
+
+class Main
+{
+	public static fun Tick(Int n) : Int
+	{
+		n.ToString().Print();
+		return n;
+	}
+
+	public static fun Same(dyn o) : dyn
+	{
+		return o;
+	}
+
+	public static fun Main() : Void
+	{
+		Int a = 2;
+		Int b = 5;
+		Int x = 3;
+		Int y = 4;
+		"For r1 & r2 & r3\n".Print();
+		dyn r1 = new (Int w = a, Int h = b) {
+			fun Area() : Int { return w * 2; }
+			fun Perimeter() : Int { return 2 * (w + 2); }
+		};
+		dyn r2 = new (Int w = x, Int z = y) {
+			fun Area() : Int { return w * 2; }
+			fun Perimeter() : Int { return 2 * (w + 2); }
+		};
+		# r1 and r2 have the same NomRecord
+		dyn r3 = new (Int h = Main.Tick(1), Int w = Main.Tick(2)) {
+			fun Area() : Int { return w * 2; }
+			fun Perimeter() : Int { return 2 * (w + 2); }
+		};
+		# r3 has the same NomRecord as r1: initializers and field order do not matter,
+		# and the initializers still run in source order (prints 12)
+		"For g1 & g2 & g3\n".Print();
+		dyn g1 = new () { fun Get() : Int { return 1; } };
+		dyn g2 = new () { fun Get() : Int { return 2; } };
+		dyn g3 = new () { fun Get() : Int { return 1; } };
+		# g1 g3 the same; g2 different
+		"For n1 & n2\n".Print();
+		dyn n1 = new () { fun Get() : Int { IGet i = new () { fun Get() : Int { return 7; } }; return i.Get(); } };
+		dyn n2 = new () { fun Get() : Int { IGet i = new () { fun Get() : Int { return 7; } }; return i.Get(); } };
+		# n1 n2 same
+		"For s1 & s2 & s3 & s4\n".Print();
+		dyn s1 = new (dyn self = this, Int w = a) { fun Get() : Int { return w; } };
+		dyn s2 = new (dyn self = x, Int w = x) { fun Get() : Int { return w; } };
+		dyn s3 = new (dyn self = this, Int w = a + 1) { fun Get() : Int { return w; } };
+		# s1 s2 s3 same: an initializer that is just this is read inside the record, the others are still passed in
+		dyn s4 = new (dyn self = Main.Same(this), Int w = a) { fun Get() : Int { return w; } };
+		# s4 different: Main.Same(this) can see the record (MayReferToRecord is true),
+		# so all initializers of s4 stay inside the record
+		IGet t1 = s1;
+		IGet t2 = s2;
+		IGet t3 = s3;
+		IGet t4 = s4;
+		t1.Get().ToString().Print();
+		t2.Get().ToString().Print();
+		t3.Get().ToString().Print();
+		t4.Get().ToString().Print();
+		"\n".Print();
+	}
+}

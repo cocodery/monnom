@@ -18,6 +18,7 @@ namespace NomC
             string projectname = null;
             bool isLibrary = false;
             bool emitFlat = true;
+            bool mergeRecords = true;
             for(int i=0;i<args.Length;i++)
             {
                 string argkey = "";
@@ -43,6 +44,9 @@ namespace NomC
                             break;
                         case "archive":
                             argkey = "archive";
+                            break;
+                        case "no-merge-records":
+                            argkey = "nomergerecords";
                             break;
                         default:
                             Usage("Invalid argument name: \"" + args[i].Substring(2) + "\"");
@@ -105,6 +109,9 @@ namespace NomC
                     case "archive":
                         emitFlat = false;
                         break;
+                    case "nomergerecords":
+                        mergeRecords = false;
+                        break;
                 }
             }
             DirectoryInfo di = new DirectoryInfo(path);
@@ -132,7 +139,7 @@ namespace NomC
                 libproj.Files.AddRange(proj.LibraryFiles);
                 Nom.Parser.Program libraryParseProg = ParseProgram(libproj.Files.Select(f => new FileInfo(di.FullName + "/" + f)));
                 Nom.TypeChecker.Program librarytcprog = TypeCheckProgram(libraryParseProg, libproj.Name, new List<Nom.Language.ILibrary>());
-                Nom.Bytecode.AssemblyUnit libraryau = GenerateBytecode(librarytcprog, libproj);
+                Nom.Bytecode.AssemblyUnit libraryau = GenerateBytecode(librarytcprog, libproj, mergeRecords);
                 if (emitFlat)
                 {
                     libraryau.EmitToPath(di);
@@ -158,7 +165,7 @@ namespace NomC
                 mainClassTypeName = mainClassType.Class.FullQualifiedName;
             }
             proj.MainClassName = mainClassTypeName;
-            Nom.Bytecode.AssemblyUnit au = GenerateBytecode(tcprog, proj);
+            Nom.Bytecode.AssemblyUnit au = GenerateBytecode(tcprog, proj, mergeRecords);
             if (emitFlat)
             {
                 au.EmitToPath(di);
@@ -183,9 +190,10 @@ namespace NomC
         }
 
 
-        static Nom.Bytecode.AssemblyUnit GenerateBytecode(Nom.TypeChecker.Program program, Nom.Project.NomProject project)
+        static Nom.Bytecode.AssemblyUnit GenerateBytecode(Nom.TypeChecker.Program program, Nom.Project.NomProject project, bool mergeRecords)
         {
             CodeGenerator cg = new CodeGenerator();
+            cg.MergeIdenticalRecords = mergeRecords;
             return cg.GenerateBytecode(program, project);
         }
 

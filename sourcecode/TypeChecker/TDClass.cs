@@ -178,9 +178,16 @@ namespace Nom.TypeChecker
             }
             foreach (ConstructorDef cd in def.Constructors)
             {
-                if (constructors.Any(xcd => !xcd.Parameters.IsDisjoint(cd.Parameters)))
+                // if (constructors.Any(xcd => !xcd.Parameters.IsDisjoint(cd.Parameters)))
+                // {
+                //     throw new TypeCheckException("Class $0 has non-disjoint constructors", def.Name);
+                // }
+                //overloaded constructors cannot be called yet: a call with dyn arguments can accept
+                //several of them (OverloadedConstructorCall.GenerateCall is not implemented), so a
+                //class can have only one
+                if (constructors.Any())
                 {
-                    throw new TypeCheckException("Class $0 has non-disjoint constructors", def.Name);
+                    throw new TypeCheckException("Class $0 can have only one constructor", def.Name);
                 }
                 constructors.Add(cd);
             }

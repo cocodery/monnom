@@ -541,6 +541,45 @@ namespace Nom.TypeChecker
                 return registers.Count();
             }
         }
+        //a field value computed at the construction site and passed to the initializer as an argument
+        private class PrecomputedValue : IVariableReference
+        {
+            private readonly IExprTransformResult value;
+            public PrecomputedValue(Identifier identifier, Language.IType type, IExprTransformResult value)
+            {
+                Identifier = identifier;
+                Type = type;
+                this.value = value;
+            }
+            public Identifier Identifier { get; }
+            public bool IsReadOnly => true;
+            public bool IsInitialized => true;
+            public Language.IType Type { get; }
+            public IExprTransformResult GenerateReadAccess(ICodeTransformEnvironment env)
+            {
+                return value;
+            }
+            public IStmtTransformResult GenerateWriteAccess(IExprTransformResult value, ICodeTransformEnvironment env)
+            {
+                throw new InternalException("Shouldn't be able to write to a precomputed struct field value");
+            }
+        }
+
+        /// <summary>
+        /// Passes `value` (already transformed in the parent environment) to the initializer as a dyn
+        /// argument, and returns the initializer-side result that reads it. The argument is dyn, so
+        /// constructing the record casts nothing: the field is stored as an initializer inside the
+        /// record would store it, and a null placeholder for a `this` field passes.
+        /// </summary>
+        public IExprTransformResult AddPrecomputedArgument(Identifier field, IExprTransformResult value)
+        {
+            Language.IType type = new Language.DynamicType();
+            //the empty name keeps variable lookups from finding it
+            CaptureVariable cv = new CaptureVariable("", type, InsertArgRegister(), new PrecomputedValue(field, type, value));
+            captureVars.Add(cv);
+            return new ExprTransformResult(type, cv.CurrentRegister, new List<IInstruction>(), value.Locs);
+        }
+
         public StructInitializerTransformEnvironment(ICodeTransformEnvironment parent)
         {
             var selfReg = CreateRegister();
@@ -897,7 +936,7 @@ namespace Nom.TypeChecker
             private StructAssignmentTransformEnvironment parent;
             public LocalThisVar(string name, StructAssignmentTransformEnvironment parent)
             {
-                Name = Name;
+                Name = name;
                 this.parent = parent;
                 Type = new Language.DynamicType();
             }

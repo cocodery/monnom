@@ -744,32 +744,100 @@ namespace Nom.TypeChecker
             return ret;
         };
 
+        //the printed form of a record field initializer, or null if it cannot be printed
+        private static string PrintInitializer(IExpr initExpr)
+        {
+            try
+            {
+                using (System.IO.MemoryStream ms = new System.IO.MemoryStream())
+                {
+                    using (PrettyPrinter p = new PrettyPrinter(ms))
+                    {
+                        initExpr.PrettyPrint(p);
+                    }
+                    return Encoding.UTF8.GetString(ms.ToArray());
+                }
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        //whether a record field initializer may refer to the record under construction (this/dis), and
+        //so must run after the construction; checked on its printed form, so a false positive only
+        //runs it (and the initializers after it) after the construction
+        private static bool MayReferToRecord(IExpr initExpr)
+        {
+            string text = PrintInitializer(initExpr);
+            return text == null || System.Text.RegularExpressions.Regex.IsMatch(text, @"\b(this|dis)\b");
+        }
+
+        //whether a record field initializer is just `this` or `dis`: reading the record has no effects
+        //and gives the same value at any time, so the initializers after it can still run before the
+        //construction
+        private static bool IsRecordSelf(IExpr initExpr)
+        {
+            string text = PrintInitializer(initExpr)?.Trim();
+            return text == "this" || text == "dis";
+        }
+
         public Func<StructExpr, ICodeTransformEnvironment, IExprTransformResult> VisitStructExpr => (expr, env) =>
         {
             TDStruct tdstruct = env.Context.Container.CreateStruct();
             expr.Annotation = tdstruct.StructID;
             List<IExprTransformResult> argExprs = new List<IExprTransformResult>();
             var cenv = new StructInitializerTransformEnvironment(env);
+            // every field is passed to the record, which only stores it, and the fields are declared
+            // sorted by name, so records that differ only in initializers or field order compile to the
+            // same record. Initializers run in source order: the ones before the first initializer that
+            // can see the record are evaluated before the construction, and that one and all after it
+            // right after the construction, with `this`/`dis` bound to the new record, and written into
+            // their fields (which get null until then). An initializer that is just `this`/`dis` has no
+            // effects, so it is written after the construction without moving the ones after it.
+            List<IInstruction> precomputeInstructions = new List<IInstruction>();
+            List<(StructFieldDecl, Language.IType, IExprTransformResult)> passedFields = new List<(StructFieldDecl, Language.IType, IExprTransformResult)>();
+            List<(StructFieldDecl, Language.IType)> lateFields = new List<(StructFieldDecl, Language.IType)>();
+            bool seesRecord = false;
             foreach (var sfd in expr.Fields)
             {
                 try
                 {
-                    if (tdstruct.Fields.Any(xsf => xsf.Name == sfd.Ident.Name))
+                    if (passedFields.Any(pf => pf.Item1.Ident.Name == sfd.Ident.Name))
                     {
                         throw new TypeCheckException("Field $0 already exists", sfd.Ident);
                     }
-                    IExprTransformResult etr = sfd.InitExpr.Visit(this, cenv);
                     Language.IType fieldType = sfd.Type.TransformType(cenv.Context);
-                    if (!etr.Type.IsSubtypeOf(fieldType, true))
+                    bool isSelf = IsRecordSelf(sfd.InitExpr);
+                    seesRecord = seesRecord || (!isSelf && MayReferToRecord(sfd.InitExpr));
+                    IExprTransformResult value;
+                    if (seesRecord || isSelf)
                     {
-                        throw new TypeCheckException("@0 does not have type $1 even optimistically", sfd.Ident, fieldType);
+                        IRegister placeholder = env.CreateRegister();
+                        precomputeInstructions.Add(new NullInstruction(placeholder));
+                        value = new ExprTransformResult(new Language.DynamicType(), placeholder, new List<IInstruction>(), sfd.Locs);
+                        lateFields.Add((sfd, fieldType));
                     }
-                    tdstruct.AddField(new TDStructField(sfd.Ident, fieldType, tdstruct, false, etr));
+                    else
+                    {
+                        IExprTransformResult etr = sfd.InitExpr.Visit(this, env);
+                        if (!etr.Type.IsSubtypeOf(fieldType, true))
+                        {
+                            throw new TypeCheckException("@0 does not have type $1 even optimistically", sfd.Ident, fieldType);
+                        }
+                        precomputeInstructions.AddRange(etr);
+                        value = new ExprTransformResult(etr.Type, etr.Register, new List<IInstruction>(), etr.Locs);
+                    }
+                    passedFields.Add((sfd, fieldType, value));
                 }
                 catch (ListableException e)
                 {
                     CompilerOutput.RegisterException(e);
                 }
+            }
+            foreach (var (sfd, fieldType, value) in passedFields.OrderBy(pf => pf.Item1.Ident.Name, StringComparer.Ordinal))
+            {
+                tdstruct.AddField(new TDStructField(sfd.Ident, fieldType, tdstruct, false, cenv.AddPrecomputedArgument(sfd.Ident, value)));
             }
             int afterInitializerRegCount = cenv.RegisterCount;
 
@@ -781,14 +849,12 @@ namespace Nom.TypeChecker
                 {
                     throw new TypeCheckException("Method $0 has the same name as a record field", md.Name.Name);
                 }
-                //records dispatch by name only (the runtime takes the first method with the name,
-                //including the `this` method), so record methods cannot be overloaded
-                if (methodPairs.Any(mp => mp.Item1.Name.Name.Name == md.Name.Name.Name))
+                // the runtime invokes a record through its single `this` method 
+                // (the parser names it ""; NomRecord::GetRawInvokeMethod takes the first one)
+                if (md.Name.Name.Name.Length == 0 && methodPairs.Any(mp => mp.Item1.Name.Name.Name.Length == 0))
                 {
-                    //the `this` method has the empty name, so $0 prints only its location
-                    throw new TypeCheckException(md.Name.Name.Name.Length == 0
-                        ? "Record methods cannot be overloaded, and this record already has a this method$0"
-                        : "Record method $0 already exists; record methods cannot be overloaded", md.Name.Name);
+                    //the empty name makes $0 print only the location
+                    throw new TypeCheckException("A record can have only one this method; this record already has one$0", md.Name.Name);
                 }
                 if (md.Name.Arguments.Any())
                 {
@@ -853,13 +919,32 @@ namespace Nom.TypeChecker
             List<IStmtTransformResult> saetrs = new List<IStmtTransformResult>();
             StructAssignmentTransformEnvironment satenv = new StructAssignmentTransformEnvironment(env, csetr);
 
+            //the initializers that run after the construction, in source order
+            List<IStmtTransformResult> lateWrites = new List<IStmtTransformResult>();
+            foreach (var (sfd, fieldType) in lateFields)
+            {
+                try
+                {
+                    IExprTransformResult etr = sfd.InitExpr.Visit(this, satenv);
+                    if (!etr.Type.IsSubtypeOf(fieldType, true))
+                    {
+                        throw new TypeCheckException("@0 does not have type $1 even optimistically", sfd.Ident, fieldType);
+                    }
+                    lateWrites.Add(env.GetFieldAccessVariable(csetr, sfd.Ident).Elem.GenerateWriteAccess(etr, satenv));
+                }
+                catch (ListableException e)
+                {
+                    CompilerOutput.RegisterException(e);
+                }
+            }
+
             foreach (var sass in expr.StructAssignments)
             {
                 var saetr = sass.Expression.Visit(this, satenv);
                 saetrs.Add(env.GetFieldAccessVariable(csetr, sass.Variable).Elem.GenerateWriteAccess(saetr, satenv));
             }
-
-            var ret = new ExprTransformResult(new Language.DynamicType(), csi.Register, argExprs.Flatten().Concat(closureReadResults.Flatten()).Snoc(csi).Concat(saetrs.Flatten()), expr.Locs);
+            // execute field initialzer first
+            var ret = new ExprTransformResult(new Language.DynamicType(), csi.Register, precomputeInstructions.Concat(argExprs.Flatten()).Concat(closureReadResults.Flatten()).Snoc(csi).Concat(lateWrites.Flatten()).Concat(saetrs.Flatten()), expr.Locs);
             expr.TypeAnnotation = ret.Type.GetParserType();
             return ret;
         };

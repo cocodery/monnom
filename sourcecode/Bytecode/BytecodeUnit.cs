@@ -18,9 +18,31 @@ namespace Nom.Bytecode
         private List<IConstant> constants = new List<IConstant>();
         private T RegisterConstant<T>(T constant) where T : IConstant
         {
+            if (HashConsConstants && constant.Type != ConstantType.CTStruct && constant.Type != ConstantType.CTLambda)
+            {
+                //dependencies are registered first, so structurally equal constants have equal bodies;
+                //struct and lambda constants have no body and stand for their own definition
+                string key;
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    constant.Emit(ms);
+                    //skip the tag and the constant's own id
+                    key = ((byte)constant.Type).ToString() + ":" + Convert.ToBase64String(ms.ToArray(), 9, (int)ms.Length - 9);
+                }
+                if (hashConsed.TryGetValue(key, out IConstant existing) && existing is T existingT)
+                {
+                    return existingT;
+                }
+                hashConsed[key] = constant;
+            }
             constants.Add(constant);
             return constant;
         }
+
+        //share structurally equal constants, so that identical code produces identical bytecode
+        //(types are otherwise registered once per type object, not once per type)
+        public bool HashConsConstants { get; set; } = false;
+        private Dictionary<string, IConstant> hashConsed = new Dictionary<string, IConstant>();
 
         public IEnumerable<ClassRep> Classes => classes;
         public IEnumerable<InterfaceRep> Interfaces => interfaces;
@@ -153,7 +175,35 @@ namespace Nom.Bytecode
         private ConstantDict<ITDStruct, StructConstant> structConstants;
         public IConstantRef<StructConstant> GetStructConstant(ITDStruct structure)
         {
+            if (structure == fingerprintedStruct)
+            {
+                return new ConstantRef<StructConstant>(selfStructConstant);
+            }
+            if (structAliases.TryGetValue(structure, out ITDStruct canonical))
+            {
+                structure = canonical;
+            }
             return structConstants.GetConstant(structure);
+        }
+
+        //records merged into an identical record of this unit; references to them use the canonical one
+        private Dictionary<ITDStruct, ITDStruct> structAliases = new Dictionary<ITDStruct, ITDStruct>();
+        public void AddStructAlias(ITDStruct alias, ITDStruct canonical)
+        {
+            structAliases.Add(alias, canonical);
+        }
+        public bool IsStructAlias(ITDStruct structure)
+        {
+            return structAliases.ContainsKey(structure);
+        }
+
+        //while a record is fingerprinted, references to it use this unregistered placeholder,
+        //so that identical records produce identical bytes
+        private static readonly StructConstant selfStructConstant = new StructConstant(0);
+        private ITDStruct fingerprintedStruct = null;
+        public void SetFingerprintedStruct(ITDStruct structure)
+        {
+            fingerprintedStruct = structure;
         }
 
         private ConstantDict<ITDLambda, LambdaConstant> lambdaConstants;

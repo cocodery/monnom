@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Linq;
+using System.IO;
 using Nom.Parser;
 using Nom.TypeChecker;
 using Nom.Project;
@@ -11,6 +12,8 @@ namespace Nom.Bytecode
 {
     public class CodeGenerator
     {
+        //merge records of a class that compile to identical bytecode (nomc --no-merge-records turns it off)
+        public bool MergeIdenticalRecords { get; set; } = true;
         private readonly NamespaceRep GlobalNamespace = new NamespaceRep("", Optional<Language.INamespaceSpec>.Empty);
         public AssemblyUnit GenerateBytecode(Nom.TypeChecker.Program program, NomProject project)
         {
@@ -71,9 +74,66 @@ namespace Nom.Bytecode
             return ir;
         }
 
+        private static StructRep ConvertStruct(TypeChecker.ITDStruct structdef, BytecodeUnit bcu)
+        {
+            StructRep sr = new StructRep(bcu.GetStructConstant(structdef), bcu.GetTypeParametersConstant(structdef.ClosureTypeParameters), structdef.Fields.Select(f => new StructFieldRep(bcu.GetStringConstant(f.Name), bcu.GetTypeConstant(f.Type), f.IsReadOnly, f.InitializerExpr.Register.Index, f.InitializerExpr.Select(instr=>instr.Visit(InstructionConverter.Instance, bcu)))), bcu.GetTypeListConstant(structdef.InitializerArgs.Select(vr=>vr.Type)), structdef.InitializerRegisterCount, structdef.EndArgRegisterCount);
+            foreach (var smethod in structdef.Methods)
+            {
+                List<IInstruction> instructions = new List<IInstruction>();
+                foreach (TypeChecker.IInstruction instruction in smethod.Instructions)
+                {
+                    instructions.Add(instruction.Visit(InstructionConverter.Instance, bcu));
+                }
+                MethodDefRep mdr = new MethodDefRep(bcu.GetStringConstant(smethod.Name), bcu.GetTypeParametersConstant(smethod.TypeParameters), bcu.GetTypeConstant(smethod.ReturnType), bcu.GetTypeListConstant(smethod.Parameters.Entries.Select(ps=>ps.Type)), Visibility.Public, true, smethod.RegisterCount, instructions);
+                sr.AddMethodDef(mdr);
+            }
+            return sr;
+        }
+
+        /// <summary>
+        /// Merges each record of the class into an earlier-processed record with identical bytecode
+        /// (fields, field initializers, method signatures and bodies), so that both construction sites
+        /// build the same NomRecord at runtime and share its vtable and IMT.
+        /// </summary>
+        private static void MergeIdenticalStructs(TypeChecker.IClass cls, BytecodeUnit bcu)
+        {
+            Dictionary<string, TypeChecker.ITDStruct> canonicals = new Dictionary<string, TypeChecker.ITDStruct>();
+            //a nested record literal is created after the record containing it, so going backwards
+            //merges inner records first and the outer fingerprints already see the canonical ones
+            foreach (TypeChecker.ITDStruct structdef in cls.Structs.Reverse())
+            {
+                //TODO: generic records (closure type parameters) are never merged yet
+                if (structdef.ClosureTypeParameters.Any())
+                {
+                    continue;
+                }
+                bcu.SetFingerprintedStruct(structdef);
+                string fingerprint;
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    ConvertStruct(structdef, bcu).WriteByteCode(ms);
+                    fingerprint = Convert.ToBase64String(ms.ToArray());
+                }
+                bcu.SetFingerprintedStruct(null);
+                if (canonicals.TryGetValue(fingerprint, out TypeChecker.ITDStruct canonical))
+                {
+                    bcu.AddStructAlias(structdef, canonical);
+                }
+                else
+                {
+                    canonicals.Add(fingerprint, structdef);
+                }
+            }
+        }
+
         public ClassRep ConvertClass(Nom.TypeChecker.IClass cls, AssemblyUnit au /*BytecodeUnit bcu*/)
         {
             BytecodeUnit bcu = new BytecodeUnit(cls.FullQualifiedName, au);
+            if (MergeIdenticalRecords)
+            {
+                bcu.HashConsConstants = true;
+                MergeIdenticalStructs(cls, bcu);
+            }
             ClassRep cr = new ClassRep(bcu.GetStringConstant(cls.FullQualifiedName), bcu.GetTypeParametersConstant(cls.AllTypeParameters/*.SelectMany(tp=>tp.LowerBound.Singleton().Snoc(tp.UpperBound))*/), bcu.GetSuperClassConstant(cls.SuperClass.Elem), bcu.GetSuperInterfacesConstant(cls.GetParamRef<Language.IClassSpec, Language.IType>().AllImplementedInterfaces().Distinct(Language.ParamRefEqualityComparer<Language.IInterfaceSpec, Language.IType>.Instance)), cls.IsFinal, false, cls.IsShape, cls.Visibility, bcu.AssemblyUnit);
             foreach (TypeChecker.IFieldDecl fd in cls.Fields)
             {
@@ -133,18 +193,10 @@ namespace Nom.Bytecode
             }
             foreach (TypeChecker.ITDStruct structdef in cls.Structs)
             {
-                StructRep sr = new StructRep(bcu.GetStructConstant(structdef), bcu.GetTypeParametersConstant(structdef.ClosureTypeParameters), structdef.Fields.Select(f => new StructFieldRep(bcu.GetStringConstant(f.Name), bcu.GetTypeConstant(f.Type), f.IsReadOnly, f.InitializerExpr.Register.Index, f.InitializerExpr.Select(instr=>instr.Visit(InstructionConverter.Instance, bcu)))), bcu.GetTypeListConstant(structdef.InitializerArgs.Select(vr=>vr.Type)), structdef.InitializerRegisterCount, structdef.EndArgRegisterCount);
-                foreach (var smethod in structdef.Methods)
+                if (!bcu.IsStructAlias(structdef))
                 {
-                    List<IInstruction> instructions = new List<IInstruction>();
-                    foreach (TypeChecker.IInstruction instruction in smethod.Instructions)
-                    {
-                        instructions.Add(instruction.Visit(InstructionConverter.Instance, bcu));
-                    }
-                    MethodDefRep mdr = new MethodDefRep(bcu.GetStringConstant(smethod.Name), bcu.GetTypeParametersConstant(smethod.TypeParameters), bcu.GetTypeConstant(smethod.ReturnType), bcu.GetTypeListConstant(smethod.Parameters.Entries.Select(ps=>ps.Type)), Visibility.Public, true, smethod.RegisterCount, instructions);
-                    sr.AddMethodDef(mdr);
+                    cr.AddStruct(ConvertStruct(structdef, bcu));
                 }
-                cr.AddStruct(sr);
             }
             bcu.AddClass(cr);
             au.AddUnit(bcu);

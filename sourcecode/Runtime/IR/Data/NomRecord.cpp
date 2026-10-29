@@ -21,6 +21,7 @@
 #include "NomType.h"
 #include "NomTypeParameter.h"
 #include "NomTypeVar.h"
+#include "NomVMInterface.h"
 #include "RTCast.h"
 #include "RTCompileConfig.h"
 #include "RTInterface.h"
@@ -32,6 +33,7 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include <algorithm>
+#include <cstdint>
 #include <iostream>
 
 using namespace llvm;
@@ -63,6 +65,16 @@ NomRecord::createLLVMElement(llvm::Module &mod,
 
   BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
   builder->SetInsertPoint(startBlock);
+
+  // builder->CreateCall(
+  //     GetPrint(&mod),
+  //     {ConstantInt::get(INTTYPE, reinterpret_cast<uint64_t>(GetSymbolName()),
+  //                       false),
+  //      llvm::ConstantInt::get(INTTYPE, 1, false)});
+  // builder->CreateCall(
+  //     GetPrint(&mod),
+  //     {llvm::ConstantInt::get(INTTYPE, reinterpret_cast<uint64_t>(this)),
+  //      llvm::ConstantInt::get(INTTYPE, 0, false)});
 
   auto targc = GetDirectTypeParametersCount();
   auto argc = GetArgumentCount();
@@ -306,8 +318,8 @@ NomRecord::GetDynamicFieldStore(llvm::Module &mod,
     static const char *frozenDictFieldWriteMsg =
         "Cannot write dictionary field that has been invoked through an "
         "interface!";
-    BasicBlock *frozenDictFieldBlock =
-        RTOutput_Fail::GenerateFailOutputBlock(builder, frozenDictFieldWriteMsg);
+    BasicBlock *frozenDictFieldBlock = RTOutput_Fail::GenerateFailOutputBlock(
+        builder, frozenDictFieldWriteMsg);
     BasicBlock *writeDictFieldBlock =
         BasicBlock::Create(LLVMCONTEXT, "writeDictField", fun);
     auto isFrozen =
@@ -633,14 +645,14 @@ NomRecord::GetDynamicDispatcherLookup(llvm::Module &mod,
             RTConfig_NumberOfVarargsArguments + 1 == paramCount) {
           curArg = varargs[j];
         } else {
-          curArg = MakeLoad(
-              builder,
-              builder->CreateGEP(
-                  builder->CreatePointerCast(
-                      varargs[RTConfig_NumberOfVarargsArguments],
-                      POINTERTYPE->getPointerTo()),
-                  MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
-              "varArg", AtomicOrdering::NotAtomic);
+          curArg =
+              MakeLoad(builder,
+                       builder->CreateGEP(
+                           builder->CreatePointerCast(
+                               varargs[RTConfig_NumberOfVarargsArguments],
+                               POINTERTYPE->getPointerTo()),
+                           MakeInt32(j - RTConfig_NumberOfVarargsArguments)),
+                       "varArg", AtomicOrdering::NotAtomic);
         }
         auto expectedType = implFunctionType->getParamType(j);
         curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
