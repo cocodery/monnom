@@ -173,6 +173,7 @@ RTModule::RTModule(NomModule *mod)
             << std::dec;
     }
   }
+  RunPendingStaticFieldInitializers();
   if (NomVerbose) {
     std::cout << "\nadded to JIT";
     for (std::string &gname : GetGlobalsForAddressLookup()) {

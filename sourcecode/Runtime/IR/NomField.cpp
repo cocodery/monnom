@@ -264,8 +264,7 @@ NomStringRef NomRecordField::GetName() const {
 NomValue NomRecordField::GenerateRead(NomBuilder &builder, CompileEnv *env,
                                       NomValue receiver) const {
   llvm::Value *retval = RecordHeader::GenerateReadField(
-      builder, receiver, Index,
-      this->Structure->GetHasRawInvoke()); // loadinst;
+      builder, receiver, Index, Structure->Fields.size());
   return NomValue(retval, GetType());
 }
 void NomRecordField::GenerateWrite(NomBuilder &builder, CompileEnv *env,

@@ -179,8 +179,7 @@ void RecordHeader::GenerateConstructorCode(
   for (auto field : env->Record->Fields) {
     GenerateWriteField(builder, newmem, field->Index,
                        EnsurePacked(builder, (*env)[field->ValueRegister]),
-                       NomLambdaOptimizationLevel > 0 &&
-                           env->Record->GetHasRawInvoke());
+                       env->Record->Fields.size());
   }
 
   auto vTablePtr = ConstantExpr::getPointerCast(

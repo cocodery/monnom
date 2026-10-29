@@ -144,14 +144,13 @@ extern "C" DLLEXPORT void *CPP_NOM_RECORDALLOC(size_t numfields,
   if (NomCastStats > 0) {
     RT_NOM_STATS_IncAllocations(AllocationType::Record);
   }
-  auto ret =
-      (void *)(((char **)gcalloc(RecordHeader::SizeOf() +
-                                 (sizeof(char *) * (numfields + numtargs)))) +
-               numtargs);
-  // auto retDictRoot = (void*)(((char*)(((intptr_t)ret))) +
-  // RecordHeader::GetLLVMLayout()->getElementOffset((unsigned
-  // int)StructHeaderFields::InstanceDictionary));
-  // RT_NOM_ConcurrentDictionaryEmplace(retDictRoot);
+  // SizeOf exclude the tags field in previous version
+  static const size_t tagsOffset =
+      RecordHeader::GetLLVMLayout()->getElementOffset(
+          (unsigned int)StructHeaderFields::WrittenTags);
+  size_t size = tagsOffset + llvm::alignTo(numfields, sizeof(char *)) +
+                sizeof(char *) * (numfields + numtargs);
+  auto ret = (void *)(((char **)gcalloc(size)) + numtargs);
   return ret;
 }
 
