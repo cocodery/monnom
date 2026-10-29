@@ -286,7 +286,7 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
                         GetLikelyFirstBranchMetadata());
 
   builder->SetInsertPoint(loadLambdaBlock);
-  {
+  if (NomLambdaOptimizationLevel > 0) {
     auto lambda = RefValueHeader::GenerateReadRawInvoke(builder, fieldValuePHI);
     auto pairfirst = builder->CreateInsertValue(
         UndefValue::get(GetDynamicDispatcherLookupResultType()),
@@ -296,6 +296,12 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
     auto retval = builder->CreateInsertValue(
         pairfirst, EnsurePackedUnpacked(builder, fieldValuePHI, POINTERTYPE),
         {1});
+    outPHI->addIncoming(retval, builder->GetInsertBlock());
+    builder->CreateBr(outBlock);
+  } else {
+    auto findFun = GetFindInvokeDispatcherFunction(*fun->getParent());
+    auto retval = builder->CreateCall(findFun, {fieldValuePHI});
+    retval->setCallingConv(findFun->getCallingConv());
     outPHI->addIncoming(retval, builder->GetInsertBlock());
     builder->CreateBr(outBlock);
   }
@@ -436,6 +442,31 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
 
   builder->SetInsertPoint(outBlock);
   return outPHI;
+}
+
+llvm::Function *RTVTable::GetFindInvokeDispatcherFunction(llvm::Module &mod) {
+  static const char *name = "MONNOM_RT_FIND_INVOKE_DISPATCHER";
+  Function *fun = mod.getFunction(name);
+  if (fun != nullptr) {
+    return fun;
+  }
+  fun =
+      Function::Create(FunctionType::get(GetDynamicDispatcherLookupResultType(),
+                                         {REFTYPE}, false),
+                       GlobalValue::LinkageTypes::InternalLinkage, name, mod);
+  fun->setCallingConv(NOMCC);
+  NomBuilder builder;
+  BasicBlock *startBlock = BasicBlock::Create(LLVMCONTEXT, "", fun);
+  builder->SetInsertPoint(startBlock);
+  Value *refValue = fun->arg_begin();
+  // a value with a field named "" invoked through this field would call this
+  // function again at runtime, not while generating it
+  auto pair = GenerateFindDynamicDispatcherPair(
+      builder, refValue,
+      RefValueHeader::GenerateReadVTablePointer(builder, refValue),
+      NomNameRepository::Instance().GetNameID(""));
+  builder->CreateRet(pair);
+  return fun;
 }
 } // namespace Runtime
 } // namespace Nom

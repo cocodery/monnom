@@ -49,6 +49,13 @@ extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
   // callTagFunAddr for insert as branch condition
   // nomRecordAddr for locate the IMTGraph
   auto nomRecord = reinterpret_cast<NomRecord *>(nomRecordAddr);
+  // a lambda (no NomObjPtr) reaches the record call-tag when it is invoked
+  // through a functional interface without lambda optimization; it has no
+  // IMT graph, and its descriptor is constant, so the call stays on dynamic
+  // dispatch
+  if (nomRecord == nullptr) {
+    return;
+  }
   // imtArray for get the current IMT entry and update the new IMT entry
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
   auto imtEntry = *(imtArray + imtIndex);

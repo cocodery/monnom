@@ -64,6 +64,11 @@ public:
                                     llvm::Value *vtablePtr, llvm::Value *name,
                                     llvm::Value *tableIndex,
                                     bool freezeInvokedField = false);
+  // without lambda optimization (--nolambdaopt) there is no raw invoke
+  // pointer: an invokable value (lambda, record or object with a `this`
+  // method) is invoked through its dynamic dispatcher for the empty name.
+  // Takes a reference value, returns its dispatcher pair.
+  static llvm::Function *GetFindInvokeDispatcherFunction(llvm::Module &mod);
 };
 } // namespace Runtime
 } // namespace Nom

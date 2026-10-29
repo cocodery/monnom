@@ -74,7 +74,10 @@ NomRecord::createLLVMElement(llvm::Module &mod,
     typeArgBuf[i] = carg;
   }
 
-  bool hasRawInvoke = false;
+  // the vtable pointer of an invokable value has bit 3 set
+  // (RTConfig_UseLambdaOffset), so the descriptor of a record with a `this`
+  // method starts 8 bytes into the 256-aligned global
+  bool hasRawInvoke = GetHasRawInvoke();
 
   auto ddstructType = StructType::create(LLVMCONTEXT, "MONNOM_RT_STRUCTDD_" +
                                                           to_string(StructID));
@@ -116,11 +119,22 @@ NomRecord::createLLVMElement(llvm::Module &mod,
       regcount, fun, GetAllTypeParameters(), GetArgumentTypes(nullptr), this,
       EndArgRegisterCount);
 
+  // invoking the record calls the dynamic dispatcher of its `this` method,
+  // created by GetDynamicDispatcherLookup above
+  Constant *rawInvokePtr = nullptr;
+  if (hasRawInvoke && NomLambdaOptimizationLevel > 0) {
+    rawInvokePtr = mod.getFunction("NOMMON_RT_DD_" +
+                                   *GetRawInvokeMethod()->GetSymbolName());
+    if (rawInvokePtr == nullptr) {
+      throw new std::exception();
+    }
+  }
+
   RecordHeader::GenerateConstructorCode(
       builder, ArrayRef<Value *>(typeArgBuf, targc), &sice,
       ConstantExpr::getGetElementPtr(
           gvartype, gv, ArrayRef<Constant *>({MakeInt32(0), MakeInt32(1)})),
-      GetInstructions());
+      GetInstructions(), rawInvokePtr);
 
   return fun;
 }
@@ -571,7 +585,41 @@ NomRecord::GetDynamicDispatcherLookup(llvm::Module &mod,
               ->GetLLVMElement(mod));
       builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
                                {callTagMatch, MakeUInt(1, 1)});
-      builder->CreateCondBr(callTagMatch, doCallBlock, wrongArgumentCountBlock,
+      BasicBlock *mismatchBlock = wrongArgumentCountBlock;
+      if (meth->GetName().empty()) {
+        // the `this` dispatcher is also the record's raw invoke: a typed call
+        // through a functional interface passes the interface call-tag (a
+        // function), which converts the arguments and calls back with the
+        // lambda call-tag, as for lambdas (NomLambdaBody). A lambda call-tag
+        // (an odd constant) of another arity is a wrong arity.
+        BasicBlock *checkBlock = builder->GetInsertBlock();
+        mismatchBlock = BasicBlock::Create(LLVMCONTEXT, "callTagMismatch", fun);
+        BasicBlock *interfaceCallTagBlock =
+            BasicBlock::Create(LLVMCONTEXT, "interfaceCallTag", fun);
+        builder->SetInsertPoint(mismatchBlock);
+        auto isLambdaCallTag = builder->CreateTrunc(
+            builder->CreatePtrToInt(callTag, numtype(intptr_t)), inttype(1));
+        builder->CreateCondBr(isLambdaCallTag, wrongArgumentCountBlock,
+                              interfaceCallTagBlock);
+        builder->SetInsertPoint(interfaceCallTagBlock);
+        auto funparamcount = GetIMTFunctionType()->getNumParams();
+        auto tailargs = makealloca(Value *, funparamcount);
+        auto tailarg = fun->arg_begin();
+        for (decltype(funparamcount) j = 0; j < funparamcount; j++, tailarg++) {
+          tailargs[j] = tailarg;
+        }
+        tailargs[0] = builder->CreatePointerCast(fun, POINTERTYPE);
+        auto tailCall = builder->CreateCall(
+            GetIMTFunctionType(),
+            builder->CreatePointerCast(callTag,
+                                       GetIMTFunctionType()->getPointerTo()),
+            ArrayRef<Value *>(tailargs, funparamcount));
+        tailCall->setCallingConv(NOMCC);
+        tailCall->setTailCallKind(CallInst::TailCallKind::TCK_MustTail);
+        builder->CreateRet(tailCall);
+        builder->SetInsertPoint(checkBlock);
+      }
+      builder->CreateCondBr(callTagMatch, doCallBlock, mismatchBlock,
                             GetLikelyFirstBranchMetadata());
 
       builder->SetInsertPoint(doCallBlock);
@@ -667,8 +715,20 @@ NomRecord::GetDynamicDispatcherLookup(llvm::Module &mod,
   return ConstantStruct::get(stype, ArrayRef<Constant *>(retarr, IMTsize));
 }
 
+const NomRecordMethod *NomRecord::GetRawInvokeMethod() const {
+  for (auto meth : Methods) {
+    if (meth->GetName().empty()) {
+      return meth;
+    }
+  }
+  return nullptr;
+}
+// a record with a `this` method is invokable (vtable flag and pointer bit,
+// as for lambdas); the raw invoke pointer itself exists only with lambda
+// optimization, otherwise the value is invoked through its dynamic
+// dispatcher for the empty name
 bool NomRecord::GetHasRawInvoke() const {
-  return NomLambdaOptimizationLevel > 0;
+  return GetRawInvokeMethod() != nullptr;
 }
 llvm::FunctionType *
 NomRecord::GetLLVMFunctionType(const NomSubstitutionContext *context) const {

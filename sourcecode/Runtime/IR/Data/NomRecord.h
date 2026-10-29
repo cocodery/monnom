@@ -50,6 +50,8 @@ public:
   GetDynamicDispatcherLookup(llvm::Module &mod,
                              llvm::GlobalValue::LinkageTypes linkage,
                              llvm::StructType *stype) const;
+  // the `this` method (empty name), which makes the record invokable
+  const NomRecordMethod *GetRawInvokeMethod() const;
   virtual bool GetHasRawInvoke() const;
   // Inherited via NomCallableLoaded
   virtual llvm::FunctionType *GetLLVMFunctionType(

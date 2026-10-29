@@ -74,14 +74,24 @@ llvm::Value *EnsureDynamicMethodInstruction::GenerateGetBestInvokeDispatcherDyn(
                           GetLikelyFirstBranchMetadata());
 
     builder->SetInsertPoint(packPairBlock);
-    auto rawInvokePtr = builder->CreatePointerCast(
-        RefValueHeader::GenerateReadRawInvoke(builder, receiver),
-        GetIMTFunctionType()->getPointerTo());
-    auto partialPair = builder->CreateInsertValue(
-        UndefValue::get(GetDynamicDispatcherLookupResultType()), rawInvokePtr,
-        {0});
-    auto returnVal2 = builder->CreateInsertValue(
-        partialPair, builder->CreatePointerCast(receiver, POINTERTYPE), {1});
+    Value *returnVal2 = nullptr;
+    if (NomLambdaOptimizationLevel > 0) {
+      auto rawInvokePtr = builder->CreatePointerCast(
+          RefValueHeader::GenerateReadRawInvoke(builder, receiver),
+          GetIMTFunctionType()->getPointerTo());
+      auto partialPair = builder->CreateInsertValue(
+          UndefValue::get(GetDynamicDispatcherLookupResultType()), rawInvokePtr,
+          {0});
+      returnVal2 = builder->CreateInsertValue(
+          partialPair, builder->CreatePointerCast(receiver, POINTERTYPE), {1});
+    } else {
+      auto findFun =
+          RTVTable::GetFindInvokeDispatcherFunction(*fun->getParent());
+      auto findCall = builder->CreateCall(
+          findFun, {builder->CreatePointerCast(receiver, REFTYPE)});
+      findCall->setCallingConv(findFun->getCallingConv());
+      returnVal2 = findCall;
+    }
 
     if (mergePHI != nullptr) {
       mergePHI->addIncoming(returnVal2, builder->GetInsertBlock());

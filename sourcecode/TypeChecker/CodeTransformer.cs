@@ -781,6 +781,15 @@ namespace Nom.TypeChecker
                 {
                     throw new TypeCheckException("Method $0 has the same name as a record field", md.Name.Name);
                 }
+                //records dispatch by name only (the runtime takes the first method with the name,
+                //including the `this` method), so record methods cannot be overloaded
+                if (methodPairs.Any(mp => mp.Item1.Name.Name.Name == md.Name.Name.Name))
+                {
+                    //the `this` method has the empty name, so $0 prints only its location
+                    throw new TypeCheckException(md.Name.Name.Name.Length == 0
+                        ? "Record methods cannot be overloaded, and this record already has a this method$0"
+                        : "Record method $0 already exists; record methods cannot be overloaded", md.Name.Name);
+                }
                 if (md.Name.Arguments.Any())
                 {
                     //record methods take their type arguments before the receiver, but every

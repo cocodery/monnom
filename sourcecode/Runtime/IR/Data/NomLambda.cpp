@@ -11,6 +11,7 @@
 #include "NomDynamicType.h"
 #include "NomLambda.h"
 #include "NomLambdaCallTag.h"
+#include "NomNameRepository.h"
 #include "NomPartialApplication.h"
 #include "NomTopType.h"
 #include "NomType.h"
@@ -56,10 +57,15 @@ llvm::Function *
 NomLambda::createLLVMElement(llvm::Module &mod,
                              llvm::GlobalValue::LinkageTypes linkage) const {
   std::string name = *GetSymbolName(); //"RT_NOM_Lambda_" + to_string(ID);
+  // without lambda optimization there is no raw invoke pointer, and the
+  // lambda is invoked through a dynamic dispatcher entry for the empty name
+  // (RTVTable::GetFindInvokeDispatcherFunction): the dispatch list is
+  // [{"", body}, end] instead of [end]
+  bool bodyInDDList = NomLambdaOptimizationLevel == 0;
+  auto ddlisttype =
+      arrtype(GetDynamicDispatchListEntryType(), bodyInDDList ? 2 : 1);
   auto gvartype = StructType::get(
-      LLVMCONTEXT,
-      {inttype(64), RTLambda::GetLLVMType(), GetDynamicDispatchListEntryType()},
-      false);
+      LLVMCONTEXT, {inttype(64), RTLambda::GetLLVMType(), ddlisttype}, false);
   GlobalVariable *gv =
       new GlobalVariable(mod, gvartype, true, linkage, nullptr,
                          "RT_NOM_LAMBDADESC_" + to_string(this->ID));
@@ -120,15 +126,62 @@ NomLambda::createLLVMElement(llvm::Module &mod,
   auto imtarr = makealloca(Constant *, IMTsize);
   auto ddtarr = makealloca(Constant *, IMTsize);
 
+  // without lambda optimization, a call through a functional interface
+  // reaches the IMT: forward it to the interface call-tag (as record IMT
+  // entries do), which finds the body through the dispatcher list
+  Function *imtEntry = invalidIMTInvocation;
+  if (bodyInDDList) {
+    imtEntry = mod.getFunction("MONNOM_RT_LAMBDA_IMT_FORWARD");
+    if (imtEntry == nullptr) {
+      BasicBlock *constructorBlock = builder->GetInsertBlock();
+      imtEntry = Function::Create(GetIMTFunctionType(), linkage,
+                                  "MONNOM_RT_LAMBDA_IMT_FORWARD", mod);
+      imtEntry->setCallingConv(NOMCC);
+      auto block = BasicBlock::Create(LLVMCONTEXT, "start", imtEntry);
+      builder->SetInsertPoint(block);
+      auto paramcount = GetIMTFunctionType()->getNumParams();
+      auto fwdargs = makealloca(Value *, paramcount);
+      auto fwdarg = imtEntry->arg_begin();
+      for (decltype(paramcount) j = 0; j < paramcount; j++, fwdarg++) {
+        fwdargs[j] = fwdarg;
+      }
+      auto tagCall = builder->CreateCall(
+          GetIMTCastFunctionType(),
+          builder->CreatePointerCast(fwdargs[0],
+                                     GetIMTCastFunctionType()->getPointerTo()),
+          ArrayRef<Value *>(fwdargs, paramcount));
+      tagCall->setCallingConv(NOMCC);
+      tagCall->setTailCallKind(CallInst::TailCallKind::TCK_MustTail);
+      builder->CreateRet(tagCall);
+      builder->SetInsertPoint(constructorBlock);
+    }
+  }
+  auto bodyNameID = NomNameRepository::Instance().GetNameID("");
   for (decltype(IMTsize) i = 0; i < IMTsize; i++) {
-    imtarr[i] = invalidIMTInvocation;
+    imtarr[i] = imtEntry;
+    // the bucket of the empty name starts at the body entry, all others at
+    // the end marker
+    auto start = bodyInDDList && bodyNameID % IMTsize != i ? 1 : 0;
     ddtarr[i] = ConstantExpr::getGetElementPtr(
-        gvartype, gv, ArrayRef<Constant *>({MakeInt32(0), MakeInt32(2)}));
+        gvartype, gv,
+        ArrayRef<Constant *>({MakeInt32(0), MakeInt32(2), MakeInt32(start)}));
   }
 
   auto emptyDDTE = GetDynamicDispatchListEntryConstant(
       MakeInt<size_t>(0), MakeInt<size_t>(0),
       ConstantPointerNull::get(GetIMTFunctionType()->getPointerTo()));
+  Constant *ddlist = nullptr;
+  if (bodyInDDList) {
+    Constant *entries[2] = {
+        GetDynamicDispatchListEntryConstant(
+            MakeInt<size_t>(bodyNameID), MakeInt<size_t>(0),
+            ConstantExpr::getPointerCast(Body.GetLLVMElement(mod),
+                                         GetIMTFunctionType()->getPointerTo())),
+        emptyDDTE};
+    ddlist = ConstantArray::get(ddlisttype, ArrayRef<Constant *>(entries, 2));
+  } else {
+    ddlist = ConstantArray::get(ddlisttype, ArrayRef<Constant *>(emptyDDTE));
+  }
 
   auto constant = RTLambda::CreateConstant(
       this,
@@ -139,7 +192,7 @@ NomLambda::createLLVMElement(llvm::Module &mod,
           ArrayRef<Constant *>(ddtarr, IMTsize)),
       invalidFieldReadFun, invalidFieldWriteFun);
   gv->setInitializer(
-      ConstantStruct::get(gvartype, {MakeUInt(64, 0), constant, emptyDDTE}));
+      ConstantStruct::get(gvartype, {MakeUInt(64, 0), constant, ddlist}));
 
   LambdaHeader::GenerateConstructorCode(
       builder, ArrayRef<Value *>(typeArgBuf, targc),
