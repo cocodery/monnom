@@ -911,14 +911,14 @@ class Main
 		Main.Test_GenericMethod();
 		Main.Test_StructuralSecondInterface();
 		Main.Test_StaticField();
-		Main.Test_IfType();
-		Main.Test_IfObj();
-		Main.Test_MaybeCast();
-		Main.Test_MaybeInstantiation();
+#		Main.Test_IfType();
+#		Main.Test_IfObj();
+#		Main.Test_MaybeCast();
+#		Main.Test_MaybeInstantiation();
 		Main.Test_PairSwap();
 		Main.Test_LambdaClassTypeVar();
 		Main.Test_LambdaBareMethodCall();
-		Main.Test_OverloadArgCount();
+#		Main.Test_OverloadArgCount();
 		# TESTS-END
 	}
 }

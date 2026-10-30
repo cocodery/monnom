@@ -166,6 +166,8 @@ NomJIT::NomJIT(std::unique_ptr<LLJIT> &&llj)
   llvm::sys::DynamicLibrary::AddSymbol("CPP_NOM_CLOSUREALLOC",
                                        (void *)&CPP_NOM_CLOSUREALLOC);
   llvm::sys::DynamicLibrary::AddSymbol("NOM_RT_Fail", (void *)&NOM_RT_Fail);
+  llvm::sys::DynamicLibrary::AddSymbol("NOM_RT_FailWithString",
+                                       (void *)&NOM_RT_FailWithString);
   ////TM->setOptLevel(llvm::CodeGenOpt::Default);
 }
 

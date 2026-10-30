@@ -2,6 +2,7 @@
 #include "CompileEnv.h"
 #include "CompileHelpers.h"
 #include "RTOutput.h"
+#include "StringClass.h"
 #include <iostream>
 
 using namespace std;
@@ -12,12 +13,23 @@ ErrorInstruction::ErrorInstruction(RegIndex reg)
     : NomInstruction(OpCode::Error), Register(reg) {}
 void ErrorInstruction::Compile(NomBuilder &builder, CompileEnv *env,
                                int lineno) {
-  static const char *generic_errorMessage = "ERROR!";
-  builder
-      ->CreateCall(RTOutput_Fail::GetLLVMElement(*env->Module),
-                   GetLLVMPointer(generic_errorMessage))
-      ->setCallingConv(
-          RTOutput_Fail::GetLLVMElement(*env->Module)->getCallingConv());
+  // a String message is printed; any other value gives the generic message
+  NomValue message = (*env)[Register];
+  if (message->getType() == REFTYPE &&
+      message.GetNomType()->IsSubtype(
+          NomStringClass::GetInstance()->GetType(), false)) {
+    auto failFun = RTOutput_Fail::GetStringMessageElement(*env->Module);
+    builder
+        ->CreateCall(failFun, builder->CreatePointerCast(message, POINTERTYPE))
+        ->setCallingConv(failFun->getCallingConv());
+  } else {
+    static const char *generic_errorMessage = "ERROR!";
+    builder
+        ->CreateCall(RTOutput_Fail::GetLLVMElement(*env->Module),
+                     GetLLVMPointer(generic_errorMessage))
+        ->setCallingConv(
+            RTOutput_Fail::GetLLVMElement(*env->Module)->getCallingConv());
+  }
   CreateDummyReturn(builder, env->Function);
 }
 void ErrorInstruction::Print(bool resolve) {

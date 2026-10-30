@@ -825,6 +825,15 @@ namespace Nom.TypeChecker
                         {
                             throw new TypeCheckException("@0 does not have type $1 even optimistically", sfd.Ident, fieldType);
                         }
+                        //the record stores the passed value without a cast. A call through an
+                        //interface-typed field reads the value's cast data, so a value for such a field
+                        //is cast here. Other field types are stored as they are: a cast to a generic class
+                        //type is exact (an ArrayList<dyn> is no ArrayList<Int>), and the benchmark
+                        //generator turns typed code into untyped code that creates such instances
+                        if (fieldType is Language.InterfaceType)
+                        {
+                            etr = etr.EnsureType(fieldType, env);
+                        }
                         precomputeInstructions.AddRange(etr);
                         value = new ExprTransformResult(etr.Type, etr.Register, new List<IInstruction>(), etr.Locs);
                     }
@@ -839,9 +848,6 @@ namespace Nom.TypeChecker
             {
                 tdstruct.AddField(new TDStructField(sfd.Ident, fieldType, tdstruct, false, cenv.AddPrecomputedArgument(sfd.Ident, value)));
             }
-            int afterInitializerRegCount = cenv.RegisterCount;
-
-            argExprs.AddRange(cenv.CapturedVariables.Select(cv => cv.GenerateReadAccess(env)));
             List<(Parser.MethodDef, StructMethodDef)> methodPairs = new List<(Parser.MethodDef, StructMethodDef)>();
             foreach (var md in expr.Methods)
             {
@@ -911,14 +917,20 @@ namespace Nom.TypeChecker
                     CompilerOutput.RegisterException(e);
                 }
             }
+            //read the arguments only now: a method that uses a variable of the enclosing scope adds it
+            //to the captured variables (a CaptureField in StructTransformEnvironment, whose value is one
+            //of these arguments), and the construction must pass it, read in this frame
+            argExprs.AddRange(cenv.CapturedVariables.Select(cv => cv.GenerateReadAccess(env)));
             tdstruct.SetInitializerArgs(cenv.CapturedVariables);
             tdstruct.InitializerRegisterCount = cenv.RegisterCount;
-            tdstruct.EndArgRegisterCount = cenv.RegisterCount - afterInitializerRegCount;
+            //every captured variable, also one a method adds, gets an argument register inserted after
+            //the previous ones (StructInitializerTransformEnvironment.InsertArgRegister), so the arguments
+            //are registers 1..n and none has to be moved to the end of the frame
+            tdstruct.EndArgRegisterCount = 0;
 
-            IEnumerable<IExprTransformResult> closureReadResults = senv.GetClosureAccessors().ToList();
 
             tdstruct.ClosureTypeParameters = new TypeParametersSpec(senv.StructContext.StructTypeParameters);
-            var csi = new ConstructStructInstruction(tdstruct, senv.StructContext.ConstructorTypeArguments, argExprs.Select(ae => ae.Register).Concat(closureReadResults.Select(crr => crr.Register)), env.CreateRegister());
+            var csi = new ConstructStructInstruction(tdstruct, senv.StructContext.ConstructorTypeArguments, argExprs.Select(ae => ae.Register), env.CreateRegister());
 
             var csetr = new ExprTransformResult(new Language.DynamicType(), csi.Register, new List<IInstruction>(), expr.Locs);
 
@@ -950,7 +962,7 @@ namespace Nom.TypeChecker
                 saetrs.Add(env.GetFieldAccessVariable(csetr, sass.Variable).Elem.GenerateWriteAccess(saetr, satenv));
             }
             // execute field initialzer first
-            var ret = new ExprTransformResult(new Language.DynamicType(), csi.Register, precomputeInstructions.Concat(argExprs.Flatten()).Concat(closureReadResults.Flatten()).Snoc(csi).Concat(lateWrites.Flatten()).Concat(saetrs.Flatten()), expr.Locs);
+            var ret = new ExprTransformResult(new Language.DynamicType(), csi.Register, precomputeInstructions.Concat(argExprs.Flatten()).Snoc(csi).Concat(lateWrites.Flatten()).Concat(saetrs.Flatten()), expr.Locs);
             expr.TypeAnnotation = ret.Type.GetParserType();
             return ret;
         };

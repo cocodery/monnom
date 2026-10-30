@@ -638,6 +638,17 @@ NomRecord::GetDynamicDispatcherLookup(llvm::Module &mod,
       auto implFunctionType = meth->GetLLVMFunctionType();
       auto paramCount = implFunctionType->getNumParams();
       auto argsarr = makealloca(Value *, paramCount);
+      // the method relies on its parameter types (an interface call on a
+      // parameter reads the argument's cast data), so the arguments of a
+      // dynamic call are cast here, as in the IMT entries (NomIMTUtils) and a
+      // class's raw invoke; [0] is the receiver, record methods have no type
+      // parameters
+      auto targCount = meth->GetDirectTypeParametersCount();
+      NomSubstitutionContextMemberContext nscmc(meth);
+      CastedValueCompileEnv cvce = CastedValueCompileEnv(
+          meth->GetDirectTypeParameters(), GetAllTypeParameters(), fun, 2,
+          meth->GetArgumentCount(),
+          ObjectHeader::GeneratePointerToTypeArguments(builder, varargs[0]));
 
       for (decltype(paramCount) j = 0; j < paramCount; j++) {
         Value *curArg = nullptr;
@@ -656,6 +667,11 @@ NomRecord::GetDynamicDispatcherLookup(llvm::Module &mod,
         }
         auto expectedType = implFunctionType->getParamType(j);
         curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
+        if (j > targCount) {
+          curArg = RTCast::GenerateCast(
+              builder, &cvce, curArg,
+              meth->GetArgumentTypes(&nscmc)[j - (targCount + 1)]);
+        }
         curArg = EnsurePackedUnpacked(builder, curArg, expectedType);
         argsarr[j] = curArg;
       }

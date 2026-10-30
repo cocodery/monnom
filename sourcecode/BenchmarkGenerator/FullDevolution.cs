@@ -23,6 +23,13 @@ namespace Nom.BenchmarkGenerator
         {
             return "__bm_fresh_" + (FreshVarCounter++).ToString();
         }
+        //a constructor argument that can be substituted into the replacement as it is. `this`/`dis`
+        //cannot: in a record literal's field initializers they mean the new record, so they are
+        //bound to a fresh letvar at the construction site, like any other expression
+        private static bool IsSubstitutableArgument(IExpr arg)
+        {
+            return arg is IdentExpr ie && ie.Name.Name != "this" && ie.Name.Name != "dis";
+        }
         public static FullDevolution Instance { get; } = new FullDevolution();
         private FullDevolution() { }
         internal enum ClassDevolutionKind { NominalTyped, NominalUntyped, Struct, StructTyped, StructUntyped, Lambda, LambdaTyped, LambdaUntyped, StructDictionary };
@@ -189,7 +196,7 @@ namespace Nom.BenchmarkGenerator
                             Stack<(Identifier, IExpr)> letBindings = new Stack<(Identifier, IExpr)>();
                             foreach (var pair in argpairs)
                             {
-                                if (pair.Item1 is IdentExpr)
+                                if (IsSubstitutableArgument(pair.Item1))
                                 {
                                     argsubsts.Add(pair.argdec.Name.Name, pair.Item1);
                                 }
@@ -317,7 +324,7 @@ namespace Nom.BenchmarkGenerator
                             Stack<(Identifier, IExpr)> letBindings = new Stack<(Identifier, IExpr)>();
                             foreach (var pair in argpairs)
                             {
-                                if (pair.Item1 is IdentExpr)
+                                if (IsSubstitutableArgument(pair.Item1))
                                 {
                                     argsubsts.Add(pair.argdec.Name.Name, pair.Item1);
                                 }
@@ -418,7 +425,7 @@ namespace Nom.BenchmarkGenerator
                                 Stack<(Identifier, IExpr)> letBindings = new Stack<(Identifier, IExpr)>();
                                 foreach (var pair in argpairs)
                                 {
-                                    if (pair.argexp is IdentExpr)
+                                    if (IsSubstitutableArgument(pair.argexp))
                                     {
                                         argsubsts.Add(pair.argdec.Name.Name, pair.argexp);
                                     }
@@ -507,7 +514,7 @@ namespace Nom.BenchmarkGenerator
                                 Stack<(Identifier, IExpr)> letBindings = new Stack<(Identifier, IExpr)>();
                                 foreach (var pair in argpairs)
                                 {
-                                    if (pair.argexp is IdentExpr)
+                                    if (IsSubstitutableArgument(pair.argexp))
                                     {
                                         argsubsts.Add(pair.argdec.Name.Name, pair.argexp);
                                     }

@@ -1,4 +1,5 @@
 #include "RTModule.h"
+#include "VoidClass.h"
 #include "BoolClass.h"
 #include "ClassTypeList.h"
 #include "Context.h"
@@ -85,6 +86,9 @@ RTModule::RTModule(NomModule *mod)
     iface->GetLLVMElement(*theModule.get());
   }
   NomBoolObjects::GetInstance()->GetLLVMElement(*theModule.get());
+  // GetVoidObject looks the void object up at the end; it must exist even if
+  // no code here returns Void (e.g. Main.Main ends with ERROR(...))
+  NomVoidObject::GetInstance()->GetLLVMElement(*theModule.get());
   // the classes' static fields exist before any code that accesses them is
   // compiled; their initial values are stored once the module is in the JIT
   for (auto &cls : clses) {

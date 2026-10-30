@@ -22,6 +22,16 @@ llvm::Function *RTOutput_Fail::GetLLVMElement(llvm::Module &mod) {
   }
   return fun;
 }
+llvm::Function *RTOutput_Fail::GetStringMessageElement(llvm::Module &mod) {
+  Function *fun = mod.getFunction("NOM_RT_FailWithString");
+  if (fun == nullptr) {
+    fun = Function::Create(GetFunctionType(),
+                           GlobalValue::LinkageTypes::ExternalLinkage,
+                           "NOM_RT_FailWithString", &mod);
+    fun->setDoesNotReturn();
+  }
+  return fun;
+}
 llvm::BasicBlock *
 RTOutput_Fail::GenerateFailUnimplementedBlock(NomBuilder &builder) {
   static const char *msg = "UNIMPLEMENTED!";
@@ -88,6 +98,14 @@ extern "C" DLLEXPORT void *NOM_RT_Fail(const char *errstr) {
   Nom::Runtime::IMTUtils::ShutdownIMTCompiler();
   exit(1);
   return nullptr;
+}
+
+extern "C" DLLEXPORT void *NOM_RT_FailWithString(void *str) {
+  std::string msg =
+      ((Nom::Runtime::NomStringRef)Nom::Runtime::GetReadFieldFunction()(str, 0))
+          ->ToStdString() +
+      "\n";
+  return NOM_RT_Fail(msg.c_str());
 }
 
 extern "C" DLLEXPORT void NOM_RT_PrintReverseName(const char *str, size_t id) {

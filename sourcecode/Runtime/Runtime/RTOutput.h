@@ -14,6 +14,8 @@ public:
   ~RTOutput_Fail() {}
   static llvm::FunctionType *GetFunctionType();
   static llvm::Function *GetLLVMElement(llvm::Module &mod);
+  // fails with the text of a String object (ERROR("message"))
+  static llvm::Function *GetStringMessageElement(llvm::Module &mod);
 
   static llvm::BasicBlock *GenerateFailUnimplementedBlock(NomBuilder &builder);
 
@@ -37,3 +39,4 @@ public:
 } // namespace Nom
 
 extern "C" DLLEXPORT void *NOM_RT_Fail(const char *errstr);
+extern "C" DLLEXPORT void *NOM_RT_FailWithString(void *str);

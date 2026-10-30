@@ -265,15 +265,25 @@ namespace Nom.TypeChecker
                     return new StructFieldReference(ident, structdef.Fields.Single(fd => fd.Name == ident.Name)).InjectOptional();
                 }
                 //TODO: methods
-                var plv = InitializerEnvironment.GetLocalVariable(ident.Name);
-                if (plv.HasElem)
+                //any other variable of the enclosing scope is read in the enclosing frame (a local, a field
+                //of the enclosing object, or the captured field of an enclosing record) and only valid there,
+                //so the record captures it: the initializer environment adds it as an argument, read with
+                //the enclosing reference at the construction, and the record keeps it in a field. A static
+                //field is the same in every frame and can change, so it is used directly
+                var parentRef = ParentEnv[ident];
+                if (!parentRef.HasElem || parentRef.Elem is ATopLevelCodeTransformEnvironment.StaticFieldReference)
                 {
-                    CaptureField fs = new CaptureField(ident, plv.Elem.Type, structdef, new LocalVariableRef(ident, plv.Elem), InitializerEnvironment);
+                    return parentRef;
+                }
+                var capture = InitializerEnvironment[ident];
+                if (capture.HasElem)
+                {
+                    CaptureField fs = new CaptureField(ident, capture.Elem.Type, structdef, capture.Elem, InitializerEnvironment);
                     structdef.AddField(fs);
                     fields.Add(ident.Name, fs);
                     return new StructFieldReference(ident, fs).InjectOptional();
                 }
-                return ParentEnv[ident];
+                return parentRef;
             }
         }
 
@@ -378,7 +388,16 @@ namespace Nom.TypeChecker
 
         public IOptional<ICallableReference> GetLocalCallable(IArgIdentifier<Identifier, Language.IType> callableName, IEnumerable<Language.IType> argTypes)
         {
-            throw new NotImplementedException(); //TODO: need to make parent refer back to this environment when generating this pointer method access
+            //the record method has already tried its locals, the record's fields and the variables the
+            //record captures (StructMethodTransformEnvironment.GetLocalCallable). What remains is a
+            //static method of the enclosing class, whose call does not use the enclosing frame. An
+            //instance method of the enclosing object would need its `this`, which a record does not
+            //capture (`this` in a record method is the record)
+            if (ParentEnv.Context.Container is IClassSpec cls)
+            {
+                return ParentEnv.GetStaticMethod(new ClassRef<Language.IType>(cls, ParentEnv.Context.TypeEnvironment), callableName, argTypes);
+            }
+            return Optional<ICallableReference>.Empty;
         }
 
         public IOptional<ILocalVariable> GetLocalVariable(string name)
@@ -404,14 +423,6 @@ namespace Nom.TypeChecker
         public void MergeIn(ICodeTransformEnvironment env)
         {
             throw new InternalException("this shouldn't happen");
-        }
-
-        internal IEnumerable<IExprTransformResult> GetClosureAccessors()
-        {
-            foreach (CaptureField cf in fields.Values)
-            {
-                yield return cf.Source.GenerateReadAccess(ParentEnv);
-            }
         }
 
         public PhiNode GetBreakPHI(int levels)
@@ -822,9 +833,15 @@ namespace Nom.TypeChecker
 
         public IOptional<ICallableReference> GetLocalCallable(IArgIdentifier<Identifier, Language.IType> callableName, IEnumerable<Language.IType> argTypes)
         {
-            if (callableName.Arguments.Count() == 0 && localVariables.ContainsKey(callableName.Name.Name))
+            if (callableName.Arguments.Count() == 0)
             {
-                return AsCallable(new LocalVariableRef(callableName.Name, localVariables[callableName.Name.Name]).GenerateReadAccess(this), argTypes);
+                //the method's locals, then the record's fields and the variables it captures (fn(x) on a
+                //field), each read from this frame, as when the name is used as a value
+                var lc = this[callableName.Name].Join(v => AsCallable(v.GenerateReadAccess(this), argTypes));
+                if (lc.HasElem)
+                {
+                    return lc;
+                }
             }
             return ParentEnv.GetLocalCallable(callableName, argTypes);
         }
