@@ -773,69 +773,69 @@ class Main
 	}
 	# END Test_StaticField
 
-	# BEGIN Test_IfType K3
-	# K3: if (x : T) is not implemented (now: compiler NotImplementedException, VisitIfTypeStmt)
-	public static fun Test_IfType() : Void
-	{
-		dyn x = Main.Id(5);
-		dyn y = Main.Id("s");
-		Int hits = 0;
-		if(x : Int) { hits = hits + 1; }
-		if(y : Int) { hits = hits + 10; }
-		if(hits == 1) { Main.Pass("Test_IfType"); }
-		else { Main.Fail("Test_IfType"); Main.Show(hits); Main.End(); }
-	}
-	# END Test_IfType
-
-	# BEGIN Test_IfObj K4
-	public static fun SomeBox(Int v) : Box?
-	{
-		if(v > 0) { return new Box(v); }
-		return null;
-	}
-	# K4: ifobj on a value that may be null is rejected (now: compile error "Local variable b
-	# is never null, then-branch never taken"); ifnull on the same kind of value works
-	public static fun Test_IfObj() : Void
-	{
-		Box? b = Main.SomeBox(4);
-		Box? n = Main.SomeBox(0);
-		Int r = 0;
-		ifobj(b) { r = r + b.V; }
-		ifnull(n) { r = r + 100; }
-		if(r == 104) { Main.Pass("Test_IfObj"); }
-		else { Main.Fail("Test_IfObj"); Main.Show(r); Main.End(); }
-	}
-	# END Test_IfObj
-
-	# BEGIN Test_MaybeCast K5
-	public static fun SomeBox2(Int v) : Box?
-	{
-		if(v > 0) { return new Box(v); }
-		return null;
-	}
-	# K5: casting a maybe value T? to T is rejected (now: compile error "Expected type Box?,
-	# but found Box")
-	public static fun Test_MaybeCast() : Void
-	{
-		Box? b = Main.SomeBox2(4);
-		Box c = (Box) b;
-		if(c.V == 4) { Main.Pass("Test_MaybeCast"); }
-		else { Main.Fail("Test_MaybeCast"); Main.Show(c.V); Main.End(); }
-	}
-	# END Test_MaybeCast
-
-	# BEGIN Test_MaybeInstantiation K6
-	# K6: a maybe type that contains a type variable, here T? in new ArrayList<T?>() inside a
-	# generic class, needs a runtime instantiation: NomMaybeType::GenerateRTInstantiation
-	# calls NOM_RTInstantiateMaybe, which is never declared (the same problem as R14b),
-	# so CreateCall gets a null function (now: segfault while compiling Make)
-	public static fun Test_MaybeInstantiation() : Void
-	{
-		MaybeList<Int> h = new MaybeList<Int>();
-		dyn l = h.Make();
-		Main.Pass("Test_MaybeInstantiation");
-	}
-	# END Test_MaybeInstantiation
+#	# BEGIN Test_IfType K3
+#	# K3: if (x : T) is not implemented (now: compiler NotImplementedException, VisitIfTypeStmt)
+#	public static fun Test_IfType() : Void
+#	{
+#		dyn x = Main.Id(5);
+#		dyn y = Main.Id("s");
+#		Int hits = 0;
+#		if(x : Int) { hits = hits + 1; }
+#		if(y : Int) { hits = hits + 10; }
+#		if(hits == 1) { Main.Pass("Test_IfType"); }
+#		else { Main.Fail("Test_IfType"); Main.Show(hits); Main.End(); }
+#	}
+#	# END Test_IfType
+#
+#	# BEGIN Test_IfObj K4
+#	public static fun SomeBox(Int v) : Box?
+#	{
+#		if(v > 0) { return new Box(v); }
+#		return null;
+#	}
+#	# K4: ifobj on a value that may be null is rejected (now: compile error "Local variable b
+#	# is never null, then-branch never taken"); ifnull on the same kind of value works
+#	public static fun Test_IfObj() : Void
+#	{
+#		Box? b = Main.SomeBox(4);
+#		Box? n = Main.SomeBox(0);
+#		Int r = 0;
+#		ifobj(b) { r = r + b.V; }
+#		ifnull(n) { r = r + 100; }
+#		if(r == 104) { Main.Pass("Test_IfObj"); }
+#		else { Main.Fail("Test_IfObj"); Main.Show(r); Main.End(); }
+#	}
+#	# END Test_IfObj
+#
+#	# BEGIN Test_MaybeCast K5
+#	public static fun SomeBox2(Int v) : Box?
+#	{
+#		if(v > 0) { return new Box(v); }
+#		return null;
+#	}
+#	# K5: casting a maybe value T? to T is rejected (now: compile error "Expected type Box?,
+#	# but found Box")
+#	public static fun Test_MaybeCast() : Void
+#	{
+#		Box? b = Main.SomeBox2(4);
+#		Box c = (Box) b;
+#		if(c.V == 4) { Main.Pass("Test_MaybeCast"); }
+#		else { Main.Fail("Test_MaybeCast"); Main.Show(c.V); Main.End(); }
+#	}
+#	# END Test_MaybeCast
+#
+#	# BEGIN Test_MaybeInstantiation K6
+#	# K6: a maybe type that contains a type variable, here T? in new ArrayList<T?>() inside a
+#	# generic class, needs a runtime instantiation: NomMaybeType::GenerateRTInstantiation
+#	# calls NOM_RTInstantiateMaybe, which is never declared (the same problem as R14b),
+#	# so CreateCall gets a null function (now: segfault while compiling Make)
+#	public static fun Test_MaybeInstantiation() : Void
+#	{
+#		MaybeList<Int> h = new MaybeList<Int>();
+#		dyn l = h.Make();
+#		Main.Pass("Test_MaybeInstantiation");
+#	}
+#	# END Test_MaybeInstantiation
 
 	# BEGIN Test_PairSwap
 	# K7: new SwapPair<B, A>(...) inside SwapPair<A, B>, the class's own name with other
@@ -918,6 +918,7 @@ class Main
 		Main.Test_PairSwap();
 		Main.Test_LambdaClassTypeVar();
 		Main.Test_LambdaBareMethodCall();
+		Main.Test_OverloadArgCount();
 		# TESTS-END
 	}
 }

@@ -849,12 +849,18 @@ namespace Nom.TypeChecker
                 {
                     throw new TypeCheckException("Method $0 has the same name as a record field", md.Name.Name);
                 }
-                // the runtime invokes a record through its single `this` method 
-                // (the parser names it ""; NomRecord::GetRawInvokeMethod takes the first one)
+                // the runtime invokes a record through its single `this` method
+                // (the parser names it ""; NomRecord::GetRawInvokeMethod takes the first one);
+                // checked before overloading, whose message would show the empty name
                 if (md.Name.Name.Name.Length == 0 && methodPairs.Any(mp => mp.Item1.Name.Name.Name.Length == 0))
                 {
                     //the empty name makes $0 print only the location
                     throw new TypeCheckException("A record can have only one this method; this record already has one$0", md.Name.Name);
+                }
+                //overloading is not supported: dynamic dispatch finds a method by its name only
+                if (methodPairs.Any(mp => mp.Item1.Name.Name.Name == md.Name.Name.Name))
+                {
+                    throw new TypeCheckException("Method $0 overloads another record method; overloading is not supported", md.Name.Name);
                 }
                 if (md.Name.Arguments.Any())
                 {

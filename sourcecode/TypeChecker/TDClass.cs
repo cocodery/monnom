@@ -147,7 +147,11 @@ namespace Nom.TypeChecker
             {
                 if (!staticMethods.Contains(smd))
                 {
-                    //TODO: check method
+                    //overloading is not supported
+                    if (staticMethods.Any(xsmd => xsmd.Name == smd.Name))
+                    {
+                        throw new TypeCheckException("Static method $0 overloads another static method; overloading is not supported", smd.Identifier);
+                    }
                     staticMethods.Add(smd);
                 }
             }
@@ -193,9 +197,16 @@ namespace Nom.TypeChecker
             }
             foreach (MethodDef md in def.MethodDefinitions)
             {
-                if (Methods.Any(xmd => xmd.Name == md.Name && xmd.TypeParameters.Count() == md.TypeParameters.Count() && !xmd.Parameters.IsDisjoint(md.Parameters)))
+                //overloading is not supported: dynamic dispatch finds a method by its name only
+                //(Methods holds this class's own methods, so overriding is still allowed)
+                if (md.Name.Length == 0 && Methods.Any(xmd => xmd.Name.Length == 0))
                 {
-                    throw new TypeCheckException("Method $0 has non-disjoint overloadings", md.Identifier);
+                    //a `this` method has the empty name, so $0 prints only the location
+                    throw new TypeCheckException("Class $0 can have only one this method", def.Name);
+                }
+                if (Methods.Any(xmd => xmd.Name == md.Name))
+                {
+                    throw new TypeCheckException("Method $0 overloads another method; overloading is not supported", md.Identifier);
                 }
                 if (fields.Any(xfd => xfd.Name == md.Name))
                 {
