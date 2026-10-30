@@ -1,6 +1,6 @@
 #pragma once
 #include "AvailableExternally.h"
-#include "BoehmAllocator.h"
+#include "BoehmUncollectableAllocator.h"
 #include "ClassTypeList.h"
 #include "NomMemberContext.h"
 #include "RTClass.h"
@@ -24,10 +24,12 @@ private:
         val;
     return val;
   }
+  // a NomNamed lives outside the GC heap, where the GC finds no reference to
+  // the map's nodes, so they must not be collectable
   mutable std::unordered_map<
       llvm::ArrayRef<NomTypeRef>, NomClassTypeRef, NomTypeRefArrayRefHash,
       NomTypeRefArrayRefEquality,
-      BoehmAllocator<
+      BoehmUncollectableAllocator<
           std::pair<const llvm::ArrayRef<NomTypeRef>, NomClassTypeRef>>>
       instances;
 

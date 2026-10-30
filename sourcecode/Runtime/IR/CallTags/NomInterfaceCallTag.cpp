@@ -228,9 +228,9 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
       simpleReturnType = true;
     }
   }
-  if (((!RTConfig_OmitCallTagCasts) || simpleReturnType) &&
-      !(RTConfig_EnableTransition &&
-        calledFunctionType->getReturnType() == REFTYPE)) {
+  // also needed with IMT transitions: only a call through an IMT entry casts
+  // the result at the call site, a raw invoke relies on this cast
+  if ((!RTConfig_OmitCallTagCasts) || simpleReturnType) {
     // a structural value remember the types it cast to in its header cast data
     auto structCastType =
         StructuralValueHeader::GenerateReadCastData(builder, argbuf[1]);
