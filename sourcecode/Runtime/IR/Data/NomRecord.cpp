@@ -57,6 +57,7 @@ llvm::Type *NomRecord::GetLLVMType() const {
 llvm::Function *
 NomRecord::createLLVMElement(llvm::Module &mod,
                              llvm::GlobalValue::LinkageTypes linkage) const {
+  // all the record under one RecordStructure share this function
   Function *fun =
       Function::Create(GetLLVMFunctionType(), linkage, *GetSymbolName(), &mod);
   fun->setCallingConv(NOMCC);
@@ -121,6 +122,20 @@ NomRecord::createLLVMElement(llvm::Module &mod,
   auto constant = RTRecord::CreateConstant(
       this, GetDynamicFieldLookup(mod, linkage),
       GetDynamicFieldStore(mod, linkage), imt, ddreftable);
+
+  // builder->CreateCall(
+  //     GetPrint(&mod),
+  //     {llvm::ConstantInt::get(INTTYPE, reinterpret_cast<uint64_t>(imt)),
+  //      llvm::ConstantInt::get(INTTYPE, 0, false)});
+  // builder->CreateCall(
+  //     GetPrint(&mod),
+  //     {llvm::ConstantInt::get(INTTYPE, reinterpret_cast<uint64_t>(constant)),
+  //      llvm::ConstantInt::get(INTTYPE, 0, false)});
+  // builder->CreateCall(
+  //     GetPrint(&mod),
+  //     {llvm::ConstantInt::get(INTTYPE, reinterpret_cast<uint64_t>(fun)),
+  //      llvm::ConstantInt::get(INTTYPE, 0, false)});
+
   gv->setInitializer(ConstantStruct::get(
       gvartype,
       {ConstantArray::get(arrtype(inttype(64), hasRawInvoke ? 1 : 0),

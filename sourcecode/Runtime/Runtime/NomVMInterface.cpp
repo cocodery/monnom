@@ -174,7 +174,7 @@ extern "C" DLLEXPORT void CPP_NOM_Print(uint64_t addr, uint64_t mode) {
   if (mode == 0) {
     std::cout << addr << std::endl;
   } else if (mode == 1) {
-    std::cout << *(reinterpret_cast<std::string *>(addr));
+    std::cout << *(reinterpret_cast<std::string *>(addr)) << std::endl;
   } else {
     throw std::exception();
   }

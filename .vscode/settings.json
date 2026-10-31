@@ -1,18 +1,22 @@
 {
   "cmake.sourceDirectory": "${workspaceFolder}/sourcecode/Runtime",
   "cmake.buildDirectory": "${workspaceFolder}/sourcecode/Runtime/build",
-  "cmake.debugConfig": {
-    "args": [
-      "-p",
-      "${workspaceFolder}/experiments/monnom/sort/.BM_IISSSCC",
-      "Sort"
-    ]
-  },
-  // "cmake.debugConfig": {
-  //   "args": [
-  //     "-p",
-  //     "${workspaceFolder}/experiments/monnom/dict",
-  //     "Dict"
-  //   ]
-  // }
+  "cmake.defaultVariants": {
+    "buildType": {
+      "default": "release",
+      "description": "The build type.",
+      "choices": {
+        "release": {
+          "short": "Release",
+          "long": "Optimize the runtime.",
+          "buildType": "Release"
+        },
+        "debug": {
+          "short": "Debug",
+          "long": "Emit debug information, no optimization.",
+          "buildType": "Debug"
+        }
+      }
+    }
+  }
 }

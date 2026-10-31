@@ -46,6 +46,10 @@ extern "C" DLLEXPORT void RT_NOM_STATS_IncStaticMethodCalls();
 extern "C" DLLEXPORT void RT_NOM_STATS_IncDynamicInvokes();
 extern "C" DLLEXPORT void RT_NOM_STATS_IncDynamicMethodCalls();
 extern "C" DLLEXPORT void RT_NOM_STATS_IncDynamicFieldLookups();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTEntriesCompiled();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTEntriesInstalled();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTGraphTransitions();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncRecordIMTCopies();
 
 enum class NomDebugPrintValueType : unsigned char {
   Nothing = 0,

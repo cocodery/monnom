@@ -24,24 +24,43 @@ IMT transitions are off by default. `nom --trans` turns them on (`RTConfig_Enabl
 
 When an interface call reaches a dynamic object whose IMT slot does not cover the call-tag, the call falls through to the record call-tag. JIT'd code in `NomRecordCallTag::createLLVMElement` (`IR/CallTags/NomRecordCallTag.cpp`) then calls `CPP_NOM_GetIMTTransition`, and afterwards serves the call itself through `GenerateFindDynamicDispatcherPair`. The triggering call always goes through dynamic dispatch, because the interface call-tag has already packed its arguments and IMT entries expect them unpacked. The bridge only prepares the IMT for later calls:
 
-1. Installs any entries the background compiler has finished (`InstallFinishedIMTEntries`), so the slot it reads next is current.
-2. Gets `imtIndex` from `callTag->GetMethod()->GetIMTIndex()` and reads the current entry from `imtArray[imtIndex]`.
-3. Gets the record's graph with `NomIMTGraph::GetIMTGraph(record)`.
-4. Returns and leaves the slot alone if a job for the slot is pending (`IsIMTEntryPending`). A later fallback installs the finished entry, and extends it if it still doesn't cover this call-tag. This is checked first because every call to the slot falls back until the entry is installed.
-5. Returns early if the record has no method for the call-tag (`CheckCallTagMethodExist` is false, e.g. a field holding a lambda).
-6. Gets the node for the current entry with `GetIMTNode(imtIndex, imtEntry)`. The first lookup for a slot creates its root node.
-7. Handles one of the cases below.
+1. Links any entries the background compiler has finished into their graphs (`InstallFinishedIMTEntries`), so the lookups below can find them.
+2. Returns early if the receiver has no `NomRecord`, or if the record has no method for the call-tag (`CheckCallTagMethodExist` is false, e.g. a field holding a lambda).
+3. Gets `imtIndex` from `callTag->GetMethod()->GetIMTIndex()` and reads the current entry from the receiver's IMT.
+4. Gets the record's graph with `NomIMTGraph::GetIMTGraph(record)`.
+5. Gets the node for the current entry with `GetIMTNode(imtIndex, imtEntry)`. The first lookup for a slot creates its root node.
+6. Handles the first case below that applies.
 
 | Case | Test | Action |
 |------|------|--------|
 | Hit | `CheckNodeValidity` | Leaves the slot as it is. |
-| Known transition | `CheckTransition` | Writes the child's entry into `imtArray[imtIndex]`; compiles nothing. |
+| Known transition | `CheckTransition` | Moves the object to the descriptor holding the child's entry; compiles nothing. |
+| Pending | `IsIMTEntryPending` | Returns; a job for the slot is already running, and this call uses dynamic dispatch. |
 | Miss, async (default) | `UseAsyncIMTCompile` | Queues the build with `CompileIMTEntryFunctionAsync` and returns. |
-| Miss, sync | otherwise | `CompileIMTEntryFunction`, then `CreateTransitionNode` and `GenerateTransitionRelation`, then writes the new entry into the slot. |
+| Miss, sync | otherwise | `CompileIMTEntryFunction`, then `CreateTransitionNode` and `GenerateTransitionRelation`, then moves the object to the descriptor holding the new entry. |
+
+The pending check comes after the known-transition check, so an object can follow a finished edge while another job runs on the same slot.
 
 The node is always found from the slot's **current** contents, not from whichever entry the call passed through. So a miss on an installed entry builds the child under that entry's node.
 
-All objects created at one construction site share one `NomRecord`, and so one vtable, one `imtArray` and one graph. Installing an entry therefore speeds up every object from that site at once. `experiments/monnom/imtshare` checks this.
+### Who owns what
+
+All records with the same structure share one `NomRecord`, and so one graph. A record object's IMT belongs to the descriptor it points at. Two objects share a descriptor only while every slot holds the same entry, so an object's transitions are invisible to objects that have not made them. This is what will allow two records from one site to hold different lambdas.
+
+Objects start on the descriptor in the `NomRecord`'s global. Installing an entry goes through `MoveToNextDescriptor` (`NomVMIMTInterface.cpp`), which does the following:
+1. Looks up `(current descriptor, slot, new entry)` with `NomIMTGraph::FindDescriptor`. If it finds a descriptor, it uses that one and copies nothing.
+2. Otherwise copies the `RTRecord` descriptor into `malloc` memory, keeping the low 5 bits of the vtable pointer, because bits 3 and 4 say whether the value is invokable and whether it is nominal. It writes the new entry into the copy and records it with `AddDescriptor`.
+3. Stores the descriptor's address in the object's header.
+
+So a copy is made once per IMT state, not once per object. Descriptors are immutable once published, like hidden classes: a transition changes the object's header pointer and never a slot in a descriptor another object could be on. The dispatcher table pointers in a copy keep pointing into the shared global.
+
+The lookup is keyed on the edge, not on the table's contents, so objects that fill slots in different orders can end up on separate descriptors with equal contents. That is harmless and avoids hashing every slot on each transition. A slot's `NomIMTNode` cannot be the key, because it says nothing about the other slots.
+
+Descriptors live for the whole process, outside the GC. The graph holds them, and it is plain memory the GC does not scan, so a `gcalloc` block could be freed while still in the graph. They hold only pointers to globals, JIT code and the `NomRecord`, so the GC never needs to scan them.
+
+One object compiles a transition, and every other object follows it from the graph with one fallback per slot: no compile and no copy, but each new object starts on the root entries and takes that fallback. So under `--trans` a program that creates many short-lived records pays one bridge call per record per slot.
+
+`experiments/monnom/function/imttransition` checks this.
 
 ### Arguments to the bridge
 
@@ -52,7 +71,7 @@ All objects created at one construction site share one `NomRecord`, and so one v
 | `callTagAddr` | invariant load from `((i64*)callTag)[-1]` | the `NomInterfaceCallTag *` object, which sits in the prefix data just before the function |
 | `callTagFunAddr` | `ptrtoint callTag` | the call-tag's function address, which the new IMT entry compares the incoming call-tag against |
 | `nomRecordAddr` | `RTVTable::GenerateReadNomObjPtr` | the `NomRecord *` that owns the graph |
-| `imtArray` | `RTVTable::GenerateReadInterfaceMethodTable` | the record's IMT, an array of `IMTsize` entries |
+| `receiver` | `ptrtoint receiver` | the object, whose first word is its vtable pointer; the bridge reads the IMT from it and may replace it |
 
 If you change the signature, update the C function, the `FunctionType` in `GetIMTTransition()`, and the call site, and keep all three in sync.
 
@@ -102,7 +121,9 @@ Each edge is labelled with the tag from `FindDiffCallTag`, and is added only if 
 **`IMTUtils::InstallFinishedIMTEntries`**: for each finished job, it does the following on the main thread:
 1. Clears the pending mark.
 2. Adds the object with `NomJIT::addObjectFile` and looks up the entry.
-3. Creates the child node, links it into the graph, and writes the entry into the slot.
+3. Creates the child node and links it into the graph.
+
+It writes no slot. Objects reach the entry through the known-transition case, including the one that started the job: `InstallFinishedIMTEntries` runs at the top of the bridge, so that object's next fallback takes the new edge in the same call. A job must not hold an object, because jobs are not GC-scanned and the object could be collected while the job is queued.
 
 It throws if compiling, linking or the lookup failed.
 
@@ -116,18 +137,39 @@ Keep these true when changing the code:
 
 - **Threads.** JIT'd code, the bridge, the graphs and the nodes run on the main thread only; never give the worker a graph or a node. The worker builds IR in `LLVMCONTEXT` and reads and extends the runtime's type data, always under `NomJIT::getContextLock()`. Anything else that does either while the worker may run must hold that lock too. ORC takes it when compiling IR modules, and so do `NOM_RTInstantiateClass` and `NOM_RTInstantiateMaybe`. A new runtime entry point that instantiates types or builds IR must take it as well. The worker registers itself with the Boehm GC, because building IR can allocate from the GC heap.
 - **No JIT calls under the context lock.** `BuildIMTEntryModule` gets method addresses only from the `LookupRecordMethodAddr` cache. The main thread fills that cache (`CacheRecordMethodAddr`, called by `CompileIMTEntryFunction` and `CompileIMTEntryFunctionAsync` before the lock) before any entry covering that call-tag is built. `CheckCallTagMethodExist` only checks that the record has the method.
-- **Slots.** Only this folder writes `imtArray` slots, and only on the main thread. Each slot has at most one async job at a time, and the bridge leaves a pending slot alone. So when a job is installed, the slot still holds the entry of the node the job extends.
+- **Slots.** Only `MoveToNextDescriptor` writes IMT slots, only on the main thread, and only in a new copy before `AddDescriptor` publishes it. A published descriptor never changes, because other objects may be on it. Compiled entries must stay valid for every object holding them; an entry that depends on one object's data, such as a specific lambda, needs its own entry address, which then gets its own descriptor. Each graph slot has at most one async job at a time. A job records the node it extends, so it does not depend on what any object's slot holds.
 - **Slot reads.** With `--trans`, call sites read IMT slots with a plain load (`RTVTable::GenerateReadInterfaceMethodTableEntry`); without it the load is invariant. Never make it invariant under `--trans`: LLVM would hoist the read out of loops, so a loop that started before its entry was installed keeps calling the old entry and falls back on every call.
+- **Vtable reads.** With `--trans`, `RefValueHeader::GenerateReadVTablePointer` is a plain load; without it the load is invariant. The vtable pointer of a record changes on every transition, so an invariant load under `--trans` would let a loop keep reading the old descriptor and fall back on every call.
+- **Descriptor layout.** `GetRecordDescriptorLayout` must run before any job is queued, which is why the bridge calls it first. `DataLayout` caches struct layouts without a lock, so a later first lookup could race the worker.
 - **Call-tags in slots.** Only interface call-tags reach IMT slots (see "Generated IMT entries").
-- **Memory.** Nodes and graphs are allocated with plain `new` (not GC) and live for the whole process. Compiled entries embed raw method and call-tag addresses.
+- **Memory.** Nodes and graphs are allocated with plain `new` (not GC), and descriptors with `malloc`; all of them live for the whole process. Compiled entries embed raw method and call-tag addresses.
 
 ## Testing
 
-Build following the root CLAUDE.md, then run the IMT test case:
+Build following the root CLAUDE.md, then run the IMT tests. `imttransition` checks that records share transitions through the graph:
 
 ```bash
 source setpath.sh   # from repo root
-cd experiments/monnom/imtshare
+cd experiments/monnom/function/imttransition
+nomc --project IMTTransition --path .
+nom --trans --sync -s IMTTransition
+```
+
+It should print `10`, `10`, `12`, `12`, `20` and `30`, one per line, and the IMT stats should read:
+
+```
+#IMT Entries Compiled: 1
+#IMT Entries Installed: 3
+#IMT Graph Transitions: 2
+#Record IMT Copies: 1
+```
+
+`#IMT Graph Transitions` shows that records found the entry in the graph, and `#Record IMT Copies` shows that they shared one descriptor. These counts are only exact with `--sync`. In async mode how far the worker gets depends on timing, so check the printed values only. `-s` prints the counters; program output cannot tell a graph hit from a recompile.
+
+`imtshare` checks that dispatch stays correct across many records:
+
+```bash
+cd experiments/monnom/function/imtshare
 nomc --project IMTShare --path .
 nom --trans IMTShare          # async (default)
 nom --trans --sync IMTShare   # sync
@@ -136,6 +178,8 @@ nom --trans --sync IMTShare   # sync
 Both should print exactly `68010` and a newline (`680` then `10`; `String.Print` writes no separator), and nothing else. Any LLVM verifier message ("Global is external…", "Alias must point to a definition") means generated IR is invalid. Only the sync path verifies IMT entries, so such a message can make the two modes' output differ.
 
 In this test the program finishes before any background compile does, so in async mode every call takes the fallback path. To see entries being installed, raise `count` in a scratch copy of `Main.mn` to around 200000; the output should then be `2666786667600000` followed by `10`. A longer benchmark such as `experiments/monnom/sort/.BM_IISSSCC` also installs entries; run `nom --trans Sort` from inside that folder.
+
+`--imtsize 1` puts every call-tag in one slot, which exercises nodes with several call-tags and the extra edges between them.
 
 Without `--trans` every run takes plain dynamic dispatch, so a test that passes without it says nothing about this folder.
 

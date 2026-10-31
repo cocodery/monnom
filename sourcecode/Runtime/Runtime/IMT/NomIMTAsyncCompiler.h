@@ -17,8 +17,7 @@ bool UseAsyncIMTCompile();
 void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
                                   int imtIndex, void *imtEntry,
                                   const NomInterfaceCallTag *callTag,
-                                  void *callTagFunAddr, NomIMTNode *imtNode,
-                                  void **imtArray);
+                                  void *callTagFunAddr, NomIMTNode *imtNode);
 
 // Links every entry the background thread has finished into the JIT
 // adds its node to the IMT graph and installs it into its IMT slot

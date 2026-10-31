@@ -13,6 +13,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -62,11 +63,14 @@ public:
 /* --------------------------------------------------------------------------*/
 
 using IMTNodes = std::vector<std::list<NomIMTNode *>>;
+// current <descriptor, slot, new entry -> descriptor> with that entry in slot
+using IMTDescriptors = std::map<std::tuple<char *, int, void *>, char *>;
 
 class NomIMTGraph {
 private:
-  const NomRecord *record; // each record holds one graph
-  IMTNodes nodesPerEntry;  // all imt node under per slot
+  const NomRecord *record;    // each record holds one graph
+  IMTNodes nodesPerEntry;     // all imt node under per slot
+  IMTDescriptors descriptors; // descriptors shared by objects of the record
 
   static const NomInterfaceCallTag *FindDiffCallTag(const NomIMTNode *from,
                                                     const NomIMTNode *to);
@@ -81,6 +85,10 @@ public:
   NomIMTNode *GetIMTNode(int imtIndex, void *imtEntry);
 
   void GenerateTransitionRelation(int imtIndex, NomIMTNode *node);
+
+  char *FindDescriptor(char *vtable, int imtIndex, void *imtEntry) const;
+  void AddDescriptor(char *vtable, int imtIndex, void *imtEntry,
+                     char *newVTable);
 };
 
 } // namespace Runtime

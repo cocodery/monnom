@@ -18,6 +18,10 @@ static size_t monoCastCount = 0;
 static size_t subtypingChecksCount = 0;
 static size_t typeArgumentRecursionsCount = 0;
 static size_t typeInstanceAllocationsCount = 0;
+static size_t imtEntriesCompiled = 0;
+static size_t imtEntriesInstalled = 0;
+static size_t imtGraphTransitions = 0;
+static size_t recordIMTCopies = 0;
 static size_t perfectCallTagTypeMatches = 0;
 static size_t callTagTypeMismatches = 0;
 static size_t impositionsCount = 0;
@@ -202,6 +206,10 @@ DLLEXPORT void RT_NOM_STATS_IncFinalInstanceMethodCalls() {
 DLLEXPORT void RT_NOM_STATS_IncStaticMethodCalls() { staticMethodCalls++; }
 DLLEXPORT void RT_NOM_STATS_IncDynamicInvokes() { dynamicInvokes++; }
 DLLEXPORT void RT_NOM_STATS_IncDynamicMethodCalls() { dynamicMethodCalls++; }
+DLLEXPORT void RT_NOM_STATS_IncIMTEntriesCompiled() { imtEntriesCompiled++; }
+DLLEXPORT void RT_NOM_STATS_IncIMTEntriesInstalled() { imtEntriesInstalled++; }
+DLLEXPORT void RT_NOM_STATS_IncIMTGraphTransitions() { imtGraphTransitions++; }
+DLLEXPORT void RT_NOM_STATS_IncRecordIMTCopies() { recordIMTCopies++; }
 DLLEXPORT void RT_NOM_STATS_IncDynamicFieldLookups() { dynamicFieldLookups++; }
 
 static size_t debugPrint_lastIndices[4][RBUFSIZE];
@@ -458,6 +466,11 @@ void PrintCastStats() {
   outstream << "\n#Dynamic Invokes: " << std::dec << dynamicInvokes;
   outstream << "\n#Dynamic Method Calls: " << std::dec << dynamicMethodCalls;
   outstream << "\n#Dynamic Field Lookups: " << std::dec << dynamicFieldLookups;
+  outstream << "\n\nIMT Stats:\n----------------------";
+  outstream << "\n#IMT Entries Compiled: " << std::dec << imtEntriesCompiled;
+  outstream << "\n#IMT Entries Installed: " << std::dec << imtEntriesInstalled;
+  outstream << "\n#IMT Graph Transitions: " << std::dec << imtGraphTransitions;
+  outstream << "\n#Record IMT Copies: " << std::dec << recordIMTCopies;
 
 #ifdef _WIN32
   double castSeconds = timeUnitsInCasts / find_timer_frequency();

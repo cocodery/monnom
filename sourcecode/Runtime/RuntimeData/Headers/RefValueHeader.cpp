@@ -11,6 +11,7 @@
 #include "NomClassType.h"
 #include "NomMaybeType.h"
 #include "RTCompileConfig.h"
+#include "RTConfig.h"
 #include "RTInterfaceTableEntry.h"
 #include "RTOutput.h"
 #include "RTVTable.h"
@@ -49,10 +50,15 @@ llvm::StructType *RefValueHeader::GetLLVMType() {
 }
 llvm::Value *RefValueHeader::GenerateReadVTablePointer(NomBuilder &builder,
                                                        llvm::Value *refValue) {
-  return MakeInvariantLoad(
-      builder,
-      builder->CreatePointerCast(refValue, GetLLVMType()->getPointerTo()),
-      MakeInt32(RefValueHeaderFields::InterfaceTable));
+  auto header =
+      builder->CreatePointerCast(refValue, GetLLVMType()->getPointerTo());
+  if (RTConfig_EnableTransition) {
+    // record vtable pointer moves to its own copy on its first IMT transition
+    return MakeLoad(builder, header,
+                    MakeInt32(RefValueHeaderFields::InterfaceTable));
+  }
+  return MakeInvariantLoad(builder, header,
+                           MakeInt32(RefValueHeaderFields::InterfaceTable));
 }
 
 MDNode *GetNominalVsStructuralBranchWeights() {

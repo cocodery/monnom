@@ -1,0 +1,55 @@
+interface IShape
+{
+	fun Area() : Int;
+}
+
+# Records in the same IMT state share a descriptor, the transitions are shared
+# through the graph of their NomRecord. Check the IMT stats of
+# nom --trans --sync -s IMTTransition:
+#   #IMT Entries Compiled: 1    only r1 compiles
+#   #IMT Graph Transitions: 2   r2 and r3 follow the transition r1 left in the graph
+#   #Record IMT Copies: 1       r1 copies, r2 and r3 move to that copy, r4 stays
+class Main
+{
+	public static fun MakeRecord(Int a, Int b) : dyn
+	{
+		return new (Int w = a, Int h = b)
+		{
+			fun Area() : Int { return w * h; }
+		};
+	}
+
+	public static fun Show(Int n) : Void
+	{
+		n.ToString().Print();
+		"\n".Print();
+	}
+
+	public static fun Main() : Void
+	{
+		# r1 misses: it compiles the entry and adds the transition to the graph
+		# its second call goes straight through its own IMT
+		IShape r1 = Main.MakeRecord(2, 5);
+		Main.Show(r1.Area());
+		Main.Show(r1.Area());
+
+		# r2 comes from the same site, and its own IMT is still at the root
+		# its first call falls back and finds the transition in the graph
+		IShape r2 = Main.MakeRecord(3, 4);
+		Main.Show(r2.Area());
+		Main.Show(r2.Area());
+
+		# r3 comes from another site, but the same structure means the same
+		# NomRecord and so the same graph
+		dyn other = new (Int w = 4, Int h = 5)
+		{
+			fun Area() : Int { return w * h; }
+		};
+		IShape r3 = other;
+		Main.Show(r3.Area());
+
+		# r4 is never called through an interface so it gets no copy
+		dyn r4 = Main.MakeRecord(5, 6);
+		Main.Show(r4.w * r4.h);
+	}
+}

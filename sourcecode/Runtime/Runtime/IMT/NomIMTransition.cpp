@@ -154,5 +154,21 @@ void NomIMTGraph::GenerateTransitionRelation(int imtIndex, NomIMTNode *node) {
   // Add the new node to the list of nodes for the given imtIndex
   nodes.push_back(node);
 }
+
+char *NomIMTGraph::FindDescriptor(char *vtable, int imtIndex,
+                                  void *imtEntry) const {
+  // return the descriptor an object on vtable moves to when imtEntry is
+  // installed in the imtIndex slot, or nullptr if no object has done that yet
+  auto find = descriptors.find({vtable, imtIndex, imtEntry});
+  if (find != descriptors.end()) {
+    return find->second;
+  }
+  return nullptr;
+}
+
+void NomIMTGraph::AddDescriptor(char *vtable, int imtIndex, void *imtEntry,
+                                char *newVTable) {
+  descriptors[{vtable, imtIndex, imtEntry}] = newVTable;
+}
 } // namespace Runtime
 } // namespace Nom
