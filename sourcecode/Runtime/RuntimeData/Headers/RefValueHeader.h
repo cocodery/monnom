@@ -104,7 +104,7 @@ public:
                                     llvm::Value *vtableValue);
   static void
   GenerateInitializerCode(NomBuilder &builder, llvm::Value *valueHeader,
-                          llvm::Constant *vTablePointer,
+                          llvm::Value *vTablePointer,
                           llvm::Constant *rawInvokePointer = nullptr);
   static llvm::Value *GetInterfaceMethodTableFunction(NomBuilder &builder,
                                                       CompileEnv *env,

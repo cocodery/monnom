@@ -325,6 +325,7 @@ experiments/higgs/higgscheck/tscontracts/tests
 .cache/
 build/
 .antlr/
+charts/
 *.sln
 !Dockerfile
 *.fdb_latexmk

@@ -77,8 +77,9 @@ static inline void **GetIMTArray(char *vtable) {
 // let <vtable, imtIndex, newIMTEntry> to check whether exists an vtable has
 // already such a writing to the IMT-Array. If exists, redirect the VTable to
 // the nextVTable; otherwise copy and write the IMT-Entry
-static void MoveToNextDescriptor(void *receiver, NomIMTGraph *imtGraph,
-                                 int imtIndex, void *newIMTEntry) {
+static void MoveToNextDescriptor(void *receiver, NomRecord *nomRecord,
+                                 NomIMTGraph *imtGraph, int imtIndex,
+                                 void *newIMTEntry) {
   auto vtable = ReadVTable(receiver);
   auto nextVTable = imtGraph->FindDescriptor(vtable, imtIndex, newIMTEntry);
   if (nextVTable == nullptr) {
@@ -97,6 +98,12 @@ static void MoveToNextDescriptor(void *receiver, NomIMTGraph *imtGraph,
     }
   }
   *reinterpret_cast<char **>(receiver) = nextVTable;
+  // entries are valid for every object of the record, so new objects can
+  // start here; only extending the start descriptor keeps its entries
+  if (nomRecord->StartDescriptor == nullptr ||
+      nomRecord->StartDescriptor == vtable) {
+    nomRecord->StartDescriptor = nextVTable;
+  }
 }
 
 extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
@@ -104,7 +111,6 @@ extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
                                                    void *nomRecordAddr,
                                                    void *receiver) {
   // std::cout << "Enter IMT Entry Compilcation" << std::endl;
-  GetRecordDescriptorLayout();
   // link entries compiled in the background since the last fallback into
   // their graphs first so the lookup below can find them
   IMTUtils::InstallFinishedIMTEntries();
@@ -202,5 +208,5 @@ extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
   if (NomCastStats) {
     RT_NOM_STATS_IncIMTEntriesInstalled();
   }
-  MoveToNextDescriptor(receiver, imtGraph, imtIndex, newIMTEntry);
+  MoveToNextDescriptor(receiver, nomRecord, imtGraph, imtIndex, newIMTEntry);
 }

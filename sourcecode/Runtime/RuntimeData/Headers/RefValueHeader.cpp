@@ -616,7 +616,7 @@ llvm::Value *RefValueHeader::GenerateWriteVTablePointerCMPXCHG(
 }
 void RefValueHeader::GenerateInitializerCode(NomBuilder &builder,
                                              llvm::Value *valueHeader,
-                                             llvm::Constant *vTablePointer,
+                                             llvm::Value *vTablePointer,
                                              llvm::Constant *rawInvokePointer) {
   GenerateWriteVTablePointer(builder, valueHeader, vTablePointer);
   if (rawInvokePointer != nullptr) {

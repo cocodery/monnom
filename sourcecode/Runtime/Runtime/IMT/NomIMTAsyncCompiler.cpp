@@ -3,7 +3,6 @@
 #include "NomIMTUtils.h"
 #include "NomJIT.h"
 #include "RTConfig.h"
-#include "gcinclude_config.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Bitcode/BitcodeReader.h"
 #include "llvm/Bitcode/BitcodeWriter.h"
@@ -17,7 +16,6 @@
 #include "llvm/Target/TargetMachine.h"
 #include <atomic>
 #include <condition_variable>
-#include <cstdlib>
 #include <deque>
 #include <exception>
 #include <iostream>
@@ -28,50 +26,39 @@
 #include <thread>
 #include <utility>
 
-// Boehm declares its thread registration API only under GC_THREADS,
-// libgc is built with thread support and exports these.
-extern "C" {
-void GC_allow_register_threads(void);
-int GC_register_my_thread(const struct GC_stack_base *);
-int GC_unregister_my_thread(void);
-}
-
 using namespace llvm;
 namespace Nom {
 namespace Runtime {
 namespace IMTUtils {
 namespace {
 struct IMTCompileJob {
-  // input: what the entry is built from
-  NomRecord *nomRecord;
   int imtIndex;
   const NomInterfaceCallTag *callTag;
   void *imtEntry; // only for debug log
   void *callTagFunAddr;
-  IMTCallTagSet parentCallTags; // a copy of the extended node's call-tags
 
-  std::string name;                     // output: the entry's name
+  std::string name;             // input: the entry's name
+  SmallVector<char, 0> bitcode; // input: the entry's IR
+
   std::unique_ptr<MemoryBuffer> object; // output: the compiled object
   std::string error;                    // output: set if compiling failed
 
   NomIMTGraph *imtGraph;
   NomIMTNode *imtNode; // the node the new entry extends
 
-  IMTCompileJob(NomRecord *nomRecord, int imtIndex, void *imtEntry,
+  IMTCompileJob(int imtIndex, void *imtEntry,
                 const NomInterfaceCallTag *callTag, void *callTagFunAddr,
-                IMTCallTagSet parentCallTags, NomIMTGraph *imtGraph,
-                NomIMTNode *imtNode)
-      : nomRecord(nomRecord), imtIndex(imtIndex), callTag(callTag),
-        imtEntry(imtEntry), callTagFunAddr(callTagFunAddr),
-        parentCallTags(std::move(parentCallTags)), imtGraph(imtGraph),
-        imtNode(imtNode) {}
+                NomIMTGraph *imtGraph, NomIMTNode *imtNode)
+      : imtIndex(imtIndex), callTag(callTag), imtEntry(imtEntry),
+        callTagFunAddr(callTagFunAddr), imtGraph(imtGraph), imtNode(imtNode) {}
 };
 
-// Builds, optimizes and code-generates IMT entries on a worker thread
-// Building the IR needs the shared LLVMCONTEXT and the runtime's type data
-// so the worker does it under NomJIT's context lock
-// It then hands the IR over as bitcode to a private context and optimizes and
-// compiles it without the lock.
+// Optimizes and code-generates IMT entries on a worker thread
+// The main thread builds the IR, which needs the shared LLVMCONTEXT, the
+// runtime's type data and the GC heap, and hands it over as bitcode. The
+// worker stays out of all three, in a private context. It is not registered
+// with Boehm: registering a thread starts the parallel markers and locks the
+// allocator, so --trans would no longer run with the same GC as the base mode.
 class IMTAsyncCompiler {
 private:
   std::mutex mutex; // guards queued, finished and stopping
@@ -92,17 +79,11 @@ private:
 
   void Run();
   static void Compile(IMTCompileJob &job, TargetMachine &tm);
-  static SmallVector<char, 0> BuildBitcode(IMTCompileJob &job);
 
   static IMTAsyncCompiler *instance;
 
 public:
-  IMTAsyncCompiler() {
-    // building IR can allocate from the GC heap
-    // that has to be enabled from the main thread
-    GC_allow_register_threads();
-    worker = std::thread(&IMTAsyncCompiler::Run, this);
-  }
+  IMTAsyncCompiler() { worker = std::thread(&IMTAsyncCompiler::Run, this); }
 
   // Never destroyed. Joining the worker from a static destructor is
   // unsafe: function-local statics inside LLVM that the worker first
@@ -140,14 +121,6 @@ public:
 IMTAsyncCompiler *IMTAsyncCompiler::instance = nullptr;
 
 void IMTAsyncCompiler::Run() {
-  struct GC_stack_base stackBase;
-  GC_get_stack_base(&stackBase);
-  if (GC_register_my_thread(&stackBase) != GC_SUCCESS) {
-    std::cout << "Could not register the IMT compiler thread with the GC"
-              << std::endl;
-    std::abort();
-  }
-
   // TargetMachines are not thread-safe so the worker owns its own
   // It is configured like the one LLJIT builds for the main JIT.
   std::unique_ptr<TargetMachine> tm;
@@ -167,7 +140,6 @@ void IMTAsyncCompiler::Run() {
       std::unique_lock<std::mutex> lock(mutex);
       workAvailable.wait(lock, [this] { return stopping || !queued.empty(); });
       if (stopping) {
-        GC_unregister_my_thread();
         return;
       }
       job = std::move(queued.front());
@@ -184,32 +156,11 @@ void IMTAsyncCompiler::Run() {
   }
 }
 
-// Builds the entry's IR in the shared context and serializes it
-// Holds the context lock throughout including while the module is destroyed
-SmallVector<char, 0> IMTAsyncCompiler::BuildBitcode(IMTCompileJob &job) {
-  SmallVector<char, 0> bitcode;
-  auto lock = NomJIT::Instance().getContextLock();
-  try {
-    auto mod = BuildIMTEntryModule(job.nomRecord, job.imtIndex, job.callTag,
-                                   job.callTagFunAddr, job.parentCallTags);
-    job.name = mod->getModuleIdentifier();
-    raw_svector_ostream bitcodeStream(bitcode);
-    WriteBitcodeToFile(*mod, bitcodeStream);
-  } catch (...) {
-    // BuildIMTEntryModule has printed what went wrong
-    job.error = "building the IR failed";
-  }
-  return bitcode;
-}
-
 void IMTAsyncCompiler::Compile(IMTCompileJob &job, TargetMachine &tm) {
-  auto bitcode = BuildBitcode(job);
-  if (!job.error.empty()) {
-    return;
-  }
   LLVMContext context;
   auto mod = parseBitcodeFile(
-      MemoryBufferRef(StringRef(bitcode.data(), bitcode.size()), job.name),
+      MemoryBufferRef(StringRef(job.bitcode.data(), job.bitcode.size()),
+                      job.name),
       context);
   if (!mod) {
     job.error = toString(mod.takeError());
@@ -290,14 +241,26 @@ void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
                                   void *callTagFunAddr, NomIMTNode *imtNode) {
   // the parent's call-tags were cached when their entries were built
   CacheRecordMethodAddr(nomRecord, callTag);
-  auto job = std::make_unique<IMTCompileJob>(
-      nomRecord, imtIndex, imtEntry, callTag, callTagFunAddr,
-      imtNode->GetCallTags(), imtGraph, imtNode);
+  auto job = std::make_unique<IMTCompileJob>(imtIndex, imtEntry, callTag,
+                                             callTagFunAddr, imtGraph, imtNode);
+  {
+    // held until the module is destroyed
+    // builder IR in the worker thread need to register GC
+    // move to main thread can remove it
+    auto lock = NomJIT::Instance().getContextLock();
+    auto mod = BuildIMTEntryModule(nomRecord, imtIndex, callTag, callTagFunAddr,
+                                   imtNode->GetCallTags());
+    job->name = mod->getModuleIdentifier();
+    raw_svector_ostream bitcodeStream(job->bitcode);
+    WriteBitcodeToFile(*mod, bitcodeStream);
+  }
   IMTAsyncCompiler::Instance().Submit(std::move(job));
 }
 
 void InstallFinishedIMTEntries() {
-  IMTAsyncCompiler::Instance().InstallFinished();
+  if (auto compiler = IMTAsyncCompiler::InstanceIfStarted()) {
+    compiler->InstallFinished();
+  }
 }
 
 void ShutdownIMTCompiler() {
@@ -307,7 +270,8 @@ void ShutdownIMTCompiler() {
 }
 
 bool IsIMTEntryPending(const NomIMTGraph *imtGraph, int imtIndex) {
-  return IMTAsyncCompiler::Instance().IsPending(imtGraph, imtIndex);
+  auto compiler = IMTAsyncCompiler::InstanceIfStarted();
+  return compiler != nullptr && compiler->IsPending(imtGraph, imtIndex);
 }
 } // namespace IMTUtils
 } // namespace Runtime

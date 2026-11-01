@@ -18,6 +18,9 @@ public:
   const RegIndex EndArgRegisterCount;
 
   NomIMTGraph *IMTGraph = nullptr;
+  // with --trans, the descriptor new objects start on; null until the first
+  // transition, when they start on the record's global descriptor
+  char *StartDescriptor = nullptr;
 
   NomRecord(ConstantID structID, NomMemberContext *context,
             ConstantID closureTypeParams, RegIndex registerCount,

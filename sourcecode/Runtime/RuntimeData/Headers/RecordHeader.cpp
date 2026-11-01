@@ -7,6 +7,7 @@
 #include "NomRecord.h"
 #include "NomVMInterface.h"
 #include "RTCompileConfig.h"
+#include "RTConfig.h"
 #include "RTOutput.h"
 #include "RTVTable.h"
 #include "RefValueHeader.h"
@@ -182,8 +183,21 @@ void RecordHeader::GenerateConstructorCode(
                        env->Record->Fields.size());
   }
 
-  auto vTablePtr = ConstantExpr::getPointerCast(
+  llvm::Value *vTablePtr = ConstantExpr::getPointerCast(
       descriptorRef, RTVTable::GetLLVMType()->getPointerTo());
+  if (RTConfig_EnableTransition) {
+    // start on the record's newest descriptor so the object does not fall
+    // back once per slot to reach entries that are already compiled
+    auto vTableType = RTVTable::GetLLVMType()->getPointerTo();
+    auto startDescriptor = builder->CreateLoad(
+        ConstantExpr::getIntToPtr(
+            ConstantInt::get(INTTYPE, reinterpret_cast<uint64_t>(
+                                          &env->Record->StartDescriptor)),
+            vTableType->getPointerTo()),
+        "StartDescriptor");
+    vTablePtr = builder->CreateSelect(builder->CreateIsNull(startDescriptor),
+                                      vTablePtr, startDescriptor);
+  }
 
   MakeInvariantStore(builder, ConstantPointerNull::get(POINTERTYPE), newmem,
                      MakeInt32(StructHeaderFields::InstanceDictionary),

@@ -12,11 +12,17 @@
 #   -p              also chart the running times, into
 #                   charts/gtp/<test>/<test>-<nom flags>.png (<test>-base.png
 #                   without flags); only when every configuration passed
-#   --compare       run each benchmark three times: no flags, --trans,
-#                   --trans --sync (charted as <test>-base, <test>-trans,
-#                   <test>-trans-sync); nombench only generates the
-#                   configurations for the first, the others rerun them with
-#                   nom directly
+#   --compare       collect performance data: nombench generates the
+#                   configurations once, then each one runs with nom in three
+#                   modes (no flags, --trans, --trans --sync), RUNS times per
+#                   mode. Once a benchmark finishes, the running times go to
+#                   charts/gtp/raw/<test>/ and make_tables.py composes them
+#                   into charts/gtp/tables/<test>.md
+#                   and .csv, one row per configuration with the average
+#                   time of its runs in all three modes,
+#                   and charts/gtp/SUMMARY.md, one row per benchmark. With -p
+#                   each mode is also charted, as <test>-base, <test>-trans,
+#                   <test>-trans-sync
 #   --dry-run       only generate the configurations with nombench, do not
 #                   run them
 #   --clean         delete the generated files (.BM_* configurations, *.mnil,
@@ -30,11 +36,19 @@
 # collect.rkt gathers them into the benchmark's results.csv (what
 # scripts/python/newplot.py charts).
 # Exits non-zero if any configuration is missing a result or printed a wrong one.
+#
+# --compare runs are pinned to RUNGTP_CPUS (default 0,1: two P-cores, the
+# second for the async IMT compiler) because timings are noisy on this hybrid
+# CPU otherwise, and a run is stopped after RUNGTP_TIMEOUT seconds (default 300).
 # setpath.sh (and the setvars.sh it sources) overwrite common names such as
 # usage, so the functions here are prefixed
 RUNGTP_SELF="$(realpath "${BASH_SOURCE[0]}")"
 RUNGTP_DIR="$(dirname "$RUNGTP_SELF")"
 TESTS_DIR="$RUNGTP_DIR/gtp-benchmark-monnom"
+# what make_tables.py reads and writes
+PERF_DIR="$RUNGTP_DIR/charts/gtp"
+CPUS="${RUNGTP_CPUS:-0,1}"
+TIMEOUT="${RUNGTP_TIMEOUT:-300}"
 
 # the benchmark folders (those with a .mnp project file), one per line
 rungtp_list_tests() {
@@ -65,7 +79,7 @@ rungtp_print_matrix() {
 }
 
 rungtp_usage() {
-  sed -n '5,26p' "$RUNGTP_SELF" | sed 's/^# \{0,1\}//'
+  sed -n '5,31p' "$RUNGTP_SELF" | sed 's/^# \{0,1\}//'
   if [ -d "$TESTS_DIR" ]; then
     echo "available tests:"
     mapfile -t RUNGTP_NAMES < <(rungtp_list_tests)
@@ -168,10 +182,14 @@ rungtp_chart_name() {
 }
 
 # checks run $2 of configuration folder $1 against $3 (expected.txt) and
-# prints its status
+# prints its status; $4 is nom's exit status, if known
 rungtp_check_run() {
   local OUT="$1/out$2.txt"
-  if [ ! -s "$OUT" ]; then
+  if [ "${4:-0}" -eq 124 ]; then
+    echo "FAIL (timed out after ${TIMEOUT}s)"
+  elif [ "${4:-0}" -ne 0 ]; then
+    echo "FAIL (exit status $4)"
+  elif [ ! -s "$OUT" ]; then
     echo "FAIL (no output)"
   elif ! diff -q <(tail -n +3 "$OUT") "$3" > /dev/null; then
     echo "FAIL (wrong result)"
@@ -226,12 +244,16 @@ rungtp_announce() {
   echo "== $LABEL: nom -o3${NOMFLAGS[*]:+ ${NOMFLAGS[*]}} $P ($1)"
 }
 
-# reruns every generated configuration of $D with nom directly, the way
+# runs every generated configuration of $D with nom directly, the way
 # nombench does (-o3, then the flags, stdout to out<R>.txt), printing each
-# run's status as it finishes
-rungtp_rerun_configs() {
-  local D="$1" CONFS=("$1"/.BM_*/) R N CONF ERR
-  rungtp_announce "${#CONFS[@]} configurations, generator skipped"
+# run's status as it finishes. Unlike nombench this sees nom's exit status:
+# failed configurations go in NOMFAILED, and each run is added to
+# $RAW_TMP/<test>/<configuration>.p<R>.csv as
+#   configuration,mode,pass,exit,ok,seconds
+# the format make_tables.py reads from raw/<test>/
+rungtp_run_configs() {
+  local D="$1" B="$2" CONFS=("$1"/.BM_*/) R N CONF ERR RC NAME CHECK OK SECS
+  rungtp_announce "${#CONFS[@]} configurations, pinned to CPUs $CPUS"
   rm -f "$D"/.BM_*/out*.txt
   ERR="$(mktemp)"
   for ((R = 1; R <= RUNS; R++)); do
@@ -241,21 +263,34 @@ rungtp_rerun_configs() {
       N=$((N + 1))
       printf 'Run %s/%s: %s(%s/%s) ...' "$R" "$RUNS" "$(basename "$CONF")" \
         "$N" "${#CONFS[@]}"
-      ( cd "$CONF" && nom -p "$CONF" -o3 "${NOMFLAGS[@]}" "$P" \
-          > "out$R.txt" 2> "$ERR" )
+      ( cd "$CONF" && timeout "$TIMEOUT" taskset -c "$CPUS" \
+          nom -p "$CONF" -o3 "${NOMFLAGS[@]}" "$P" > "out$R.txt" 2> "$ERR" )
+      RC=$?
       # anything nom printed to stderr (e.g. a crash) goes on its own lines
       if [ -s "$ERR" ]; then
         echo; cat "$ERR"; printf '  ->'
       fi
-      echo " $(rungtp_check_run "$CONF" "$R" "$D/expected.txt")"
+      CHECK="$(rungtp_check_run "$CONF" "$R" "$D/expected.txt" "$RC")"
+      echo " $CHECK"
+      NAME="$(basename "$CONF")"
+      NAME="${NAME#.BM_}"
+      OK=0 SECS=""
+      if [[ "$CHECK" == OK* ]]; then
+        OK=1
+        SECS="$(head -1 "$CONF/out$R.txt" | cut -d' ' -f1)"
+      else
+        NOMFAILED[$NAME]=1
+      fi
+      echo "$NAME,$VARIANT,$R,$RC,$OK,$SECS" >> "$RAW_TMP/$B/$NAME.p$R.csv"
     done
   done
   rm -f "$ERR"
 }
 
 # runs one benchmark with the nom flags NOMFLAGS and checks its results:
-# with GENERATE=1 nombench generates and runs the configurations, otherwise
-# the existing ones are rerun; sets RESULT to a one-line summary
+# with GENERATE=1 nombench generates the configurations, and runs them too
+# unless this is --compare, whose runs all go through rungtp_run_configs; sets
+# RESULT to a one-line summary
 rungtp_run_test() {
   local B="$1"
   local D="$TESTS_DIR/$B"
@@ -268,19 +303,23 @@ rungtp_run_test() {
     return 1
   fi
   local STATUS=0
+  NOMFAILED=()
   if [ $GENERATE -eq 1 ]; then
     # without -r nombench only generates the configurations
     local ARGS=(--path "$D" --project "$P" --byfile)
-    [ $DRYRUN -eq 0 ] && ARGS+=(-r "$RUNS")
-    # --forward must come last: nombench skips the argument following it
-    [ ${#NOMFLAGS[@]} -gt 0 ] &&
-      ARGS+=(--forward ${#NOMFLAGS[@]} "${NOMFLAGS[@]}")
+    if [ $DRYRUN -eq 0 ] && [ $COMPARE -eq 0 ]; then
+      ARGS+=(-r "$RUNS")
+      # --forward must come last: nombench skips the argument following it
+      [ ${#NOMFLAGS[@]} -gt 0 ] &&
+        ARGS+=(--forward ${#NOMFLAGS[@]} "${NOMFLAGS[@]}")
+    fi
     echo "== $LABEL: nombench ${ARGS[*]}"
     rm -rf "$D"/.BM_*
     nombench "${ARGS[@]}" 2>&1 | rungtp_follow_nombench "$D"
     STATUS=${PIPESTATUS[0]}
-  elif compgen -G "$D/.BM_*/" > /dev/null; then
-    rungtp_rerun_configs "$D"
+  fi
+  if [ $COMPARE -eq 1 ] && compgen -G "$D/.BM_*/" > /dev/null; then
+    rungtp_run_configs "$D" "$B"
   fi
 
   local CONFS=("$D"/.BM_*/)
@@ -295,7 +334,7 @@ rungtp_run_test() {
     return 0
   fi
 
-  local ok=0 bad=() CONF R good
+  local ok=0 bad=() CONF R good NAME
   for CONF in "${CONFS[@]}"; do
     good=1
     for R in $(seq 1 "$RUNS"); do
@@ -304,7 +343,9 @@ rungtp_run_test() {
         good=0
       fi
     done
-    if [ $good -eq 1 ]; then ok=$((ok + 1)); else bad+=("$(basename "$CONF")"); fi
+    NAME="$(basename "$CONF")"
+    [ -n "${NOMFAILED[${NAME#.BM_}]}" ] && good=0
+    if [ $good -eq 1 ]; then ok=$((ok + 1)); else bad+=("$NAME"); fi
   done
   RESULT="$LABEL: $ok/${#CONFS[@]} configurations print the expected result ($RUNS run(s) each)"
   echo "$RESULT"
@@ -329,7 +370,7 @@ rungtp_run_test() {
   fi
 
   if [ $PLOT -eq 1 ]; then
-    local OUTDIR="$RUNGTP_DIR/charts/gtp/$B" NAME
+    local OUTDIR="$RUNGTP_DIR/charts/gtp/$B"
     NAME="$(rungtp_chart_name "$B")"
     mkdir -p "$OUTDIR"
     echo "== $LABEL: charting into $OUTDIR/$NAME"
@@ -354,15 +395,22 @@ rungtp_variant_flags() {
   esac
 }
 
+declare -A NOMFAILED
+# --compare runs can take hours: the times stay here until a benchmark is
+# done, so losing charts/ meanwhile is harmless, and stopping a run leaves
+# the benchmark's previous measurement in place
+RAW_TMP="$(mktemp -d)"
+trap 'rm -rf "$RAW_TMP"' EXIT
 SUMMARY=()
 FAILED=0
 for B in "${TESTS[@]}"; do
   if [ $COMPARE -eq 0 ]; then
-    RESULT="" LABEL="$B" HEADER="" GENERATE=1 NOMFLAGS=("${FORWARD[@]}")
+    RESULT="" LABEL="$B" HEADER="" GENERATE=1 NOMFLAGS=("${FORWARD[@]}") VARIANT=""
     if ! rungtp_run_test "$B"; then FAILED=1; fi
     SUMMARY+=("$RESULT")
     continue
   fi
+  mkdir -p "$RAW_TMP/$B"
   for VARIANT in base trans trans-sync; do
     rungtp_variant_flags "$VARIANT"
     NOMFLAGS=("${FLAGS[@]}" "${FORWARD[@]}")
@@ -380,6 +428,19 @@ for B in "${TESTS[@]}"; do
       SUMMARY+=("$RESULT")
     fi
   done
+  # a new measurement replaces this benchmark's old one
+  rm -rf "$PERF_DIR/raw/$B"
+  mkdir -p "$PERF_DIR/raw"
+  mv "$RAW_TMP/$B" "$PERF_DIR/raw/$B"
+  # rebuilt after each benchmark, so a stopped `all` keeps what it finished
+  echo "== $B: composing the running times into $PERF_DIR/tables/$B.md"
+  if python3 "$RUNGTP_DIR/scripts/python/make_tables.py" "$PERF_DIR" --mean; then
+    SUMMARY+=("$B: table charts/gtp/tables/$B.md, all benchmarks in charts/gtp/SUMMARY.md")
+  else
+    echo "$B: ERROR: make_tables.py failed"
+    SUMMARY+=("$B: ERROR: make_tables.py failed")
+    FAILED=1
+  fi
 done
 if [ ${#SUMMARY[@]} -gt 1 ]; then
   echo "== summary"

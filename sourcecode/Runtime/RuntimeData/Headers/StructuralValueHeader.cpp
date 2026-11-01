@@ -133,7 +133,7 @@ llvm::StructType *StructuralValueHeader::GetLLVMType() {
 
 void StructuralValueHeader::GenerateInitializationCode(
     NomBuilder &builder, llvm::Value *refValue,
-    llvm::ArrayRef<llvm::Value *> typeArguments, llvm::Constant *vTablePtr,
+    llvm::ArrayRef<llvm::Value *> typeArguments, llvm::Value *vTablePtr,
     llvm::Constant *rawInvokePointer) {
   auto castedDescriptor =
       builder->CreatePointerCast(refValue, GetLLVMType()->getPointerTo());

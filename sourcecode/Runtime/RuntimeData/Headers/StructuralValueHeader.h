@@ -41,7 +41,7 @@ public:
   static void
   GenerateInitializationCode(NomBuilder &builder, llvm::Value *refValue,
                              llvm::ArrayRef<llvm::Value *> typeArguments,
-                             llvm::Constant *vTablePtr,
+                             llvm::Value *vTablePtr,
                              llvm::Constant *rawInvokePointer = nullptr);
   static llvm::Value *GenerateReadTypeArgsPtr(NomBuilder &builder,
                                               llvm::Value *refValue);

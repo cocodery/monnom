@@ -6,5 +6,5 @@
 #ifndef GC_DEBUG
 // #define GC_DEBUG 1
 #endif
-#define GC_INITIAL_HEAP_SIZE 1048576
+#define GC_INITIAL_HEAP_SIZE 67108864
 #include "gc.h"
