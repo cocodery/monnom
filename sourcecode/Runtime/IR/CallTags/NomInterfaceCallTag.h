@@ -29,6 +29,12 @@ public:
   const std::string &GetKey() const { return key; }
   const NomMethod *GetMethod() const { return method; }
   static bool ResultNeedsCast(const NomMethod *method);
+
+  std::string GetResultCastFunctionName() const;
+  static llvm::FunctionType *GetResultCastFunctionType();
+  llvm::Function *
+  GetResultCastFunction(llvm::Module &mod,
+                        llvm::GlobalValue::LinkageTypes linkage) const;
   static llvm::Value *
   GenerateResultCast(NomBuilder &builder, llvm::Function *fun,
                      llvm::Value *callTagFun, llvm::Value **varargs,

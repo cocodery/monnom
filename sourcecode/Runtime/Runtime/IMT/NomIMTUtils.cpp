@@ -169,6 +169,32 @@ static void *LookupResultCastAddr(NomTypeRef type) {
   return iter->second;
 }
 
+// The interface call-tag's own result cast, for return types with type
+// variables. Its module is in the JIT: the bridge only runs after a call
+// went through the call-tag, which calls this function.
+static void *LookupCallTagResultCastAddr(const NomInterfaceCallTag *callTag) {
+  static std::unordered_map<const NomInterfaceCallTag *, void *> casts;
+  auto [iter, inserted] = casts.try_emplace(callTag, nullptr);
+  if (!inserted) {
+    return iter->second;
+  }
+  auto name = callTag->GetResultCastFunctionName();
+  auto sym = NomJIT::Instance().lookup(name);
+  if (!sym) {
+    logAllUnhandledErrors(sym.takeError(), errs(),
+                          "Could not find result cast " + name + ": ");
+    throw new std::exception();
+  }
+  iter->second = reinterpret_cast<void *>(sym->getAddress());
+  return iter->second;
+}
+
+static bool NeedsCallTagResultCast(const NomInterfaceCallTag *callTag) {
+  auto ifaceMethod = callTag->GetMethod();
+  return NomInterfaceCallTag::ResultNeedsCast(ifaceMethod) &&
+         ifaceMethod->GetReturnType()->ContainsVariables();
+}
+
 // The record's methods are compiled before
 // its address is looked up only when an entry is about to be built
 bool CheckCallTagMethodExist(const NomRecord *nomRecord,
@@ -182,6 +208,8 @@ void CacheRecordMethodAddr(const NomRecord *nomRecord,
   LookupRecordMethodAddr(meth);
   if (auto castType = ClosedResultCastType(meth, callTag)) {
     LookupResultCastAddr(castType);
+  } else if (NeedsCallTagResultCast(callTag)) {
+    LookupCallTagResultCastAddr(callTag);
   }
 }
 
@@ -277,7 +305,6 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
   callResult->setCallingConv(NOMCC);
   // Return in the interface method's representation as NomInterfaceCallTag does
   Value *actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
-  auto ifaceMethod = callTag->GetMethod();
   if (auto castType = ClosedResultCastType(meth, callTag)) {
     // return type is closed but not subtype of interface method return type
     auto castFun = builder->CreateIntToPtr(
@@ -289,12 +316,26 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
                                         {actualResult});
     castCall->setCallingConv(NOMCC);
     actualResult = castCall;
-  } else if (NomInterfaceCallTag::ResultNeedsCast(ifaceMethod) &&
-             ifaceMethod->GetReturnType()->ContainsVariables()) {
-    // the return type contains type variables
-    actualResult = NomInterfaceCallTag::GenerateResultCast(
-        builder, fun, argCallTag, varargs, actualResult, ifaceMethod,
-        meth->GetArgumentCount());
+  } else if (NeedsCallTagResultCast(callTag)) {
+    // the return type contains type variables: the call-tag's own cast reads
+    // the receiver's cast data to find what they stand for
+    auto castFun = builder->CreateIntToPtr(
+        ConstantInt::get(
+            numtype(intptr_t),
+            reinterpret_cast<intptr_t>(LookupCallTagResultCastAddr(callTag))),
+        NomInterfaceCallTag::GetResultCastFunctionType()->getPointerTo());
+    auto castArgs = makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
+    castArgs[0] = argCallTag;
+    for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
+         i <= RTConfig_NumberOfVarargsArguments; i++) {
+      castArgs[i + 1] = varargs[i];
+    }
+    castArgs[2 + RTConfig_NumberOfVarargsArguments] = actualResult;
+    auto castCall = builder->CreateCall(
+        NomInterfaceCallTag::GetResultCastFunctionType(), castFun,
+        ArrayRef<Value *>(castArgs, 3 + RTConfig_NumberOfVarargsArguments));
+    castCall->setCallingConv(NOMCC);
+    actualResult = castCall;
   }
   actualResult = EnsurePackedUnpacked(builder, actualResult,
                                       ifaceFunctionType->getReturnType());

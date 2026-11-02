@@ -215,8 +215,19 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
   }
   llvm::Value *retval = nullptr;
   if (ResultNeedsCast(method)) {
-    actualResult = GenerateResultCast(builder, fun, fun, varargs, actualResult,
-                                      method, argTRTs.size());
+    // IMT entries call the same function, so the cast is compiled once
+    auto castArgs = makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
+    castArgs[0] = builder->CreatePointerCast(fun, POINTERTYPE);
+    for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
+         i <= RTConfig_NumberOfVarargsArguments; i++) {
+      castArgs[i + 1] = varargs[i];
+    }
+    castArgs[2 + RTConfig_NumberOfVarargsArguments] = actualResult;
+    auto castCall = builder->CreateCall(
+        GetResultCastFunctionType(), GetResultCastFunction(mod, linkage),
+        ArrayRef<Value *>(castArgs, 3 + RTConfig_NumberOfVarargsArguments));
+    castCall->setCallingConv(NOMCC);
+    actualResult = castCall;
   }
   retval = EnsurePackedUnpacked(
       builder,
@@ -254,6 +265,42 @@ bool NomInterfaceCallTag::ResultNeedsCast(const NomMethod *method) {
     simpleReturnType = true;
   }
   return (!RTConfig_OmitCallTagCasts) || simpleReturnType;
+}
+std::string NomInterfaceCallTag::GetResultCastFunctionName() const {
+  return "MONNOM_RT_ICT_CAST_" + key;
+}
+llvm::FunctionType *NomInterfaceCallTag::GetResultCastFunctionType() {
+  static FunctionType *ft = nullptr;
+  if (ft == nullptr) {
+    auto imtParams = GetIMTFunctionType()->params();
+    SmallVector<Type *, 8> params(imtParams.begin(), imtParams.end());
+    params.push_back(REFTYPE);
+    ft = FunctionType::get(REFTYPE, params, false);
+  }
+  return ft;
+}
+llvm::Function *NomInterfaceCallTag::GetResultCastFunction(
+    llvm::Module &mod, llvm::GlobalValue::LinkageTypes linkage) const {
+  auto name = GetResultCastFunctionName();
+  if (auto fun = mod.getFunction(name)) {
+    return fun;
+  }
+  Function *fun =
+      Function::Create(GetResultCastFunctionType(), linkage, name, mod);
+  fun->setCallingConv(NOMCC);
+  NomBuilder builder;
+  builder->SetInsertPoint(BasicBlock::Create(LLVMCONTEXT, "", fun));
+  auto fargs = fun->arg_begin();
+  Value *callTagFun = fargs++;
+  Value **varargs = makealloca(Value *, 1 + RTConfig_NumberOfVarargsArguments);
+  for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
+       i <= RTConfig_NumberOfVarargsArguments; i++) {
+    varargs[i] = fargs++;
+  }
+  Value *result = fargs;
+  builder->CreateRet(GenerateResultCast(builder, fun, callTagFun, varargs,
+                                        result, method, argTRTs.size()));
+  return fun;
 }
 llvm::Value *NomInterfaceCallTag::GenerateResultCast(
     NomBuilder &builder, llvm::Function *fun, llvm::Value *callTagFun,

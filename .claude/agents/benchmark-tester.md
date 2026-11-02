@@ -48,15 +48,18 @@ cd $ROOT && ./run-benchmark.sh <test> [-r RUNS] [-- FLAGS...]
 
 - To compare the base, `--trans` and `--trans --sync` modes in one go, use
   `./run-benchmark.sh <test> --compare`.
-- Success ends with `OK: N configuration(s) x R run(s) executed ...`.
-- Failure prints `FAILED:` or `ERROR:` with the failing `.BM_*` folders.
-  Re-run the first failing configuration alone to capture its output:
-  `./run-benchmark.sh <test> <CONFIG> [-- FLAGS...]`.
+- Success prints `<test>: N/N configurations print the expected result ...`
+  and exits 0.
+- Failure prints fewer than N/N, `failing configurations:` with the
+  failing `.BM_*` folders, or `ERROR:`, and exits non-zero.
+  Re-run the first failing configuration alone to capture its output, from
+  its folder and with `setpath.sh` sourced:
+  `nom -p "$PWD" -o3 [FLAGS...] <Project>`.
 - These runs are slow. `sieve` alone has hundreds of configurations. Use a
   generous Bash timeout (600000 ms), or `run_in_background` for the full
   set. Run them one at a time, never in parallel, because they share
   generator state and the timings would interfere.
-- Do not pass `-p`. Charts are not needed for testing.
+- Do not pass `--chart`. Charts are not needed for testing.
 
 ### B. Runtime test programs (no `plotconfig.json`: dict, imtinter, imtlambda, imtshare, lambdafield, typedfield, ...)
 

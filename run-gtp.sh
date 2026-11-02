@@ -2,14 +2,14 @@
 # Run the GTP benchmark ports in gtp-benchmark-monnom with nombench and check
 # that every configuration printed the expected result.
 #
-# usage: ./run-gtp <test|all> [-r RUNS] [-p] [--lattice]
+# usage: ./run-gtp <test|all> [-r RUNS] [--chart] [--lattice]
 #                  [--compare | --dry-run | --clean] [-- NOM_FLAGS...]
 #
 #   <test>          a benchmark folder in gtp-benchmark-monnom (e.g. sieve);
 #                   `all` runs every benchmark in turn
 #   -r RUNS         measured runs per configuration, passed to nombench
 #                   (default 1)
-#   -p              also chart the running times, into
+#   --chart         also draw the performance chart with newplot.py, into
 #                   charts/gtp/<test>/<test>-<nom flags>.png (<test>-base.png
 #                   without flags); only when every configuration passed
 #   --lattice       also draw the performance lattice, into
@@ -25,9 +25,9 @@
 #                   into charts/gtp/tables/<test>.md
 #                   and .csv, one row per configuration with the average
 #                   time of its runs in all three modes,
-#                   and charts/gtp/SUMMARY.md, one row per benchmark. With -p
-#                   each mode is also charted, as <test>-base, <test>-trans,
-#                   <test>-trans-sync
+#                   and charts/gtp/SUMMARY.md, one row per benchmark. With
+#                   --chart each mode is also charted, as <test>-base,
+#                   <test>-trans, <test>-trans-sync
 #   --dry-run       only generate the configurations with nombench, do not
 #                   run them
 #   --clean         delete the generated files (.BM_* configurations, *.mnil,
@@ -115,7 +115,7 @@ while [ $# -gt 0 ]; do
           echo "ERROR: -r needs a positive number"; rungtp_usage
         fi
         RUNS="$2"; RUNS_GIVEN=1; shift 2 ;;
-    -p) PLOT=1; shift ;;
+    --chart) PLOT=1; shift ;;
     --lattice) LATTICE=1; shift ;;
     --compare) COMPARE=1; shift ;;
     --dry-run) DRYRUN=1; shift ;;
@@ -130,7 +130,7 @@ fi
 if { [ $DRYRUN -eq 1 ] || [ $CLEAN -eq 1 ]; } &&
    { [ $RUNS_GIVEN -eq 1 ] || [ $PLOT -eq 1 ] || [ $LATTICE -eq 1 ] ||
      [ $COMPARE -eq 1 ] || [ ${#FORWARD[@]} -gt 0 ]; }; then
-  echo "ERROR: -r, -p, --lattice, --compare and nom flags only apply when the" \
+  echo "ERROR: -r, --chart, --lattice, --compare and nom flags only apply when the" \
        "configurations are run"
   rungtp_usage
 fi

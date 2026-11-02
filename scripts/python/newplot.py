@@ -186,6 +186,13 @@ def load_monnom(fig, path, multilang):
     untypedCumulatives = [bmd[bmd["Compared to Untyped Baseline"] <= x]["Compared to Untyped Baseline"].count()/(bmd["Compared to Untyped Baseline"].count()*1.0) for x in untypedOverheads]
     fig.append_trace(go.Scatter(None, x=linearOverheads, y=linearCumulatives,marker={'color':'Green', 'symbol':'circle','size':markersize},name="Compared to Linear Baseline",line={'color':"Green",'width':linewidth,'dash':'dot'},legendgroup="baselines"),row=baserow,col=2)
     fig.append_trace(go.Scatter(None, x=untypedOverheads, y=untypedCumulatives,marker={'color':'RoyalBlue', 'symbol':'circle','size':markersize},name="Compared to Untyped Baseline",line={'color':"RoyalBlue",'width':linewidth,'dash':'dash'},legendgroup="baselines"),row=baserow,col=2)
+    # the margin keeps a configuration on the line itself (the two ends of the
+    # linear baseline) from counting through rounding
+    total=len(bmd)
+    fasterLinear=(bmd["Compared to Linear Baseline"]<-1e-9).sum()
+    fasterUntyped=(bmd["Compared to Untyped Baseline"]<-1e-9).sum()
+    fig.add_annotation(xref="x domain",yref="y domain",x=0.98,y=0.03,xanchor="right",yanchor="bottom",align="right",showarrow=False,bgcolor="rgba(255,255,255,0.8)",borderpad=6,font={'size':14},
+      text="Faster than linear baseline: %d of %d (%.0f%%)<br>Faster than untyped baseline: %d of %d (%.0f%%)"%(fasterLinear,total,100.0*fasterLinear/total,fasterUntyped,total,100.0*fasterUntyped/total),row=baserow,col=2)
     if multilang:
       fig.append_trace(go.Scatter(None, x=untypedOverheads, y=untypedCumulatives,marker=markerstyles["MonNom"],showlegend=True,line=linestyles["MonNom"],legendgroup="cumulatives",name="MonNom"),row=1,col=2)
 
@@ -317,7 +324,7 @@ if(len(sys.argv)>2):
     figrows=1
     if multilang:
       figrows=2
-    fig = make_subplots(rows=figrows, cols=2)
+    fig = make_subplots(rows=figrows, cols=2, horizontal_spacing=0.07)
     for f in folders:
         langhandlers[f['kind']](fig, f['path'],multilang)
     fig.layout.xaxis.autorange="reversed"
@@ -344,6 +351,14 @@ if(len(sys.argv)>2):
        figtitle=figtitle[0:-4]
     fig.layout.title.text=sys.argv[1]
     fig.layout.title.font.size=30
+    fig.layout.width=1350
+    fig.layout.height=750*figrows
+    fig.layout.margin.t=130
+    fig.layout.margin.r=40
+    # one legend above each column of charts
+    fig.layout.legend=dict(orientation="h",traceorder="normal",xanchor="left",x=fig.layout.xaxis.domain[0],yanchor="bottom",y=1.02)
+    fig.layout.legend2=dict(orientation="h",traceorder="normal",xanchor="left",x=fig.layout.xaxis2.domain[0],yanchor="bottom",y=1.02)
+    fig.update_traces(legend="legend2",selector=lambda t: t.xaxis in ("x2","x4"))
     if(renderimg):
        fig.write_image(sys.argv[1])
     else:
