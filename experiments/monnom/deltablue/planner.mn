@@ -1,0 +1,406 @@
+# The planner, the execution plan, and the typed code shared by the constraints.
+
+class Ops
+{
+	public static fun Stronger(IStrength a, IStrength b) : Bool { return a.Value() < b.Value(); }
+	public static fun Weaker(IStrength a, IStrength b) : Bool { return a.Value() > b.Value(); }
+	public static fun WeakestOf(IStrength a, IStrength b) : IStrength
+	{
+		if (a.Value() > b.Value())
+		{
+			return a;
+		}
+		return b;
+	}
+	public static fun Attach(IVariable v, IConstraint c) : Void
+	{
+		v.Constraints().Append(c);
+	}
+	public static fun Detach(IVariable v, Int id) : Void
+	{
+		IConstraintVector cs = v.Constraints();
+		Int i = 0;
+		while (i < cs.Size())
+		{
+			if (cs.At(i).Id() == id)
+			{
+				cs.RemoveAt(i);
+				if (v.DeterminedBy().Id() == id)
+				{
+					v.SetDeterminedBy(new NoConstraint());
+				}
+				break;
+			}
+			i = i + 1;
+		}
+	}
+}
+
+class Unary
+{
+	public static fun Choose(IStrength s, IVariable output, Int mark) : Bool
+	{
+		return output.Mark() != mark && Ops.Stronger(s, output.WalkStrength());
+	}
+	public static fun Recalculate(IStrength s, IVariable output, Bool isInput) : Void
+	{
+		output.SetWalkStrength(s);
+		output.SetStay(!isInput);
+	}
+}
+
+class Binary
+{
+	public static fun Input(Int direction, IVariable v1, IVariable v2) : IVariable
+	{
+		if (direction == 1)
+		{
+			return v1;
+		}
+		return v2;
+	}
+	public static fun Output(Int direction, IVariable v1, IVariable v2) : IVariable
+	{
+		if (direction == 1)
+		{
+			return v2;
+		}
+		return v1;
+	}
+	public static fun Choose(IStrength s, IVariable v1, IVariable v2, Int mark) : Int
+	{
+		Int m1 = v1.Mark();
+		Int m2 = v2.Mark();
+		if (m1 == mark)
+		{
+			if (m2 != mark && Ops.Stronger(s, v2.WalkStrength()))
+			{
+				return 1;
+			}
+			return 0;
+		}
+		if (m2 == mark)
+		{
+			if (m1 != mark && Ops.Stronger(s, v1.WalkStrength()))
+			{
+				return 2;
+			}
+			return 0;
+		}
+		# neither variable is marked, so there is a choice
+		if (Ops.Weaker(v1.WalkStrength(), v2.WalkStrength()))
+		{
+			if (Ops.Stronger(s, v1.WalkStrength()))
+			{
+				return 2;
+			}
+			return 0;
+		}
+		if (Ops.Stronger(s, v2.WalkStrength()))
+		{
+			return 1;
+		}
+		return 2;
+	}
+	public static fun InputsKnown(Int direction, IVariable v1, IVariable v2, Int mark) : Bool
+	{
+		IVariable i = Binary.Input(direction, v1, v2);
+		return i.Mark() == mark || i.Stay() || i.DeterminedBy().IsNone();
+	}
+	public static fun Recalculate(IStrength s, Int direction, IVariable v1, IVariable v2) : Void
+	{
+		IVariable input = Binary.Input(direction, v1, v2);
+		IVariable output = Binary.Output(direction, v1, v2);
+		output.SetWalkStrength(Ops.WeakestOf(s, input.WalkStrength()));
+		output.SetStay(input.Stay());
+		if (output.Stay())
+		{
+			output.SetValue(input.Value());
+		}
+	}
+	public static fun Copy(Int direction, IVariable v1, IVariable v2) : Void
+	{
+		if (direction == 1)
+		{
+			v2.SetValue(v1.Value());
+		}
+		else
+		{
+			v1.SetValue(v2.Value());
+		}
+	}
+	public static fun Scale(Int direction, IVariable v1, IVariable v2, IVariable scale, IVariable offset) : Void
+	{
+		if (direction == 1)
+		{
+			v2.SetValue(v1.Value() * scale.Value() + offset.Value());
+		}
+		else
+		{
+			v1.SetValue((v2.Value() - offset.Value()) / scale.Value());
+		}
+	}
+	public static fun ScaleMarkInputs(Int direction, IVariable v1, IVariable v2, IVariable scale, IVariable offset, Int mark) : Void
+	{
+		Binary.Input(direction, v1, v2).SetMark(mark);
+		scale.SetMark(mark);
+		offset.SetMark(mark);
+	}
+	public static fun ScaleRecalculate(IStrength s, Int direction, IVariable v1, IVariable v2, IVariable scale, IVariable offset) : Void
+	{
+		IVariable input = Binary.Input(direction, v1, v2);
+		IVariable output = Binary.Output(direction, v1, v2);
+		output.SetWalkStrength(Ops.WeakestOf(s, input.WalkStrength()));
+		output.SetStay(input.Stay() && scale.Stay() && offset.Stay());
+		if (output.Stay())
+		{
+			Binary.Scale(direction, v1, v2, scale, offset);
+		}
+	}
+}
+
+class Plan
+{
+	private IConstraintVector list;
+	public constructor(IConstraintVector l) { list = l; }
+	public fun Append(IConstraint c) : Void { list.Append(c); }
+	public fun Execute() : Void
+	{
+		Int i = 0;
+		Int n = list.Size();
+		while (i < n)
+		{
+			list.At(i).Execute();
+			i = i + 1;
+		}
+	}
+}
+
+class Planner
+{
+	private Int currentMark;
+	private Int nextId;
+	private IConstraint none;
+	public constructor()
+	{
+		currentMark = 0;
+		nextId = 1;
+		none = new NoConstraint();
+	}
+
+	public fun NewVariable(Int value) : IVariable { return new Variable(value, none); }
+
+	public fun NewId() : Int
+	{
+		nextId = nextId + 1;
+		return nextId;
+	}
+
+	public fun NewMark() : Int
+	{
+		currentMark = currentMark + 1;
+		return currentMark;
+	}
+
+	# AbstractConstraint.addConstraint
+	public fun AddConstraint(IConstraint c) : IConstraint
+	{
+		c.AddToGraph();
+		this.IncrementalAdd(c);
+		return c;
+	}
+
+	# AbstractConstraint.destroyConstraint
+	public fun DestroyConstraint(IConstraint c) : Void
+	{
+		if (c.IsSatisfied())
+		{
+			this.IncrementalRemove(c);
+		}
+		c.RemoveFromGraph();
+	}
+
+	# AbstractConstraint.satisfy
+	public fun Satisfy(IConstraint c, Int mark) : IConstraint
+	{
+		c.ChooseMethod(mark);
+		if (c.IsSatisfied())
+		{
+			c.MarkInputs(mark);
+			IVariable outv = c.Output();
+			IConstraint overridden = outv.DeterminedBy();
+			if (!overridden.IsNone())
+			{
+				overridden.MarkUnsatisfied();
+			}
+			outv.SetDeterminedBy(c);
+			if (!this.AddPropagate(c, mark))
+			{
+				ERROR("Cycle encountered");
+			}
+			outv.SetMark(mark);
+			return overridden;
+		}
+		if (c.GetStrength().Value() == 0)
+		{
+			ERROR("Could not satisfy a required constraint");
+		}
+		return none;
+	}
+
+	public fun IncrementalAdd(IConstraint c) : Void
+	{
+		Int mark = this.NewMark();
+		IConstraint overridden = this.Satisfy(c, mark);
+		while (!overridden.IsNone())
+		{
+			overridden = this.Satisfy(overridden, mark);
+		}
+	}
+
+	public fun IncrementalRemove(IConstraint c) : Void
+	{
+		IVariable outv = c.Output();
+		c.MarkUnsatisfied();
+		c.RemoveFromGraph();
+		IConstraintVector unsatisfied = this.RemovePropagateFrom(outv);
+		Int strength = 0;
+		while (strength < 6)
+		{
+			Int i = 0;
+			while (i < unsatisfied.Size())
+			{
+				IConstraint u = unsatisfied.At(i);
+				if (u.GetStrength().Value() == strength)
+				{
+					this.IncrementalAdd(u);
+				}
+				i = i + 1;
+			}
+			strength = strength + 1;
+		}
+	}
+
+	public fun AddConstraintsConsumingTo(IVariable v, IConstraintVector coll) : Void
+	{
+		Int determining = v.DeterminedBy().Id();
+		IConstraintVector cs = v.Constraints();
+		Int i = 0;
+		Int n = cs.Size();
+		while (i < n)
+		{
+			IConstraint c = cs.At(i);
+			if (c.Id() != determining && c.IsSatisfied())
+			{
+				coll.Append(c);
+			}
+			i = i + 1;
+		}
+	}
+
+	public fun AddPropagate(IConstraint c, Int mark) : Bool
+	{
+		IConstraintVector todo = new ConstraintVector();
+		todo.Append(c);
+		while (!todo.IsEmpty())
+		{
+			IConstraint d = todo.RemoveFirst();
+			if (d.Output().Mark() == mark)
+			{
+				this.IncrementalRemove(c);
+				return false;
+			}
+			d.Recalculate();
+			this.AddConstraintsConsumingTo(d.Output(), todo);
+		}
+		return true;
+	}
+
+	public fun RemovePropagateFrom(IVariable outv) : IConstraintVector
+	{
+		outv.SetDeterminedBy(none);
+		outv.SetWalkStrength(new Strength(6));
+		outv.SetStay(true);
+		IConstraintVector unsatisfied = new ConstraintVector();
+		IVariableVector todo = new VariableVector();
+		todo.Append(outv);
+		while (!todo.IsEmpty())
+		{
+			IVariable v = todo.RemoveFirst();
+			IConstraintVector cs = v.Constraints();
+			Int i = 0;
+			while (i < cs.Size())
+			{
+				IConstraint c = cs.At(i);
+				if (!c.IsSatisfied())
+				{
+					unsatisfied.Append(c);
+				}
+				i = i + 1;
+			}
+			Int determining = v.DeterminedBy().Id();
+			i = 0;
+			while (i < cs.Size())
+			{
+				IConstraint next = cs.At(i);
+				if (next.Id() != determining && next.IsSatisfied())
+				{
+					next.Recalculate();
+					todo.Append(next.Output());
+				}
+				i = i + 1;
+			}
+		}
+		return unsatisfied;
+	}
+
+	public fun MakePlan(IConstraintVector sources) : Plan
+	{
+		Int mark = this.NewMark();
+		Plan plan = new Plan(new ConstraintVector());
+		IConstraintVector todo = sources;
+		while (!todo.IsEmpty())
+		{
+			IConstraint c = todo.RemoveFirst();
+			if (c.Output().Mark() != mark && c.InputsKnown(mark))
+			{
+				plan.Append(c);
+				c.Output().SetMark(mark);
+				this.AddConstraintsConsumingTo(c.Output(), todo);
+			}
+		}
+		return plan;
+	}
+
+	public fun ExtractPlan(IConstraintVector constraints) : Plan
+	{
+		IConstraintVector sources = new ConstraintVector();
+		Int i = 0;
+		while (i < constraints.Size())
+		{
+			IConstraint c = constraints.At(i);
+			if (c.IsInput() && c.IsSatisfied())
+			{
+				sources.Append(c);
+			}
+			i = i + 1;
+		}
+		return this.MakePlan(sources);
+	}
+
+	public fun Change(IVariable v, Int newValue) : Void
+	{
+		IConstraint edit = this.AddConstraint(new EditConstraint(this.NewId(), new Strength(2), v));
+		IConstraintVector editV = new ConstraintVector();
+		editV.Append(edit);
+		Plan plan = this.ExtractPlan(editV);
+		Int i = 0;
+		while (i < 10)
+		{
+			v.SetValue(newValue);
+			plan.Execute();
+			i = i + 1;
+		}
+		this.DestroyConstraint(edit);
+	}
+}

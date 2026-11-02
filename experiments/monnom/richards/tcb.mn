@@ -1,0 +1,57 @@
+# Task control blocks: one per task, linked in priority order of creation.
+# The task's state bits (TaskState in the original) live here as fields.
+
+class Tcb implements ITcb
+{
+	private ITcb link;
+	private Int identity;
+	private Int priority;
+	private IPacket input;
+	private ITaskFunction function;
+	private Bool packetPending;
+	private Bool taskWaiting;
+	private Bool taskHolding;
+	public constructor(ITcb l, Int id, Int pri, IPacket work, Bool pending, Bool waiting, Bool holding, ITaskFunction f)
+	{
+		link = l;
+		identity = id;
+		priority = pri;
+		input = work;
+		function = f;
+		packetPending = pending;
+		taskWaiting = waiting;
+		taskHolding = holding;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Link() : ITcb { return link; }
+	public fun Identity() : Int { return identity; }
+	public fun Priority() : Int { return priority; }
+	public fun Input() : IPacket { return input; }
+	public fun SetInput(IPacket p) : Void { input = p; }
+	public fun Function() : ITaskFunction { return function; }
+	public fun IsPacketPending() : Bool { return packetPending; }
+	public fun SetPacketPending(Bool b) : Void { packetPending = b; }
+	public fun IsTaskWaiting() : Bool { return taskWaiting; }
+	public fun SetTaskWaiting(Bool b) : Void { taskWaiting = b; }
+	public fun IsTaskHolding() : Bool { return taskHolding; }
+	public fun SetTaskHolding(Bool b) : Void { taskHolding = b; }
+}
+
+class NoTcb implements ITcb
+{
+	private Int unused;
+	public constructor() { unused = 0; }
+	public fun IsNone() : Bool { return true; }
+	public fun Link() : ITcb { ERROR("NoTcb.Link"); }
+	public fun Identity() : Int { ERROR("NoTcb.Identity"); }
+	public fun Priority() : Int { ERROR("NoTcb.Priority"); }
+	public fun Input() : IPacket { ERROR("NoTcb.Input"); }
+	public fun SetInput(IPacket p) : Void { ERROR("NoTcb.SetInput"); }
+	public fun Function() : ITaskFunction { ERROR("NoTcb.Function"); }
+	public fun IsPacketPending() : Bool { ERROR("NoTcb.IsPacketPending"); }
+	public fun SetPacketPending(Bool b) : Void { ERROR("NoTcb.SetPacketPending"); }
+	public fun IsTaskWaiting() : Bool { ERROR("NoTcb.IsTaskWaiting"); }
+	public fun SetTaskWaiting(Bool b) : Void { ERROR("NoTcb.SetTaskWaiting"); }
+	public fun IsTaskHolding() : Bool { ERROR("NoTcb.IsTaskHolding"); }
+	public fun SetTaskHolding(Bool b) : Void { ERROR("NoTcb.SetTaskHolding"); }
+}

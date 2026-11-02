@@ -13,7 +13,7 @@
 #                   charts/gtp/<test>/<test>-<nom flags>.png (<test>-base.png
 #                   without flags); only when every configuration passed
 #   --lattice       also draw the performance lattice, into
-#                   charts/gtp/<test>/<test>-<nom flags>-lattice.png and .html;
+#                   lattice/gtp/<test>/<test>-<nom flags>-lattice.png and .html;
 #                   failed configurations are marked on it. With --compare
 #                   each mode gets its own, all relative to the fully untyped
 #                   configuration of the base mode
@@ -373,16 +373,17 @@ rungtp_run_test() {
   if [ $LATTICE -eq 1 ]; then
     NAME="$(rungtp_chart_name "$B")"
     NAME="${NAME%.png}-lattice.png"
-    mkdir -p "$OUTDIR"
-    echo "== $LABEL: drawing the lattice into $OUTDIR/$NAME"
+    mkdir -p "$RUNGTP_DIR/lattice/gtp/$B"
+    echo "== $LABEL: drawing the lattice into $RUNGTP_DIR/lattice/gtp/$B/$NAME"
     # base runs first; the other modes are measured against its time
     local BASELINE=()
     [ "$VARIANT" = base ] && BASELINE=(--save-baseline "$RAW_TMP/$B.baseline")
     [ -n "$VARIANT" ] && [ "$VARIANT" != base ] &&
       BASELINE=(--baseline "$RAW_TMP/$B.baseline")
-    if python3 "$RUNGTP_DIR/scripts/python/lattice.py" "$OUTDIR/$NAME" "$D" \
+    if python3 "$RUNGTP_DIR/scripts/python/lattice.py" \
+         "$RUNGTP_DIR/lattice/gtp/$B/$NAME" "$D" \
          "${BASELINE[@]}" --failed "${bad[@]#.BM_}"; then
-      RESULT+=", lattice charts/gtp/$B/$NAME"
+      RESULT+=", lattice/gtp/$B/$NAME"
     else
       RESULT+=", drawing the lattice failed"
       echo "$LABEL: ERROR: drawing the lattice failed"

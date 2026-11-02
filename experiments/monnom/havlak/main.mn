@@ -1,0 +1,122 @@
+# LoopTesterApp of the original: builds the graph, and finds its loops
+
+class Main
+{
+	public static fun BuildDiamond(IControlFlowGraph cfg, Int start) : Int
+	{
+		cfg.AddEdge(start, start + 1);
+		cfg.AddEdge(start, start + 2);
+		cfg.AddEdge(start + 1, start + 3);
+		cfg.AddEdge(start + 2, start + 3);
+		return start + 3;
+	}
+
+	public static fun BuildStraight(IControlFlowGraph cfg, Int start, Int n) : Int
+	{
+		Int i = 0;
+		while (i < n)
+		{
+			cfg.AddEdge(start + i, start + i + 1);
+			i = i + 1;
+		}
+		return start + n;
+	}
+
+	public static fun BuildBaseLoop(IControlFlowGraph cfg, Int from) : Int
+	{
+		Int header = Main.BuildStraight(cfg, from, 1);
+		Int diamond1 = Main.BuildDiamond(cfg, header);
+		Int d11 = Main.BuildStraight(cfg, diamond1, 1);
+		Int diamond2 = Main.BuildDiamond(cfg, d11);
+		Int footer = Main.BuildStraight(cfg, diamond2, 1);
+		cfg.AddEdge(diamond2, d11);
+		cfg.AddEdge(diamond1, header);
+		cfg.AddEdge(footer, from);
+		return Main.BuildStraight(cfg, footer, 1);
+	}
+
+	public static fun BuildSimple(IControlFlowGraph cfg) : Void
+	{
+		cfg.CreateNode(0);
+		Main.BuildBaseLoop(cfg, 0);
+		cfg.CreateNode(1);
+		cfg.AddEdge(0, 2);
+	}
+
+	public static fun BuildLarge(IControlFlowGraph cfg, Int parLoops, Int pparLoops, Int ppparLoops) : Void
+	{
+		Int n = 2;
+		Int a = 0;
+		while (a < parLoops)
+		{
+			cfg.CreateNode(n + 1);
+			cfg.AddEdge(2, n + 1);
+			n = n + 1;
+			Int b = 0;
+			while (b < pparLoops)
+			{
+				Int top = n;
+				n = Main.BuildStraight(cfg, n, 1);
+				Int c = 0;
+				while (c < ppparLoops)
+				{
+					n = Main.BuildBaseLoop(cfg, n);
+					c = c + 1;
+				}
+				Int bottom = Main.BuildStraight(cfg, n, 1);
+				cfg.AddEdge(n, top);
+				n = bottom;
+				b = b + 1;
+			}
+			cfg.AddEdge(n, 1);
+			a = a + 1;
+		}
+	}
+
+	public static fun NewLoopGraph() : ILoopGraph
+	{
+		ILoop none = new NoLoop();
+		ILoop root = new SimpleLoop(0, true, none);
+		ILoopVector loops = new LoopVector();
+		loops.Append(root);
+		return new LoopStructureGraph(root, none, loops);
+	}
+
+	public static fun FindLoops(IControlFlowGraph cfg, ILoopGraph lsg) : Void
+	{
+		HavlakLoopFinder finder = new HavlakLoopFinder(cfg, lsg);
+		finder.FindLoops();
+	}
+
+	public static fun Main() : Void
+	{
+		Int dummyLoops = 1500;
+		Int findIterations = 300;
+		Timer t = new Timer();
+		IControlFlowGraph cfg = new ControlFlowGraph(new NoBlock());
+		ILoopGraph lsg = Main.NewLoopGraph();
+		Main.BuildSimple(cfg);
+		Int i = 0;
+		while (i < dummyLoops)
+		{
+			Main.FindLoops(cfg, lsg);
+			i = i + 1;
+		}
+		Main.BuildLarge(cfg, 10, 10, 5);
+		Main.FindLoops(cfg, lsg);
+		i = 0;
+		while (i < findIterations)
+		{
+			Main.FindLoops(cfg, Main.NewLoopGraph());
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		lsg.NumLoops().ToString().Print();
+		"\n".Print();
+		cfg.NumNodes().ToString().Print();
+		"\n".Print();
+		lsg.Root().NestingLevel().ToString().Print();
+		"\n".Print();
+	}
+}

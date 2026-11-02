@@ -1,0 +1,160 @@
+# Strengths and variables: the plain data the planner walks over.
+#
+# Strength values: 0 required, 1 strong preferred, 2 preferred, 3 strong
+# default, 4 normal, 5 weak default, 6 weakest. There is no null here, so a
+# variable determined by nothing holds a NoConstraint.
+
+class Strength implements IStrength
+{
+	private Int value;
+	public constructor(Int v) { value = v; }
+	public fun Value() : Int { return value; }
+}
+
+class Variable implements IVariable
+{
+	private Int value;
+	private IConstraintVector constraints;
+	private IConstraint determinedBy;
+	private Int mark;
+	private IStrength walkStrength;
+	private Bool stay;
+	public constructor(Int v, IConstraint none)
+	{
+		value = v;
+		constraints = new ConstraintVector();
+		determinedBy = none;
+		mark = 0;
+		walkStrength = new Strength(6);
+		stay = true;
+	}
+	public fun Value() : Int { return value; }
+	public fun SetValue(Int v) : Void { value = v; }
+	public fun Constraints() : IConstraintVector { return constraints; }
+	public fun DeterminedBy() : IConstraint { return determinedBy; }
+	public fun SetDeterminedBy(IConstraint c) : Void { determinedBy = c; }
+	public fun Mark() : Int { return mark; }
+	public fun SetMark(Int m) : Void { mark = m; }
+	public fun WalkStrength() : IStrength { return walkStrength; }
+	public fun SetWalkStrength(IStrength s) : Void { walkStrength = s; }
+	public fun Stay() : Bool { return stay; }
+	public fun SetStay(Bool b) : Void { stay = b; }
+}
+
+class NoConstraint implements IConstraint
+{
+	private Int unused;
+	public constructor() { unused = 0; }
+	public fun IsNone() : Bool { return true; }
+	public fun Id() : Int { return 0; }
+	public fun GetStrength() : IStrength { ERROR("NoConstraint.GetStrength"); }
+	public fun IsInput() : Bool { ERROR("NoConstraint.IsInput"); }
+	public fun IsSatisfied() : Bool { ERROR("NoConstraint.IsSatisfied"); }
+	public fun MarkUnsatisfied() : Void { }
+	public fun AddToGraph() : Void { ERROR("NoConstraint.AddToGraph"); }
+	public fun RemoveFromGraph() : Void { ERROR("NoConstraint.RemoveFromGraph"); }
+	public fun ChooseMethod(Int mark) : Void { ERROR("NoConstraint.ChooseMethod"); }
+	public fun MarkInputs(Int mark) : Void { ERROR("NoConstraint.MarkInputs"); }
+	public fun Output() : IVariable { ERROR("NoConstraint.Output"); }
+	public fun InputsKnown(Int mark) : Bool { ERROR("NoConstraint.InputsKnown"); }
+	public fun Recalculate() : Void { ERROR("NoConstraint.Recalculate"); }
+	public fun Execute() : Void { ERROR("NoConstraint.Execute"); }
+}
+
+class ConstraintVector implements IConstraintVector
+{
+	private ArrayList<IConstraint> items;
+	private Int first;
+	private Int last;
+	public constructor()
+	{
+		items = new ArrayList<IConstraint>();
+		first = 0;
+		last = 0;
+	}
+	public fun Size() : Int { return last - first; }
+	public fun IsEmpty() : Bool { return last == first; }
+	public fun At(Int i) : IConstraint { return items.Get(first + i); }
+	public fun Append(IConstraint x) : Void
+	{
+		if (last < items.Length())
+		{
+			items.Set(last, x);
+		}
+		else
+		{
+			items.Add(x);
+		}
+		last = last + 1;
+	}
+	public fun RemoveFirst() : IConstraint
+	{
+		IConstraint x = items.Get(first);
+		first = first + 1;
+		if (first == last)
+		{
+			first = 0;
+			last = 0;
+		}
+		return x;
+	}
+	public fun RemoveAt(Int i) : Void
+	{
+		Int j = first + i + 1;
+		while (j < last)
+		{
+			items.Set(j - 1, items.Get(j));
+			j = j + 1;
+		}
+		last = last - 1;
+	}
+}
+
+class VariableVector implements IVariableVector
+{
+	private ArrayList<IVariable> items;
+	private Int first;
+	private Int last;
+	public constructor()
+	{
+		items = new ArrayList<IVariable>();
+		first = 0;
+		last = 0;
+	}
+	public fun Size() : Int { return last - first; }
+	public fun IsEmpty() : Bool { return last == first; }
+	public fun At(Int i) : IVariable { return items.Get(first + i); }
+	public fun Append(IVariable x) : Void
+	{
+		if (last < items.Length())
+		{
+			items.Set(last, x);
+		}
+		else
+		{
+			items.Add(x);
+		}
+		last = last + 1;
+	}
+	public fun RemoveFirst() : IVariable
+	{
+		IVariable x = items.Get(first);
+		first = first + 1;
+		if (first == last)
+		{
+			first = 0;
+			last = 0;
+		}
+		return x;
+	}
+	public fun RemoveAt(Int i) : Void
+	{
+		Int j = first + i + 1;
+		while (j < last)
+		{
+			items.Set(j - 1, items.Get(j));
+			j = j + 1;
+		}
+		last = last - 1;
+	}
+}

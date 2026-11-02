@@ -1,0 +1,33 @@
+class Main
+{
+	public static fun Main() : Void
+	{
+		Int iterations = 1000;
+		Int bad = 0;
+		Int queued = 0;
+		Int held = 0;
+		Timer t = new Timer();
+		Int i = 0;
+		while (i < iterations)
+		{
+			Scheduler s = new Scheduler(new NoTcb(), new NoPacket());
+			s.Start();
+			# the published verification values of one run
+			if (s.QueuePacketCount() != 23246 || s.HoldCount() != 9297)
+			{
+				bad = bad + 1;
+			}
+			queued = queued + s.QueuePacketCount();
+			held = held + s.HoldCount();
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		queued.ToString().Print();
+		"\n".Print();
+		held.ToString().Print();
+		"\n".Print();
+		bad.ToString().Print();
+		"\n".Print();
+	}
+}

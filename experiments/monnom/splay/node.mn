@@ -1,0 +1,32 @@
+# The tree nodes. There is no null here, so NoNode stands in for a missing child.
+
+class TreeNode implements INode
+{
+	private Int key;
+	private INode left;
+	private INode right;
+	public constructor(Int k, INode l, INode r)
+	{
+		key = k;
+		left = l;
+		right = r;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Key() : Int { return key; }
+	public fun Left() : INode { return left; }
+	public fun SetLeft(INode n) : Void { left = n; }
+	public fun Right() : INode { return right; }
+	public fun SetRight(INode n) : Void { right = n; }
+}
+
+class NoNode implements INode
+{
+	private Int unused;
+	public constructor() { unused = 0; }
+	public fun IsNone() : Bool { return true; }
+	public fun Key() : Int { ERROR("NoNode.Key"); }
+	public fun Left() : INode { ERROR("NoNode.Left"); }
+	public fun SetLeft(INode n) : Void { ERROR("NoNode.SetLeft"); }
+	public fun Right() : INode { ERROR("NoNode.Right"); }
+	public fun SetRight(INode n) : Void { ERROR("NoNode.SetRight"); }
+}

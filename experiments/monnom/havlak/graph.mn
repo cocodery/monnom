@@ -1,0 +1,89 @@
+# The control flow graph: basic blocks and their edges. There is no null here,
+# so NoBlock stands in for a missing block.
+
+class BasicBlock implements IBasicBlock
+{
+	private Int name;
+	private IBlockVector inEdges;
+	private IBlockVector outEdges;
+	public constructor(Int n)
+	{
+		name = n;
+		inEdges = new BlockVector();
+		outEdges = new BlockVector();
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Name() : Int { return name; }
+	public fun InEdges() : IBlockVector { return inEdges; }
+	public fun OutEdges() : IBlockVector { return outEdges; }
+	public fun NumPred() : Int { return inEdges.Size(); }
+}
+
+class NoBlock implements IBasicBlock
+{
+	private Int unused;
+	public constructor() { unused = 0; }
+	public fun IsNone() : Bool { return true; }
+	public fun Name() : Int { ERROR("NoBlock.Name"); }
+	public fun InEdges() : IBlockVector { ERROR("NoBlock.InEdges"); }
+	public fun OutEdges() : IBlockVector { ERROR("NoBlock.OutEdges"); }
+	public fun NumPred() : Int { ERROR("NoBlock.NumPred"); }
+}
+
+class BlockVector implements IBlockVector
+{
+	private ArrayList<IBasicBlock> items;
+	public constructor() { items = new ArrayList<IBasicBlock>(); }
+	public fun Size() : Int { return items.Length(); }
+	public fun At(Int i) : IBasicBlock { return items.Get(i); }
+	public fun Append(IBasicBlock b) : Void { items.Add(b); }
+	public fun AtPut(Int i, IBasicBlock b, IBasicBlock none) : Void
+	{
+		while (items.Length() <= i)
+		{
+			items.Add(none);
+		}
+		items.Set(i, b);
+	}
+}
+
+class ControlFlowGraph implements IControlFlowGraph
+{
+	private IBlockVector blocks;
+	private IBasicBlock start;
+	private IBasicBlock none;
+	private Int numNodes;
+	public constructor(IBasicBlock n)
+	{
+		blocks = new BlockVector();
+		start = n;
+		none = n;
+		numNodes = 0;
+	}
+	public fun CreateNode(Int name) : IBasicBlock
+	{
+		if (name < blocks.Size() && !blocks.At(name).IsNone())
+		{
+			return blocks.At(name);
+		}
+		IBasicBlock node = new BasicBlock(name);
+		blocks.AtPut(name, node, none);
+		numNodes = numNodes + 1;
+		if (numNodes == 1)
+		{
+			start = node;
+		}
+		return node;
+	}
+	public fun AddEdge(Int from, Int to) : Void
+	{
+		IBasicBlock f = this.CreateNode(from);
+		IBasicBlock t = this.CreateNode(to);
+		f.OutEdges().Append(t);
+		t.InEdges().Append(f);
+	}
+	public fun StartBlock() : IBasicBlock { return start; }
+	public fun NumNodes() : Int { return numNodes; }
+	public fun Blocks() : IBlockVector { return blocks; }
+	public fun NoBlock() : IBasicBlock { return none; }
+}

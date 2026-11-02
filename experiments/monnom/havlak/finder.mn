@@ -1,0 +1,367 @@
+# Havlak's loop recognition: the algorithm over the structures of graph.mn and
+# loops.mn. All of it is typed and reaches the structures through interfaces.
+#
+# Block types: 0 nonheader, 1 reducible, 2 self, 3 irreducible, 4 dead.
+
+class UnionFind
+{
+	# the root of n's set, with path compression
+	public static fun FindSet(INode n) : INode
+	{
+		INodeVector nodeList = new NodeVector();
+		INode node = n;
+		INode parent = node.Parent();
+		while (node.DfsNumber() != parent.DfsNumber())
+		{
+			if (parent.DfsNumber() != parent.Parent().DfsNumber())
+			{
+				nodeList.Append(node);
+			}
+			node = parent;
+			parent = node.Parent();
+		}
+		Int i = 0;
+		Int size = nodeList.Size();
+		while (i < size)
+		{
+			nodeList.At(i).SetParent(node);
+			i = i + 1;
+		}
+		return node;
+	}
+}
+
+class LoopNesting
+{
+	public static fun AddChild(ILoop parent, ILoop child) : Void
+	{
+		ILoopVector children = parent.Children();
+		Int i = 0;
+		Int size = children.Size();
+		while (i < size)
+		{
+			if (children.At(i).Counter() == child.Counter())
+			{
+				break;
+			}
+			i = i + 1;
+		}
+		if (i == size)
+		{
+			children.Append(child);
+		}
+	}
+
+	public static fun SetParent(ILoop child, ILoop parent) : Void
+	{
+		child.SetParent(parent);
+		LoopNesting.AddChild(parent, child);
+	}
+
+	public static fun AddBlock(ILoop loop, IBasicBlock block) : Void
+	{
+		IBlockVector blocks = loop.Blocks();
+		Int i = 0;
+		Int size = blocks.Size();
+		while (i < size)
+		{
+			if (blocks.At(i).Name() == block.Name())
+			{
+				break;
+			}
+			i = i + 1;
+		}
+		if (i == size)
+		{
+			blocks.Append(block);
+		}
+	}
+
+	public static fun CalculateLevels(ILoop loop, Int depth) : Void
+	{
+		loop.SetDepthLevel(depth);
+		ILoopVector children = loop.Children();
+		Int i = 0;
+		Int size = children.Size();
+		while (i < size)
+		{
+			ILoop child = children.At(i);
+			LoopNesting.CalculateLevels(child, depth + 1);
+			if (1 + child.NestingLevel() > loop.NestingLevel())
+			{
+				loop.SetNestingLevel(1 + child.NestingLevel());
+			}
+			i = i + 1;
+		}
+	}
+
+	public static fun CalculateNestingLevel(ILoopGraph lsg) : Void
+	{
+		ILoopVector loops = lsg.Loops();
+		ILoop root = lsg.Root();
+		Int i = 0;
+		Int size = loops.Size();
+		while (i < size)
+		{
+			ILoop loop = loops.At(i);
+			if (!loop.IsRoot() && loop.Parent().IsNone())
+			{
+				LoopNesting.SetParent(loop, root);
+			}
+			i = i + 1;
+		}
+		LoopNesting.CalculateLevels(root, 0);
+	}
+}
+
+class HavlakLoopFinder
+{
+	private IControlFlowGraph cfg;
+	private ILoopGraph lsg;
+	private ArrayList<IIntVector> nonBackPreds;
+	private ArrayList<IIntVector> backPreds;
+	private ArrayList<Int> number;
+	private ArrayList<INode> nodes;
+	private ArrayList<Int> header;
+	private ArrayList<Int> type;
+	private ArrayList<Int> last;
+
+	public constructor(IControlFlowGraph c, ILoopGraph l)
+	{
+		cfg = c;
+		lsg = l;
+		nonBackPreds = new ArrayList<IIntVector>();
+		backPreds = new ArrayList<IIntVector>();
+		number = new ArrayList<Int>();
+		nodes = new ArrayList<INode>();
+		header = new ArrayList<Int>();
+		type = new ArrayList<Int>();
+		last = new ArrayList<Int>();
+	}
+
+	public fun IsAncestor(Int w, Int v) : Bool
+	{
+		return w <= v && v <= last.Get(w);
+	}
+
+	public fun DoDFS(IBasicBlock current, Int currentNumber) : Int
+	{
+		nodes.Get(currentNumber).Init(current, currentNumber);
+		number.Set(current.Name(), currentNumber);
+		Int lastId = currentNumber;
+		IBlockVector outEdges = current.OutEdges();
+		Int i = 0;
+		Int size = outEdges.Size();
+		while (i < size)
+		{
+			IBasicBlock target = outEdges.At(i);
+			if (number.Get(target.Name()) == 0 - 1)
+			{
+				lastId = this.DoDFS(target, lastId + 1);
+			}
+			i = i + 1;
+		}
+		last.Set(currentNumber, lastId);
+		return lastId;
+	}
+
+	public fun AddUnique(IIntVector set, Int x) : Void
+	{
+		Int i = 0;
+		Int size = set.Size();
+		while (i < size)
+		{
+			if (set.At(i) == x)
+			{
+				break;
+			}
+			i = i + 1;
+		}
+		if (i == size)
+		{
+			set.Append(x);
+		}
+	}
+
+	public fun ProcessEdges(IBasicBlock nodeW, Int w) : Void
+	{
+		IBlockVector inEdges = nodeW.InEdges();
+		Int i = 0;
+		Int size = inEdges.Size();
+		while (i < size)
+		{
+			Int v = number.Get(inEdges.At(i).Name());
+			if (v != 0 - 1)
+			{
+				if (this.IsAncestor(w, v))
+				{
+					backPreds.Get(w).Append(v);
+				}
+				else
+				{
+					this.AddUnique(nonBackPreds.Get(w), v);
+				}
+			}
+			i = i + 1;
+		}
+	}
+
+	public fun IdentifyEdges(Int size) : Void
+	{
+		Int w = 0;
+		while (w < size)
+		{
+			header.Set(w, 0);
+			type.Set(w, 0);
+			IBasicBlock nodeW = nodes.Get(w).Block();
+			if (nodeW.IsNone())
+			{
+				type.Set(w, 4);
+			}
+			else
+			{
+				this.ProcessEdges(nodeW, w);
+			}
+			w = w + 1;
+		}
+	}
+
+	public fun StepD(Int w, INodeVector nodePool) : Void
+	{
+		IIntVector preds = backPreds.Get(w);
+		Int i = 0;
+		Int size = preds.Size();
+		while (i < size)
+		{
+			Int v = preds.At(i);
+			if (v != w)
+			{
+				nodePool.Append(UnionFind.FindSet(nodes.Get(v)));
+			}
+			else
+			{
+				type.Set(w, 2);
+			}
+			i = i + 1;
+		}
+	}
+
+	public fun PoolHas(INodeVector nodePool, INode node) : Bool
+	{
+		Int i = 0;
+		Int size = nodePool.Size();
+		Int dfs = node.DfsNumber();
+		while (i < size)
+		{
+			if (nodePool.At(i).DfsNumber() == dfs)
+			{
+				return true;
+			}
+			i = i + 1;
+		}
+		return false;
+	}
+
+	public fun StepE(Int w, INodeVector nodePool, INodeVector workList, INode x) : Void
+	{
+		IIntVector preds = nonBackPreds.Get(x.DfsNumber());
+		Int i = 0;
+		Int size = preds.Size();
+		while (i < size)
+		{
+			INode ydash = UnionFind.FindSet(nodes.Get(preds.At(i)));
+			Int ydashDfs = ydash.DfsNumber();
+			if (!this.IsAncestor(w, ydashDfs))
+			{
+				type.Set(w, 3);
+				this.AddUnique(nonBackPreds.Get(w), ydashDfs);
+			}
+			elseif (ydashDfs != w && !this.PoolHas(nodePool, ydash))
+			{
+				workList.Append(ydash);
+				nodePool.Append(ydash);
+			}
+			i = i + 1;
+		}
+	}
+
+	public fun SetLoopAttributes(Int w, INodeVector nodePool, ILoop loop) : Void
+	{
+		INode nodeWInfo = nodes.Get(w);
+		nodeWInfo.SetLoop(loop);
+		Int i = 0;
+		Int size = nodePool.Size();
+		while (i < size)
+		{
+			INode node = nodePool.At(i);
+			header.Set(node.DfsNumber(), w);
+			node.SetParent(nodeWInfo);
+			ILoop nodeLoop = node.Loop();
+			if (!nodeLoop.IsNone())
+			{
+				LoopNesting.SetParent(nodeLoop, loop);
+			}
+			else
+			{
+				LoopNesting.AddBlock(loop, node.Block());
+			}
+			i = i + 1;
+		}
+	}
+
+	public fun FindLoops() : Void
+	{
+		Int size = cfg.NumNodes();
+		IBasicBlock noBlock = cfg.NoBlock();
+		INode noNode = new NoNode();
+		ILoop noLoop = lsg.NoLoop();
+		Int i = 0;
+		while (i < size)
+		{
+			nonBackPreds.Add(new IntVector());
+			backPreds.Add(new IntVector());
+			nodes.Add(new UnionFindNode(noNode, noBlock, noLoop));
+			number.Add(0 - 1);
+			header.Add(0);
+			type.Add(0);
+			last.Add(0);
+			i = i + 1;
+		}
+		this.DoDFS(cfg.StartBlock(), 0);
+		this.IdentifyEdges(size);
+		header.Set(0, 0);
+
+		Int w = size - 1;
+		while (w >= 0)
+		{
+			INodeVector nodePool = new NodeVector();
+			IBasicBlock nodeW = nodes.Get(w).Block();
+			if (!nodeW.IsNone())
+			{
+				this.StepD(w, nodePool);
+				INodeVector workList = new NodeVector();
+				Int j = 0;
+				while (j < nodePool.Size())
+				{
+					workList.Append(nodePool.At(j));
+					j = j + 1;
+				}
+				if (nodePool.Size() != 0)
+				{
+					type.Set(w, 1);
+				}
+				while (!workList.IsEmpty())
+				{
+					this.StepE(w, nodePool, workList, workList.RemoveFirst());
+				}
+				if (nodePool.Size() > 0 || type.Get(w) == 2)
+				{
+					ILoop loop = lsg.CreateNewLoop(nodeW, type.Get(w) != 3);
+					this.SetLoopAttributes(w, nodePool, loop);
+				}
+			}
+			w = w - 1;
+		}
+		LoopNesting.CalculateNestingLevel(lsg);
+	}
+}

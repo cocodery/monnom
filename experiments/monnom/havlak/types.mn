@@ -1,0 +1,90 @@
+# Havlak: Paul Havlak's loop recognition algorithm over a control flow graph,
+# as used in Hundt, "Loop Recognition in C++/Java/Go/Scala" (Scala Days 2011),
+# ported from the Are We Fast Yet suite (Marr et al., DLS 2016, MIT licence),
+# see NOTES.md.
+
+interface IBasicBlock
+{
+	fun IsNone() : Bool;
+	fun Name() : Int;
+	fun InEdges() : IBlockVector;
+	fun OutEdges() : IBlockVector;
+	fun NumPred() : Int;
+}
+
+interface IBlockVector
+{
+	fun Size() : Int;
+	fun At(Int i) : IBasicBlock;
+	fun Append(IBasicBlock b) : Void;
+	fun AtPut(Int i, IBasicBlock b, IBasicBlock none) : Void;
+}
+
+interface IControlFlowGraph
+{
+	fun CreateNode(Int name) : IBasicBlock;
+	fun AddEdge(Int from, Int to) : Void;
+	fun StartBlock() : IBasicBlock;
+	fun NumNodes() : Int;
+	fun Blocks() : IBlockVector;
+	fun NoBlock() : IBasicBlock;
+}
+
+interface ILoop
+{
+	fun IsNone() : Bool;
+	fun Counter() : Int;
+	fun IsRoot() : Bool;
+	fun Parent() : ILoop;
+	fun SetParent(ILoop p) : Void;
+	fun Children() : ILoopVector;
+	fun Blocks() : IBlockVector;
+	fun NestingLevel() : Int;
+	fun SetNestingLevel(Int l) : Void;
+	fun DepthLevel() : Int;
+	fun SetDepthLevel(Int l) : Void;
+}
+
+interface ILoopVector
+{
+	fun Size() : Int;
+	fun At(Int i) : ILoop;
+	fun Append(ILoop l) : Void;
+}
+
+interface ILoopGraph
+{
+	fun CreateNewLoop(IBasicBlock header, Bool reducible) : ILoop;
+	fun Loops() : ILoopVector;
+	fun Root() : ILoop;
+	fun NoLoop() : ILoop;
+	fun NumLoops() : Int;
+}
+
+# a node of the union-find structure, one per basic block of the DFS tree
+interface INode
+{
+	fun Parent() : INode;
+	fun SetParent(INode p) : Void;
+	fun Block() : IBasicBlock;
+	fun Loop() : ILoop;
+	fun SetLoop(ILoop l) : Void;
+	fun DfsNumber() : Int;
+	fun Init(IBasicBlock b, Int dfs) : Void;
+}
+
+interface INodeVector
+{
+	fun Size() : Int;
+	fun IsEmpty() : Bool;
+	fun At(Int i) : INode;
+	fun Append(INode n) : Void;
+	fun RemoveFirst() : INode;
+}
+
+interface IIntVector
+{
+	fun Size() : Int;
+	fun At(Int i) : Int;
+	fun Append(Int x) : Void;
+}

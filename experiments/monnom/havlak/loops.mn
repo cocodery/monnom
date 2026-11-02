@@ -1,0 +1,156 @@
+# The result of the analysis, a tree of loops, and the plain structures the
+# finder works on. There is no null here, so NoLoop stands in for a missing loop.
+
+class SimpleLoop implements ILoop
+{
+	private Int counter;
+	private Bool isRoot;
+	private ILoop parent;
+	private ILoopVector children;
+	private IBlockVector blocks;
+	private Int nestingLevel;
+	private Int depthLevel;
+	public constructor(Int c, Bool root, ILoop none)
+	{
+		counter = c;
+		isRoot = root;
+		parent = none;
+		children = new LoopVector();
+		blocks = new BlockVector();
+		nestingLevel = 0;
+		depthLevel = 0;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Counter() : Int { return counter; }
+	public fun IsRoot() : Bool { return isRoot; }
+	public fun Parent() : ILoop { return parent; }
+	public fun SetParent(ILoop p) : Void { parent = p; }
+	public fun Children() : ILoopVector { return children; }
+	public fun Blocks() : IBlockVector { return blocks; }
+	public fun NestingLevel() : Int { return nestingLevel; }
+	public fun SetNestingLevel(Int l) : Void { nestingLevel = l; }
+	public fun DepthLevel() : Int { return depthLevel; }
+	public fun SetDepthLevel(Int l) : Void { depthLevel = l; }
+}
+
+class NoLoop implements ILoop
+{
+	private Int unused;
+	public constructor() { unused = 0; }
+	public fun IsNone() : Bool { return true; }
+	public fun Counter() : Int { return 0 - 1; }
+	public fun IsRoot() : Bool { return false; }
+	public fun Parent() : ILoop { ERROR("NoLoop.Parent"); }
+	public fun SetParent(ILoop p) : Void { ERROR("NoLoop.SetParent"); }
+	public fun Children() : ILoopVector { ERROR("NoLoop.Children"); }
+	public fun Blocks() : IBlockVector { ERROR("NoLoop.Blocks"); }
+	public fun NestingLevel() : Int { ERROR("NoLoop.NestingLevel"); }
+	public fun SetNestingLevel(Int l) : Void { ERROR("NoLoop.SetNestingLevel"); }
+	public fun DepthLevel() : Int { ERROR("NoLoop.DepthLevel"); }
+	public fun SetDepthLevel(Int l) : Void { ERROR("NoLoop.SetDepthLevel"); }
+}
+
+class LoopVector implements ILoopVector
+{
+	private ArrayList<ILoop> items;
+	public constructor() { items = new ArrayList<ILoop>(); }
+	public fun Size() : Int { return items.Length(); }
+	public fun At(Int i) : ILoop { return items.Get(i); }
+	public fun Append(ILoop l) : Void { items.Add(l); }
+}
+
+class LoopStructureGraph implements ILoopGraph
+{
+	private ILoop root;
+	private ILoop none;
+	private ILoopVector loops;
+	private Int loopCounter;
+	public constructor(ILoop r, ILoop n, ILoopVector l)
+	{
+		root = r;
+		none = n;
+		loops = l;
+		loopCounter = 1;
+	}
+	public fun CreateNewLoop(IBasicBlock header, Bool reducible) : ILoop
+	{
+		ILoop loop = new SimpleLoop(loopCounter, false, none);
+		loopCounter = loopCounter + 1;
+		loops.Append(loop);
+		return loop;
+	}
+	public fun Loops() : ILoopVector { return loops; }
+	public fun Root() : ILoop { return root; }
+	public fun NoLoop() : ILoop { return none; }
+	public fun NumLoops() : Int { return loops.Size(); }
+}
+
+class UnionFindNode implements INode
+{
+	private INode parent;
+	private IBasicBlock block;
+	private ILoop loop;
+	private Int dfsNumber;
+	public constructor(INode none, IBasicBlock noBlock, ILoop noLoop)
+	{
+		parent = none;
+		block = noBlock;
+		loop = noLoop;
+		dfsNumber = 0;
+	}
+	public fun Parent() : INode { return parent; }
+	public fun SetParent(INode p) : Void { parent = p; }
+	public fun Block() : IBasicBlock { return block; }
+	public fun Loop() : ILoop { return loop; }
+	public fun SetLoop(ILoop l) : Void { loop = l; }
+	public fun DfsNumber() : Int { return dfsNumber; }
+	public fun Init(IBasicBlock b, Int dfs) : Void
+	{
+		parent = this;
+		block = b;
+		dfsNumber = dfs;
+	}
+}
+
+class NoNode implements INode
+{
+	private Int unused;
+	public constructor() { unused = 0; }
+	public fun Parent() : INode { ERROR("NoNode.Parent"); }
+	public fun SetParent(INode p) : Void { ERROR("NoNode.SetParent"); }
+	public fun Block() : IBasicBlock { ERROR("NoNode.Block"); }
+	public fun Loop() : ILoop { ERROR("NoNode.Loop"); }
+	public fun SetLoop(ILoop l) : Void { ERROR("NoNode.SetLoop"); }
+	public fun DfsNumber() : Int { ERROR("NoNode.DfsNumber"); }
+	public fun Init(IBasicBlock b, Int dfs) : Void { ERROR("NoNode.Init"); }
+}
+
+class NodeVector implements INodeVector
+{
+	private ArrayList<INode> items;
+	private Int first;
+	public constructor()
+	{
+		items = new ArrayList<INode>();
+		first = 0;
+	}
+	public fun Size() : Int { return items.Length() - first; }
+	public fun IsEmpty() : Bool { return first == items.Length(); }
+	public fun At(Int i) : INode { return items.Get(first + i); }
+	public fun Append(INode n) : Void { items.Add(n); }
+	public fun RemoveFirst() : INode
+	{
+		INode n = items.Get(first);
+		first = first + 1;
+		return n;
+	}
+}
+
+class IntVector implements IIntVector
+{
+	private ArrayList<Int> items;
+	public constructor() { items = new ArrayList<Int>(); }
+	public fun Size() : Int { return items.Length(); }
+	public fun At(Int i) : Int { return items.Get(i); }
+	public fun Append(Int x) : Void { items.Add(x); }
+}

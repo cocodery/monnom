@@ -1,0 +1,234 @@
+# The splay tree: all of the logic is typed and reaches its nodes through INode.
+
+class SplayTree
+{
+	private INode root;
+	private INode none;
+	private Int size;
+	public constructor(INode n)
+	{
+		root = n;
+		none = n;
+		size = 0;
+	}
+
+	public fun IsEmpty() : Bool { return root.IsNone(); }
+	public fun Size() : Int { return size; }
+
+	# moves the node closest to key to the root
+	public fun Splay(Int key) : Void
+	{
+		if (!root.IsNone())
+		{
+			INode dummy = new TreeNode(0, none, none);
+			INode left = dummy;
+			INode right = dummy;
+			INode current = root;
+			while (true)
+			{
+				if (key < current.Key())
+				{
+					if (current.Left().IsNone())
+					{
+						break;
+					}
+					if (key < current.Left().Key())
+					{
+						# rotate right
+						INode tmp = current.Left();
+						current.SetLeft(tmp.Right());
+						tmp.SetRight(current);
+						current = tmp;
+						if (current.Left().IsNone())
+						{
+							break;
+						}
+					}
+					# link right
+					right.SetLeft(current);
+					right = current;
+					current = current.Left();
+				}
+				elseif (key > current.Key())
+				{
+					if (current.Right().IsNone())
+					{
+						break;
+					}
+					if (key > current.Right().Key())
+					{
+						# rotate left
+						INode tmp = current.Right();
+						current.SetRight(tmp.Left());
+						tmp.SetLeft(current);
+						current = tmp;
+						if (current.Right().IsNone())
+						{
+							break;
+						}
+					}
+					# link left
+					left.SetRight(current);
+					left = current;
+					current = current.Right();
+				}
+				else
+				{
+					break;
+				}
+			}
+			# assemble
+			left.SetRight(current.Left());
+			right.SetLeft(current.Right());
+			current.SetLeft(dummy.Right());
+			current.SetRight(dummy.Left());
+			root = current;
+		}
+	}
+
+	# false if the key was already there
+	public fun Insert(Int key) : Bool
+	{
+		if (root.IsNone())
+		{
+			root = new TreeNode(key, none, none);
+			size = 1;
+			return true;
+		}
+		this.Splay(key);
+		if (root.Key() == key)
+		{
+			return false;
+		}
+		INode node = new TreeNode(key, none, none);
+		if (key > root.Key())
+		{
+			node.SetLeft(root);
+			node.SetRight(root.Right());
+			root.SetRight(none);
+		}
+		else
+		{
+			node.SetRight(root);
+			node.SetLeft(root.Left());
+			root.SetLeft(none);
+		}
+		root = node;
+		size = size + 1;
+		return true;
+	}
+
+	public fun Remove(Int key) : Void
+	{
+		this.Splay(key);
+		if (root.Key() != key)
+		{
+			ERROR("Key not found");
+		}
+		if (root.Left().IsNone())
+		{
+			root = root.Right();
+		}
+		else
+		{
+			INode right = root.Right();
+			root = root.Left();
+			this.Splay(key);
+			root.SetRight(right);
+		}
+		size = size - 1;
+	}
+
+	public fun FindMax(INode start) : INode
+	{
+		INode current = start;
+		while (!current.Right().IsNone())
+		{
+			current = current.Right();
+		}
+		return current;
+	}
+
+	# the node with the greatest key below key, or a none node
+	public fun FindGreatestLessThan(Int key) : INode
+	{
+		if (root.IsNone())
+		{
+			return none;
+		}
+		this.Splay(key);
+		if (root.Key() < key)
+		{
+			return root;
+		}
+		if (!root.Left().IsNone())
+		{
+			return this.FindMax(root.Left());
+		}
+		return none;
+	}
+
+	# in-order walk: returns the keys in ascending order
+	public fun ExportKeys() : ArrayList<Int>
+	{
+		ArrayList<Int> keys = new ArrayList<Int>();
+		ArrayList<INode> stack = new ArrayList<INode>();
+		Int depth = 0;
+		INode current = root;
+		while (depth > 0 || !current.IsNone())
+		{
+			if (!current.IsNone())
+			{
+				if (depth < stack.Length())
+				{
+					stack.Set(depth, current);
+				}
+				else
+				{
+					stack.Add(current);
+				}
+				depth = depth + 1;
+				current = current.Left();
+			}
+			else
+			{
+				depth = depth - 1;
+				INode top = stack.Get(depth);
+				keys.Add(top.Key());
+				current = top.Right();
+			}
+		}
+		return keys;
+	}
+
+	# a checksum of the keys in order, it depends on the order of all of them
+	public fun Checksum() : Int
+	{
+		ArrayList<Int> keys = this.ExportKeys();
+		Int sum = 0;
+		Int i = 0;
+		while (i < keys.Length())
+		{
+			sum = (sum * 31 + keys.Get(i)) % 1000000007;
+			i = i + 1;
+		}
+		return sum;
+	}
+
+	# how many keys are not above the key before them
+	public fun Disorder() : Int
+	{
+		ArrayList<Int> keys = this.ExportKeys();
+		Int bad = 0;
+		Int i = 1;
+		while (i < keys.Length())
+		{
+			if (keys.Get(i - 1) >= keys.Get(i))
+			{
+				bad = bad + 1;
+			}
+			i = i + 1;
+		}
+		return bad;
+	}
+}

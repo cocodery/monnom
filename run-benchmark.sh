@@ -17,8 +17,9 @@
 #                   Any word after -p is DIR, so put <test> and [name]
 #                   before -p
 #   --lattice       also draw the performance lattice, as
-#                   <name>-lattice.png and .html in the -p DIR (default
-#                   $MONNOMBASE); failed configurations are marked on it.
+#                   lattice/benchmark/<test>/<test>-<nom flags>-lattice.png
+#                   and .html (<test>-base without flags), whatever the
+#                   [name] and -p DIR; failed configurations are marked on it.
 #                   With --compare each variant gets its own, all relative
 #                   to the fully untyped configuration of the base variant
 #   -r RUNS         measured runs per configuration (default 1)
@@ -41,7 +42,7 @@ RUNBENCH_SELF="$( realpath "${BASH_SOURCE[0]}" )"
 RUNBENCH_DIR="$( dirname "$RUNBENCH_SELF" )"
 
 runbench_usage() {
-  sed -n '6,36p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
+  sed -n '6,37p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
   echo "available tests:"
   for d in "$RUNBENCH_DIR"/experiments/monnom/*/; do
     [ -f "$d/plotconfig.json" ] && echo "  $(basename "$d")"
@@ -240,7 +241,7 @@ fi
 # per-benchmark generator flags, as in scripts/shell/run-<test>.sh
 EXTRA=()
 case "$TEST" in
-  sort) EXTRA=(--byfile) ;;
+  sort|richards|deltablue|havlak|splay) EXTRA=(--byfile) ;;
 esac
 
 if [ $DRYRUN -eq 1 ]; then
@@ -316,7 +317,14 @@ fi
 # before the checks below: a long run's lattice is worth having even if a
 # few configurations failed
 if [ $LATTICE -eq 1 ]; then
-  LATTICEFILE="${OUTDIR:-$MONNOMBASE}/${OUTNAME%.png}-lattice.png"
+  LATTICENAME="$TEST"
+  [ ${#FORWARD[@]} -eq 0 ] && LATTICENAME+="-base"
+  for LATTICEFLAG in "${FORWARD[@]}"; do
+    LATTICEFLAG="${LATTICEFLAG#-}"; LATTICEFLAG="${LATTICEFLAG#-}"
+    LATTICENAME+="-${LATTICEFLAG//[^A-Za-z0-9._=+]/_}"
+  done
+  LATTICEFILE="$MONNOMBASE/lattice/benchmark/$TEST/$LATTICENAME-lattice.png"
+  mkdir -p "$MONNOMBASE/lattice/benchmark/$TEST"
   echo "== drawing the lattice into $LATTICEFILE"
   python3 "$MONNOMBASE/scripts/python/lattice.py" "$LATTICEFILE" "$BENCHDIR" \
     ${RUNBENCH_BASELINE_FLAG:+"$RUNBENCH_BASELINE_FLAG" "$RUNBENCH_BASELINE_FILE"} \

@@ -201,7 +201,7 @@ def main():
                                     dash="solid" if name in overhead else "dash"))
             colour = overhead_colour(overhead[name]) if name in overhead else (255, 255, 255)
             fig.add_annotation(x=x, y=y - 9, showarrow=False,
-                               text="%.2f×" % overhead[name] if name in overhead else "failed",
+                               text="%.3f×" % overhead[name] if name in overhead else "failed",
                                font=dict(size=14, color=text_colour(colour)))
         cx, cy, cc = [], [], []
         for name in names:
@@ -221,7 +221,7 @@ def main():
                             for u, unit in enumerate(units))
         if name not in overhead:
             return "%s<br>failed<br>%s" % (name, steps)
-        return "%s<br>%.3f s, %.2f× untyped<br>%s" % (
+        return "%s<br>%.3f s, %.3f× untyped<br>%s" % (
             name, st.mean(times[name]), overhead[name], steps)
 
     # also carries the colour bar; invisible when the boxes show the values
@@ -260,7 +260,7 @@ def main():
     ratios = overhead.values()
     title = os.path.basename(out)[:-len(".png")]
     subtitle = ("%d variations, %d run(s) each · baseline %s %.3f s · %d faster than it,"
-                " %d within 2×, worst %.2f×%s"
+                " %d within 2×, worst %.3f×%s"
                 % (len(names), runs, base_label, base_time, sum(r < 1 for r in ratios), sum(r <= 2 for r in ratios),
                    max(ratios), " · %d failed" % len(bad) if bad else ""))
     width = max(760, int(2 * half) + 160)

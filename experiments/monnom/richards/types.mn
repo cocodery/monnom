@@ -1,0 +1,77 @@
+# Richards: Martin Richards' operating system kernel simulation, ported from
+# the Are We Fast Yet suite (Marr et al., DLS 2016, MIT licence), see NOTES.md.
+# Every object crosses file boundaries through these interfaces.
+
+interface IPacket
+{
+	fun IsNone() : Bool;
+	fun Link() : IPacket;
+	fun SetLink(IPacket p) : Void;
+	fun Identity() : Int;
+	fun SetIdentity(Int i) : Void;
+	fun Kind() : Int;
+	fun Datum() : Int;
+	fun SetDatum(Int d) : Void;
+	fun DataAt(Int i) : Int;
+	fun SetDataAt(Int i, Int v) : Void;
+}
+
+interface ITaskFunction
+{
+	fun Apply(IPacket work) : ITcb;
+}
+
+interface ITcb
+{
+	fun IsNone() : Bool;
+	fun Link() : ITcb;
+	fun Identity() : Int;
+	fun Priority() : Int;
+	fun Input() : IPacket;
+	fun SetInput(IPacket p) : Void;
+	fun Function() : ITaskFunction;
+	fun IsPacketPending() : Bool;
+	fun SetPacketPending(Bool b) : Void;
+	fun IsTaskWaiting() : Bool;
+	fun SetTaskWaiting(Bool b) : Void;
+	fun IsTaskHolding() : Bool;
+	fun SetTaskHolding(Bool b) : Void;
+}
+
+interface IDeviceData
+{
+	fun Pending() : IPacket;
+	fun SetPending(IPacket p) : Void;
+}
+
+interface IHandlerData
+{
+	fun WorkIn() : IPacket;
+	fun SetWorkIn(IPacket p) : Void;
+	fun DeviceIn() : IPacket;
+	fun SetDeviceIn(IPacket p) : Void;
+}
+
+interface IIdleData
+{
+	fun Control() : Int;
+	fun SetControl(Int c) : Void;
+	fun Count() : Int;
+	fun SetCount(Int c) : Void;
+}
+
+interface IWorkerData
+{
+	fun Destination() : Int;
+	fun SetDestination(Int d) : Void;
+	fun Count() : Int;
+	fun SetCount(Int c) : Void;
+}
+
+interface IScheduler
+{
+	fun QueuePacket(IPacket p) : ITcb;
+	fun HoldSelf() : ITcb;
+	fun MarkWaiting() : ITcb;
+	fun Release(Int identity) : ITcb;
+}

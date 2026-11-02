@@ -1,0 +1,53 @@
+class Main
+{
+	# Park-Miller minimal standard generator, in place of Math.random
+	public static fun Next(Int seed) : Int
+	{
+		return (seed * 16807) % 2147483647;
+	}
+
+	public static fun Main() : Void
+	{
+		Int treeSize = 8000;
+		Int modifications = 1500000;
+		Int range = 1000000;
+		SplayTree tree = new SplayTree(new NoNode());
+		Int seed = 49734321;
+		Timer t = new Timer();
+		while (tree.Size() < treeSize)
+		{
+			seed = Main.Next(seed);
+			tree.Insert(seed % range);
+		}
+		Int i = 0;
+		while (i < modifications)
+		{
+			# InsertNewNode: draw until the key is new
+			seed = Main.Next(seed);
+			Int key = seed % range;
+			while (!tree.Insert(key))
+			{
+				seed = Main.Next(seed);
+				key = seed % range;
+			}
+			INode greatest = tree.FindGreatestLessThan(key);
+			if (greatest.IsNone())
+			{
+				tree.Remove(key);
+			}
+			else
+			{
+				tree.Remove(greatest.Key());
+			}
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		tree.Size().ToString().Print();
+		"\n".Print();
+		tree.Checksum().ToString().Print();
+		"\n".Print();
+		tree.Disorder().ToString().Print();
+		"\n".Print();
+	}
+}

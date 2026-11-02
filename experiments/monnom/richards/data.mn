@@ -1,0 +1,116 @@
+# Plain data objects: the packets moved between tasks and the private state of
+# each task. There is no null here, so NoPacket stands in for NO_WORK.
+
+class Packet implements IPacket
+{
+	private IPacket link;
+	private Int identity;
+	private Int kind;
+	private Int datum;
+	private Int d0;
+	private Int d1;
+	private Int d2;
+	private Int d3;
+	public constructor(IPacket l, Int i, Int k)
+	{
+		link = l;
+		identity = i;
+		kind = k;
+		datum = 0;
+		d0 = 0;
+		d1 = 0;
+		d2 = 0;
+		d3 = 0;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Link() : IPacket { return link; }
+	public fun SetLink(IPacket p) : Void { link = p; }
+	public fun Identity() : Int { return identity; }
+	public fun SetIdentity(Int i) : Void { identity = i; }
+	public fun Kind() : Int { return kind; }
+	public fun Datum() : Int { return datum; }
+	public fun SetDatum(Int d) : Void { datum = d; }
+	public fun DataAt(Int i) : Int
+	{
+		if (i == 0) { return d0; }
+		if (i == 1) { return d1; }
+		if (i == 2) { return d2; }
+		return d3;
+	}
+	public fun SetDataAt(Int i, Int v) : Void
+	{
+		if (i == 0) { d0 = v; }
+		elseif (i == 1) { d1 = v; }
+		elseif (i == 2) { d2 = v; }
+		else { d3 = v; }
+	}
+}
+
+class NoPacket implements IPacket
+{
+	private Int unused;
+	public constructor() { unused = 0; }
+	public fun IsNone() : Bool { return true; }
+	public fun Link() : IPacket { ERROR("NoPacket.Link"); }
+	public fun SetLink(IPacket p) : Void { ERROR("NoPacket.SetLink"); }
+	public fun Identity() : Int { ERROR("NoPacket.Identity"); }
+	public fun SetIdentity(Int i) : Void { ERROR("NoPacket.SetIdentity"); }
+	public fun Kind() : Int { ERROR("NoPacket.Kind"); }
+	public fun Datum() : Int { ERROR("NoPacket.Datum"); }
+	public fun SetDatum(Int d) : Void { ERROR("NoPacket.SetDatum"); }
+	public fun DataAt(Int i) : Int { ERROR("NoPacket.DataAt"); }
+	public fun SetDataAt(Int i, Int v) : Void { ERROR("NoPacket.SetDataAt"); }
+}
+
+class DeviceData implements IDeviceData
+{
+	private IPacket pending;
+	public constructor(IPacket none) { pending = none; }
+	public fun Pending() : IPacket { return pending; }
+	public fun SetPending(IPacket p) : Void { pending = p; }
+}
+
+class HandlerData implements IHandlerData
+{
+	private IPacket workIn;
+	private IPacket deviceIn;
+	public constructor(IPacket none)
+	{
+		workIn = none;
+		deviceIn = none;
+	}
+	public fun WorkIn() : IPacket { return workIn; }
+	public fun SetWorkIn(IPacket p) : Void { workIn = p; }
+	public fun DeviceIn() : IPacket { return deviceIn; }
+	public fun SetDeviceIn(IPacket p) : Void { deviceIn = p; }
+}
+
+class IdleData implements IIdleData
+{
+	private Int control;
+	private Int count;
+	public constructor()
+	{
+		control = 1;
+		count = 10000;
+	}
+	public fun Control() : Int { return control; }
+	public fun SetControl(Int c) : Void { control = c; }
+	public fun Count() : Int { return count; }
+	public fun SetCount(Int c) : Void { count = c; }
+}
+
+class WorkerData implements IWorkerData
+{
+	private Int destination;
+	private Int count;
+	public constructor(Int d)
+	{
+		destination = d;
+		count = 0;
+	}
+	public fun Destination() : Int { return destination; }
+	public fun SetDestination(Int d) : Void { destination = d; }
+	public fun Count() : Int { return count; }
+	public fun SetCount(Int c) : Void { count = c; }
+}

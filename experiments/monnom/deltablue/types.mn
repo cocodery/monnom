@@ -1,0 +1,62 @@
+# DeltaBlue: the incremental dataflow constraint solver of Freeman-Benson,
+# Maloney and Borning, ported from the Are We Fast Yet suite (Marr et al.,
+# DLS 2016, MIT licence) and Octane, see NOTES.md.
+
+interface IStrength
+{
+	fun Value() : Int;
+}
+
+interface IVariable
+{
+	fun Value() : Int;
+	fun SetValue(Int v) : Void;
+	fun Constraints() : IConstraintVector;
+	fun DeterminedBy() : IConstraint;
+	fun SetDeterminedBy(IConstraint c) : Void;
+	fun Mark() : Int;
+	fun SetMark(Int m) : Void;
+	fun WalkStrength() : IStrength;
+	fun SetWalkStrength(IStrength s) : Void;
+	fun Stay() : Bool;
+	fun SetStay(Bool b) : Void;
+}
+
+interface IConstraint
+{
+	fun IsNone() : Bool;
+	fun Id() : Int;
+	fun GetStrength() : IStrength;
+	fun IsInput() : Bool;
+	fun IsSatisfied() : Bool;
+	fun MarkUnsatisfied() : Void;
+	fun AddToGraph() : Void;
+	fun RemoveFromGraph() : Void;
+	fun ChooseMethod(Int mark) : Void;
+	fun MarkInputs(Int mark) : Void;
+	fun Output() : IVariable;
+	fun InputsKnown(Int mark) : Bool;
+	fun Recalculate() : Void;
+	fun Execute() : Void;
+}
+
+# the growable array with a moving start that the Are We Fast Yet programs share
+interface IConstraintVector
+{
+	fun Size() : Int;
+	fun IsEmpty() : Bool;
+	fun At(Int i) : IConstraint;
+	fun Append(IConstraint x) : Void;
+	fun RemoveFirst() : IConstraint;
+	fun RemoveAt(Int i) : Void;
+}
+
+interface IVariableVector
+{
+	fun Size() : Int;
+	fun IsEmpty() : Bool;
+	fun At(Int i) : IVariable;
+	fun Append(IVariable x) : Void;
+	fun RemoveFirst() : IVariable;
+	fun RemoveAt(Int i) : Void;
+}

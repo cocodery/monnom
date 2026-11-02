@@ -1,0 +1,12 @@
+# Splay: the top-down splay tree of Sleator and Tarjan, ported from the Octane
+# benchmark suite (splay.js, BSD licence), see NOTES.md.
+
+interface INode
+{
+	fun IsNone() : Bool;
+	fun Key() : Int;
+	fun Left() : INode;
+	fun SetLeft(INode n) : Void;
+	fun Right() : INode;
+	fun SetRight(INode n) : Void;
+}

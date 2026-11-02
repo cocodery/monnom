@@ -1,0 +1,144 @@
+# The concrete constraints. MonNom has no class inheritance, so the code of the
+# original UnaryConstraint and BinaryConstraint base classes is in class Binary
+# and class Unary of planner.mn; these classes hold the state of a constraint
+# and pass it along.
+#
+# Direction: 0 none, 1 forward (v1 to v2), 2 backward.
+
+class StayConstraint implements IConstraint
+{
+	private Int id;
+	private IStrength strength;
+	private IVariable output;
+	private Bool satisfied;
+	public constructor(Int i, IStrength s, IVariable v)
+	{
+		id = i;
+		strength = s;
+		output = v;
+		satisfied = false;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Id() : Int { return id; }
+	public fun GetStrength() : IStrength { return strength; }
+	public fun IsInput() : Bool { return false; }
+	public fun IsSatisfied() : Bool { return satisfied; }
+	public fun MarkUnsatisfied() : Void { satisfied = false; }
+	public fun AddToGraph() : Void { Ops.Attach(output, this); satisfied = false; }
+	public fun RemoveFromGraph() : Void { Ops.Detach(output, id); satisfied = false; }
+	public fun ChooseMethod(Int mark) : Void { satisfied = Unary.Choose(strength, output, mark); }
+	public fun MarkInputs(Int mark) : Void { }
+	public fun Output() : IVariable { return output; }
+	public fun InputsKnown(Int mark) : Bool { return true; }
+	public fun Recalculate() : Void { Unary.Recalculate(strength, output, false); }
+	public fun Execute() : Void { }
+}
+
+class EditConstraint implements IConstraint
+{
+	private Int id;
+	private IStrength strength;
+	private IVariable output;
+	private Bool satisfied;
+	public constructor(Int i, IStrength s, IVariable v)
+	{
+		id = i;
+		strength = s;
+		output = v;
+		satisfied = false;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Id() : Int { return id; }
+	public fun GetStrength() : IStrength { return strength; }
+	public fun IsInput() : Bool { return true; }
+	public fun IsSatisfied() : Bool { return satisfied; }
+	public fun MarkUnsatisfied() : Void { satisfied = false; }
+	public fun AddToGraph() : Void { Ops.Attach(output, this); satisfied = false; }
+	public fun RemoveFromGraph() : Void { Ops.Detach(output, id); satisfied = false; }
+	public fun ChooseMethod(Int mark) : Void { satisfied = Unary.Choose(strength, output, mark); }
+	public fun MarkInputs(Int mark) : Void { }
+	public fun Output() : IVariable { return output; }
+	public fun InputsKnown(Int mark) : Bool { return true; }
+	public fun Recalculate() : Void { Unary.Recalculate(strength, output, true); }
+	public fun Execute() : Void { }
+}
+
+class EqualityConstraint implements IConstraint
+{
+	private Int id;
+	private IStrength strength;
+	private IVariable v1;
+	private IVariable v2;
+	private Int direction;
+	public constructor(Int i, IStrength s, IVariable a, IVariable b)
+	{
+		id = i;
+		strength = s;
+		v1 = a;
+		v2 = b;
+		direction = 0;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Id() : Int { return id; }
+	public fun GetStrength() : IStrength { return strength; }
+	public fun IsInput() : Bool { return false; }
+	public fun IsSatisfied() : Bool { return direction != 0; }
+	public fun MarkUnsatisfied() : Void { direction = 0; }
+	public fun AddToGraph() : Void { Ops.Attach(v1, this); Ops.Attach(v2, this); direction = 0; }
+	public fun RemoveFromGraph() : Void { Ops.Detach(v1, id); Ops.Detach(v2, id); direction = 0; }
+	public fun ChooseMethod(Int mark) : Void { direction = Binary.Choose(strength, v1, v2, mark); }
+	public fun MarkInputs(Int mark) : Void { Binary.Input(direction, v1, v2).SetMark(mark); }
+	public fun Output() : IVariable { return Binary.Output(direction, v1, v2); }
+	public fun InputsKnown(Int mark) : Bool { return Binary.InputsKnown(direction, v1, v2, mark); }
+	public fun Recalculate() : Void { Binary.Recalculate(strength, direction, v1, v2); }
+	public fun Execute() : Void { Binary.Copy(direction, v1, v2); }
+}
+
+class ScaleConstraint implements IConstraint
+{
+	private Int id;
+	private IStrength strength;
+	private IVariable v1;
+	private IVariable v2;
+	private IVariable scale;
+	private IVariable offset;
+	private Int direction;
+	public constructor(Int i, IStrength s, IVariable a, IVariable b, IVariable c, IVariable d)
+	{
+		id = i;
+		strength = s;
+		v1 = a;
+		v2 = b;
+		scale = c;
+		offset = d;
+		direction = 0;
+	}
+	public fun IsNone() : Bool { return false; }
+	public fun Id() : Int { return id; }
+	public fun GetStrength() : IStrength { return strength; }
+	public fun IsInput() : Bool { return false; }
+	public fun IsSatisfied() : Bool { return direction != 0; }
+	public fun MarkUnsatisfied() : Void { direction = 0; }
+	public fun AddToGraph() : Void
+	{
+		Ops.Attach(v1, this);
+		Ops.Attach(v2, this);
+		Ops.Attach(scale, this);
+		Ops.Attach(offset, this);
+		direction = 0;
+	}
+	public fun RemoveFromGraph() : Void
+	{
+		Ops.Detach(v1, id);
+		Ops.Detach(v2, id);
+		Ops.Detach(scale, id);
+		Ops.Detach(offset, id);
+		direction = 0;
+	}
+	public fun ChooseMethod(Int mark) : Void { direction = Binary.Choose(strength, v1, v2, mark); }
+	public fun MarkInputs(Int mark) : Void { Binary.ScaleMarkInputs(direction, v1, v2, scale, offset, mark); }
+	public fun Output() : IVariable { return Binary.Output(direction, v1, v2); }
+	public fun InputsKnown(Int mark) : Bool { return Binary.InputsKnown(direction, v1, v2, mark); }
+	public fun Recalculate() : Void { Binary.ScaleRecalculate(strength, direction, v1, v2, scale, offset); }
+	public fun Execute() : Void { Binary.Scale(direction, v1, v2, scale, offset); }
+}

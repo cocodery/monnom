@@ -1,0 +1,331 @@
+# The kernel: the scheduler loop and the four kinds of task. All of the logic
+# of the original lives here and reaches its data through interfaces.
+#
+# Task identities: 0 idler, 1 worker, 2 handler A, 3 handler B, 4 device A,
+# 5 device B. Packet kinds: 0 device packet, 1 work packet.
+
+class Queue
+{
+	public static fun NewTaskTable(ITcb noTask) : ArrayList<ITcb>
+	{
+		ArrayList<ITcb> table = new ArrayList<ITcb>();
+		Int i = 0;
+		while (i < 6)
+		{
+			table.Add(noTask);
+			i = i + 1;
+		}
+		return table;
+	}
+
+	# appends packet at the end of the queue at head, returns the new head
+	public static fun Append(IPacket packet, IPacket head, IPacket none) : IPacket
+	{
+		packet.SetLink(none);
+		if (head.IsNone())
+		{
+			return packet;
+		}
+		IPacket mouse = head;
+		IPacket next = mouse.Link();
+		while (!next.IsNone())
+		{
+			mouse = next;
+			next = mouse.Link();
+		}
+		mouse.SetLink(packet);
+		return head;
+	}
+
+	public static fun AddInputAndCheckPriority(ITcb task, IPacket packet, ITcb oldTask, IPacket none) : ITcb
+	{
+		if (task.Input().IsNone())
+		{
+			task.SetInput(packet);
+			task.SetPacketPending(true);
+			if (task.Priority() > oldTask.Priority())
+			{
+				return task;
+			}
+		}
+		else
+		{
+			task.SetInput(Queue.Append(packet, task.Input(), none));
+		}
+		return oldTask;
+	}
+
+	public static fun RunTask(ITcb task, IPacket none) : ITcb
+	{
+		IPacket message = none;
+		if (task.IsPacketPending() && task.IsTaskWaiting() && !task.IsTaskHolding())
+		{
+			message = task.Input();
+			task.SetInput(message.Link());
+			if (task.Input().IsNone())
+			{
+				task.SetPacketPending(false);
+				task.SetTaskWaiting(false);
+				task.SetTaskHolding(false);
+			}
+			else
+			{
+				task.SetPacketPending(true);
+				task.SetTaskWaiting(false);
+				task.SetTaskHolding(false);
+			}
+		}
+		return task.Function().Apply(message);
+	}
+}
+
+class DeviceTask implements ITaskFunction
+{
+	private IScheduler scheduler;
+	private IDeviceData data;
+	private IPacket none;
+	public constructor(IScheduler s, IPacket n)
+	{
+		scheduler = s;
+		none = n;
+		data = new DeviceData(n);
+	}
+	public fun Apply(IPacket work) : ITcb
+	{
+		if (work.IsNone())
+		{
+			IPacket pending = data.Pending();
+			if (pending.IsNone())
+			{
+				return scheduler.MarkWaiting();
+			}
+			data.SetPending(none);
+			return scheduler.QueuePacket(pending);
+		}
+		data.SetPending(work);
+		return scheduler.HoldSelf();
+	}
+}
+
+class HandlerTask implements ITaskFunction
+{
+	private IScheduler scheduler;
+	private IHandlerData data;
+	private IPacket none;
+	public constructor(IScheduler s, IPacket n)
+	{
+		scheduler = s;
+		none = n;
+		data = new HandlerData(n);
+	}
+	public fun Apply(IPacket work) : ITcb
+	{
+		if (!work.IsNone())
+		{
+			if (work.Kind() == 1)
+			{
+				data.SetWorkIn(Queue.Append(work, data.WorkIn(), none));
+			}
+			else
+			{
+				data.SetDeviceIn(Queue.Append(work, data.DeviceIn(), none));
+			}
+		}
+		IPacket workPacket = data.WorkIn();
+		if (workPacket.IsNone())
+		{
+			return scheduler.MarkWaiting();
+		}
+		Int count = workPacket.Datum();
+		if (count >= 4)
+		{
+			data.SetWorkIn(workPacket.Link());
+			return scheduler.QueuePacket(workPacket);
+		}
+		IPacket devicePacket = data.DeviceIn();
+		if (devicePacket.IsNone())
+		{
+			return scheduler.MarkWaiting();
+		}
+		data.SetDeviceIn(devicePacket.Link());
+		devicePacket.SetDatum(workPacket.DataAt(count));
+		workPacket.SetDatum(count + 1);
+		return scheduler.QueuePacket(devicePacket);
+	}
+}
+
+class IdleTask implements ITaskFunction
+{
+	private IScheduler scheduler;
+	private IIdleData data;
+	public constructor(IScheduler s)
+	{
+		scheduler = s;
+		data = new IdleData();
+	}
+	public fun Apply(IPacket work) : ITcb
+	{
+		data.SetCount(data.Count() - 1);
+		if (data.Count() == 0)
+		{
+			return scheduler.HoldSelf();
+		}
+		if ((data.Control() & 1) == 0)
+		{
+			data.SetControl(data.Control() / 2);
+			return scheduler.Release(4);
+		}
+		data.SetControl((data.Control() / 2) ^ 53256);
+		return scheduler.Release(5);
+	}
+}
+
+class WorkerTask implements ITaskFunction
+{
+	private IScheduler scheduler;
+	private IWorkerData data;
+	public constructor(IScheduler s)
+	{
+		scheduler = s;
+		data = new WorkerData(2);
+	}
+	public fun Apply(IPacket work) : ITcb
+	{
+		if (work.IsNone())
+		{
+			return scheduler.MarkWaiting();
+		}
+		if (data.Destination() == 2)
+		{
+			data.SetDestination(3);
+		}
+		else
+		{
+			data.SetDestination(2);
+		}
+		work.SetIdentity(data.Destination());
+		work.SetDatum(0);
+		Int i = 0;
+		while (i < 4)
+		{
+			data.SetCount(data.Count() + 1);
+			if (data.Count() > 26)
+			{
+				data.SetCount(1);
+			}
+			work.SetDataAt(i, 65 + data.Count() - 1);
+			i = i + 1;
+		}
+		return scheduler.QueuePacket(work);
+	}
+}
+
+class Scheduler implements IScheduler
+{
+	private ITcb taskList;
+	private ITcb currentTask;
+	private Int currentTaskIdentity;
+	private ArrayList<ITcb> taskTable;
+	private ITcb noTask;
+	private IPacket noWork;
+	private Int queuePacketCount;
+	private Int holdCount;
+
+	public constructor(ITcb nt, IPacket nw)
+	{
+		noTask = nt;
+		noWork = nw;
+		taskList = nt;
+		currentTask = nt;
+		currentTaskIdentity = 0;
+		taskTable = Queue.NewTaskTable(nt);
+		queuePacketCount = 0;
+		holdCount = 0;
+	}
+
+	public fun QueuePacketCount() : Int { return queuePacketCount; }
+	public fun HoldCount() : Int { return holdCount; }
+
+	public fun AddTask(Int identity, Int priority, IPacket work, Bool pending, Bool waiting, Bool holding, ITaskFunction function) : Void
+	{
+		ITcb task = new Tcb(taskList, identity, priority, work, pending, waiting, holding, function);
+		taskList = task;
+		taskTable.Set(identity, task);
+	}
+
+	public fun Start() : Void
+	{
+		IScheduler self = this;
+		this.AddTask(0, 0, noWork, false, false, false, new IdleTask(self));
+
+		IPacket wkq = new Packet(noWork, 1, 1);
+		wkq = new Packet(wkq, 1, 1);
+		this.AddTask(1, 1000, wkq, true, true, false, new WorkerTask(self));
+
+		wkq = new Packet(noWork, 4, 0);
+		wkq = new Packet(wkq, 4, 0);
+		wkq = new Packet(wkq, 4, 0);
+		this.AddTask(2, 2000, wkq, true, true, false, new HandlerTask(self, noWork));
+
+		wkq = new Packet(noWork, 5, 0);
+		wkq = new Packet(wkq, 5, 0);
+		wkq = new Packet(wkq, 5, 0);
+		this.AddTask(3, 3000, wkq, true, true, false, new HandlerTask(self, noWork));
+
+		this.AddTask(4, 4000, noWork, false, true, false, new DeviceTask(self, noWork));
+		this.AddTask(5, 5000, noWork, false, true, false, new DeviceTask(self, noWork));
+
+		this.Schedule();
+	}
+
+	public fun Schedule() : Void
+	{
+		currentTask = taskList;
+		while (!currentTask.IsNone())
+		{
+			# isTaskHoldingOrWaiting
+			if (currentTask.IsTaskHolding() || (!currentTask.IsPacketPending() && currentTask.IsTaskWaiting()))
+			{
+				currentTask = currentTask.Link();
+			}
+			else
+			{
+				currentTaskIdentity = currentTask.Identity();
+				currentTask = Queue.RunTask(currentTask, noWork);
+			}
+		}
+	}
+
+	public fun QueuePacket(IPacket packet) : ITcb
+	{
+		ITcb target = taskTable.Get(packet.Identity());
+		queuePacketCount = queuePacketCount + 1;
+		packet.SetLink(noWork);
+		packet.SetIdentity(currentTaskIdentity);
+		return Queue.AddInputAndCheckPriority(target, packet, currentTask, noWork);
+	}
+
+	public fun HoldSelf() : ITcb
+	{
+		holdCount = holdCount + 1;
+		currentTask.SetTaskHolding(true);
+		return currentTask.Link();
+	}
+
+	public fun MarkWaiting() : ITcb
+	{
+		currentTask.SetTaskWaiting(true);
+		return currentTask;
+	}
+
+	public fun Release(Int identity) : ITcb
+	{
+		ITcb task = taskTable.Get(identity);
+		task.SetTaskHolding(false);
+		if (task.Priority() > currentTask.Priority())
+		{
+			return task;
+		}
+		return currentTask;
+	}
+}

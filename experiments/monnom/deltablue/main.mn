@@ -1,0 +1,116 @@
+class Main
+{
+	# a chain of n equality constraints; returns the number of bad values
+	public static fun ChainTest(Int n) : Int
+	{
+		Planner planner = new Planner();
+		ArrayList<IVariable> vars = new ArrayList<IVariable>();
+		Int i = 0;
+		while (i <= n)
+		{
+			vars.Add(planner.NewVariable(0));
+			i = i + 1;
+		}
+		i = 0;
+		while (i < n)
+		{
+			planner.AddConstraint(new EqualityConstraint(planner.NewId(), new Strength(0), vars.Get(i), vars.Get(i + 1)));
+			i = i + 1;
+		}
+		planner.AddConstraint(new StayConstraint(planner.NewId(), new Strength(3), vars.Get(n)));
+		IConstraint edit = planner.AddConstraint(new EditConstraint(planner.NewId(), new Strength(2), vars.Get(0)));
+		IConstraintVector editV = new ConstraintVector();
+		editV.Append(edit);
+		Plan plan = planner.ExtractPlan(editV);
+		Int bad = 0;
+		i = 0;
+		while (i < 100)
+		{
+			vars.Get(0).SetValue(i);
+			plan.Execute();
+			if (vars.Get(n).Value() != i)
+			{
+				bad = bad + 1;
+			}
+			i = i + 1;
+		}
+		planner.DestroyConstraint(edit);
+		return bad;
+	}
+
+	# n scale constraints sharing a scale and an offset
+	public static fun ProjectionTest(Int n) : Int
+	{
+		Planner planner = new Planner();
+		ArrayList<IVariable> dests = new ArrayList<IVariable>();
+		IVariable scale = planner.NewVariable(10);
+		IVariable offset = planner.NewVariable(1000);
+		IVariable src = scale;
+		IVariable dst = scale;
+		Int i = 0;
+		while (i < n)
+		{
+			src = planner.NewVariable(i);
+			dst = planner.NewVariable(i);
+			dests.Add(dst);
+			planner.AddConstraint(new StayConstraint(planner.NewId(), new Strength(4), src));
+			planner.AddConstraint(new ScaleConstraint(planner.NewId(), new Strength(0), src, dst, scale, offset));
+			i = i + 1;
+		}
+		Int bad = 0;
+		planner.Change(src, 17);
+		if (dst.Value() != 1170)
+		{
+			bad = bad + 1;
+		}
+		planner.Change(dst, 1050);
+		if (src.Value() != 5)
+		{
+			bad = bad + 1;
+		}
+		planner.Change(scale, 5);
+		i = 0;
+		while (i < n - 1)
+		{
+			if (dests.Get(i).Value() != i * 5 + 1000)
+			{
+				bad = bad + 1;
+			}
+			i = i + 1;
+		}
+		planner.Change(offset, 2000);
+		i = 0;
+		while (i < n - 1)
+		{
+			if (dests.Get(i).Value() != i * 5 + 2000)
+			{
+				bad = bad + 1;
+			}
+			i = i + 1;
+		}
+		return bad;
+	}
+
+	public static fun Main() : Void
+	{
+		Int iterations = 6000;
+		Int size = 100;
+		Int bad = 0;
+		Timer t = new Timer();
+		Int i = 0;
+		while (i < iterations)
+		{
+			bad = bad + Main.ChainTest(size);
+			bad = bad + Main.ProjectionTest(size);
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		iterations.ToString().Print();
+		"\n".Print();
+		size.ToString().Print();
+		"\n".Print();
+		bad.ToString().Print();
+		"\n".Print();
+	}
+}
