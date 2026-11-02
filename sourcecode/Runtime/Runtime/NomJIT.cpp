@@ -15,6 +15,8 @@
 #include "llvm/Analysis/TargetTransformInfoImpl.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/ExecutionEngine/Orc/IRTransformLayer.h"
+#include "llvm/IR/InlineAsm.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Verifier.h"
 #include "llvm/Object/SymbolSize.h"
@@ -199,6 +201,57 @@ llvm::Expected<std::unique_ptr<NomJIT>> NomJIT::Create() {
 }
 
 NomJIT::~NomJIT() {}
+
+// The collector scans the stack conservatively, and a function's prologue
+// saves the callee-saved registers whatever they hold. A value that is dead
+// but still sits in one of them at a recursive call is saved into the new
+// frame, where it stays alive until the recursion unwinds. A recursion that
+// holds a list in a local per level would keep all of those lists alive, and
+// which programs do depends on inlining and register allocation.
+// Clearing these registers before the call stops this. Values that are still
+// live across the call move to other registers or the stack on their own.
+// Only self-recursive calls are covered.
+static void ClearRegistersBeforeRecursion(Function &F) {
+#if defined(__x86_64__)
+  bool usesFramePointer = false;
+  SmallVector<CallInst *, 4> calls;
+  for (auto &block : F) {
+    for (auto &inst : block) {
+      if (auto alloca = dyn_cast<AllocaInst>(&inst)) {
+        usesFramePointer |= !alloca->isStaticAlloca();
+      }
+      auto call = dyn_cast<CallInst>(&inst);
+      if (call == nullptr ||
+          call->getCalledOperand()->stripPointerCasts() != &F) {
+        continue;
+      }
+      // a real tail call replaces this frame so nothing is left behind
+      // ret call (...);  find a not real tail call
+      auto next = dyn_cast<ReturnInst>(call->getNextNode());
+      if (!(call->isTailCall() && next != nullptr)) {
+        calls.push_back(call);
+      }
+    }
+  }
+  if (calls.empty()) {
+    return;
+  }
+  // a frame that resizes itself may address its locals through these two
+  std::string code = "xorl %r12d, %r12d\nxorl %r13d, %r13d\n"
+                     "xorl %r14d, %r14d\nxorl %r15d, %r15d";
+  std::string clobbers = "~{r12},~{r13},~{r14},~{r15}";
+  if (!usesFramePointer) {
+    code += "\nxorl %ebx, %ebx\nxorl %ebp, %ebp";
+    clobbers += ",~{rbx},~{rbp}";
+  }
+  auto clearType = FunctionType::get(Type::getVoidTy(F.getContext()), false);
+  auto clear = InlineAsm::get(clearType, code, clobbers, true);
+  for (auto call : calls) {
+    CallInst::Create(clear, "", call);
+  }
+#endif
+}
+
 Expected<ThreadSafeModule>
 NomJIT::optimizeModule(ThreadSafeModule TSM,
                        const MaterializationResponsibility &R) {
@@ -290,6 +343,11 @@ NomJIT::optimizeModule(ThreadSafeModule TSM,
       FPM->doFinalization();
       MPM->add(createVerifierPass(false));
       MPM->run(M);
+
+      for (auto &F : M) {
+        // find recursive calls
+        ClearRegistersBeforeRecursion(F);
+      }
     }
 
     if (NomFunctionTimingLevel > 2) {

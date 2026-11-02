@@ -214,223 +214,19 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   }
   llvm::Value *retval = nullptr;
-  bool simpleReturnType = false;
-  {
-    auto actualReturnType = method->GetReturnType();
-    if (actualReturnType->GetKind() == TypeKind::TKClass) {
-      auto classReturnType = (NomClassTypeRef)actualReturnType;
-      if (!classReturnType->Named->IsInterface() &&
-          !classReturnType->ContainsVariables()) {
-        simpleReturnType = true;
-      }
-    }
-    if (actualReturnType->GetKind() == TypeKind::TKVariable) {
-      simpleReturnType = true;
-    }
+  if (ResultNeedsCast(method)) {
+    actualResult = GenerateResultCast(builder, fun, fun, varargs, actualResult,
+                                      method, argTRTs.size());
   }
-  // also needed with IMT transitions: only a call through an IMT entry casts
-  // the result at the call site, a raw invoke relies on this cast
-  if ((!RTConfig_OmitCallTagCasts) || simpleReturnType) {
-    // a structural value remember the types it cast to in its header cast data
-    auto structCastType =
-        StructuralValueHeader::GenerateReadCastData(builder, argbuf[1]);
-    auto structCastTypeAsInt =
-        builder->CreatePtrToInt(structCastType, numtype(intptr_t));
-    auto structCastTypeTag =
-        builder->CreateTrunc(structCastTypeAsInt, inttype(1));
-    builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
-                             {structCastTypeTag, MakeUInt(1, 0)});
-    BasicBlock *multiCastListBlock =
-        BasicBlock::Create(LLVMCONTEXT, "multiCastList", fun);
-    static const char *castfail_msg = "Cast failed!";
-    BasicBlock *castFailBlock =
-        RTOutput_Fail::GenerateFailOutputBlock(builder, castfail_msg);
-    BasicBlock *singleCastBlock =
-        BasicBlock::Create(LLVMCONTEXT, "singleCastCast", fun);
-    BasicBlock *outBlock = BasicBlock::Create(LLVMCONTEXT, "out", fun);
-    BasicBlock *curBlock = builder->GetInsertBlock();
-    builder->SetInsertPoint(outBlock);
-    auto outPHI = builder->CreatePHI(actualResult->getType(), 2);
-    builder->SetInsertPoint(curBlock);
-
-    builder->CreateCondBr(structCastTypeTag, multiCastListBlock,
-                          singleCastBlock, GetLikelySecondBranchMetadata());
-    {
-      builder->SetInsertPoint(singleCastBlock);
-
-      BasicBlock *bestMatchBlock =
-          BasicBlock::Create(LLVMCONTEXT, "castTypePerfectMatch", fun);
-      BasicBlock *mismatchBlock =
-          BasicBlock::Create(LLVMCONTEXT, "castTypeMismatch", fun);
-
-      auto iface =
-          RTClassType::GenerateReadClassDescriptorLink(builder, structCastType);
-      auto ifaceMatch = CreatePointerEq(
-          builder, iface, method->GetContainer()->GetLLVMElement(mod));
-      builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
-                               {ifaceMatch, MakeUInt(1, 1)});
-      builder->CreateCondBr(ifaceMatch, bestMatchBlock, mismatchBlock,
-                            GetLikelyFirstBranchMetadata());
-
-      builder->SetInsertPoint(bestMatchBlock);
-      {
-        if (NomCastStats) {
-          builder->CreateCall(
-              GetIncPerfectCallTagTypeMatchesFunction(*fun->getParent()), {});
-        }
-        CastedValueCompileEnv cvce = CastedValueCompileEnv(
-            method->GetDirectTypeParameters(),
-            method->GetParent()->GetAllTypeParameters(), fun, 2, argTRTs.size(),
-            builder->CreatePointerCast(
-                builder->CreateGEP(
-                    builder->CreatePointerCast(
-                        structCastType,
-                        RTClassType::GetLLVMType()->getPointerTo()),
-                    {MakeInt32(0), MakeInt32(RTClassTypeFields::TypeArgs)}),
-                TYPETYPE->getPointerTo()));
-        auto castResult = RTCast::GenerateCast(builder, &cvce, actualResult,
-                                               method->GetReturnType());
-        // builder->CreateIntrinsic(Intrinsic::expect, { inttype(1) }, {
-        // castResult, MakeUInt(1,1) }); builder->CreateCondBr(castResult,
-        // outBlock, castFailBlock, GetLikelyFirstBranchMetadata());
-        outPHI->addIncoming(castResult, builder->GetInsertBlock());
-        builder->CreateBr(outBlock);
-      }
-
-      {
-        builder->SetInsertPoint(mismatchBlock);
-        if (NomCastStats) {
-          builder->CreateCall(
-              GetIncCallTagTypeMismatchesFunction(*fun->getParent()), {});
-        }
-        auto typeArgRefStore =
-            builder->CreateAlloca(TYPETYPE->getPointerTo(), MakeUInt(64, 1));
-        builder->CreateIntrinsic(
-            Intrinsic::lifetime_start, {POINTERTYPE},
-            {MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
-                 TYPETYPE->getPointerTo())),
-             builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
-        MakeInvariantStore(
-            builder,
-            builder->CreatePointerCast(
-                builder->CreateGEP(
-                    builder->CreatePointerCast(
-                        structCastType,
-                        RTClassType::GetLLVMType()->getPointerTo()),
-                    {MakeInt32(0), MakeInt32(RTClassTypeFields::TypeArgs)}),
-                TYPETYPE->getPointerTo()),
-            typeArgRefStore, AtomicOrdering::NotAtomic);
-        auto invariantID = builder->CreateIntrinsic(
-            Intrinsic::invariant_start, {POINTERTYPE},
-            {MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
-                 TYPETYPE->getPointerTo())),
-             builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
-        argbuf--;
-        argbuf[0] = builder->CreatePointerCast(fun, POINTERTYPE);
-        argbuf[1] = typeArgRefStore;
-        argbuf[2] = actualResult;
-        // When an untyped value is used as an interface
-        // its methods return dyn, but the interface promises a type
-        // after call the call-tag in interface call-tag
-        // do cast the return value to the declared type
-        auto rvcf =
-            RTInterface::GenerateReadReturnValueCheckFunction(builder, iface);
-        builder
-            ->CreateCall(GetCheckReturnValueFunctionType(), rvcf,
-                         llvm::ArrayRef<Value *>(
-                             argbuf, 3 + RTConfig_NumberOfVarargsArguments))
-            ->setCallingConv(NOMCC);
-
-        builder->CreateIntrinsic(
-            llvm::Intrinsic::invariant_end, {POINTERTYPE},
-            {invariantID,
-             MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
-                 TYPETYPE->getPointerTo())),
-             builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
-        builder->CreateIntrinsic(
-            llvm::Intrinsic::lifetime_end, {POINTERTYPE},
-            {MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
-                 TYPETYPE->getPointerTo())),
-             builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
-        outPHI->addIncoming(actualResult, builder->GetInsertBlock());
-        builder->CreateBr(outBlock);
-      }
-    }
-
-    {
-      BasicBlock *loopHeadBlock =
-          BasicBlock::Create(LLVMCONTEXT, "castList$Head", fun);
-      BasicBlock *loopBodyBlock =
-          BasicBlock::Create(LLVMCONTEXT, "castList$Body", fun);
-      builder->SetInsertPoint(multiCastListBlock);
-      auto typeArgRefStore =
-          builder->CreateAlloca(TYPETYPE->getPointerTo(), MakeUInt(64, 1));
-      auto firstNode =
-          StructuralValueHeader::GenerateCastListNode(builder, structCastType);
-      builder->CreateBr(loopHeadBlock);
-
-      builder->SetInsertPoint(loopHeadBlock);
-      auto node = builder->CreatePHI(firstNode->getType(), 2, "castListNode");
-      node->addIncoming(firstNode, multiCastListBlock);
-      builder->CreateCondBr(builder->CreateIsNull(node), outBlock,
-                            loopBodyBlock);
-      outPHI->addIncoming(actualResult, loopHeadBlock);
-
-      builder->SetInsertPoint(loopBodyBlock);
-      auto castType =
-          StructuralValueHeader::GenerateReadCastListType(builder, node);
-      auto iface =
-          RTClassType::GenerateReadClassDescriptorLink(builder, castType);
-      MakeStore(
-          builder,
-          builder->CreatePointerCast(
-              builder->CreateGEP(
-                  builder->CreatePointerCast(
-                      castType, RTClassType::GetLLVMType()->getPointerTo()),
-                  {MakeInt32(0), MakeInt32(RTClassTypeFields::TypeArgs)}),
-              TYPETYPE->getPointerTo()),
-          typeArgRefStore, AtomicOrdering::NotAtomic);
-
-      Value **checkArgs =
-          makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
-      for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
-           i < 3 + RTConfig_NumberOfVarargsArguments; i++) {
-        checkArgs[i] = argbuf[i];
-      }
-      checkArgs[0] = builder->CreatePointerCast(fun, POINTERTYPE);
-      checkArgs[1] = typeArgRefStore;
-      checkArgs[2] = actualResult;
-      auto rvcf =
-          RTInterface::GenerateReadReturnValueCheckFunction(builder, iface);
-      builder
-          ->CreateCall(GetCheckReturnValueFunctionType(), rvcf,
-                       llvm::ArrayRef<Value *>(
-                           checkArgs, 3 + RTConfig_NumberOfVarargsArguments))
-          ->setCallingConv(NOMCC);
-      node->addIncoming(
-          StructuralValueHeader::GenerateReadCastListNext(builder, node),
-          builder->GetInsertBlock());
-      builder->CreateBr(loopHeadBlock);
-    }
-
-    builder->SetInsertPoint(outBlock);
-    retval = EnsurePackedUnpacked(
-        builder,
-        EnsurePackedUnpacked(builder, outPHI,
-                             calledFunctionType->getReturnType()),
-        POINTERTYPE);
-  } else {
-    retval = EnsurePackedUnpacked(
-        builder,
-        EnsurePackedUnpacked(builder, actualResult,
-                             calledFunctionType->getReturnType()),
-        POINTERTYPE);
-  }
+  retval = EnsurePackedUnpacked(
+      builder,
+      EnsurePackedUnpacked(builder, actualResult,
+                           calledFunctionType->getReturnType()),
+      POINTERTYPE);
   builder->CreateRet(retval);
 
   llvm::raw_os_ostream out(std::cout);
-  // For some reason, verifyFunction is supposed to return false if there are no
-  // problems
+
   if (verifyFunction(*fun, &out)) {
     out.flush();
     std::cout << "Could not verify method key method!";
@@ -443,6 +239,214 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
 }
 llvm::Constant *NomInterfaceCallTag::findLLVMElement(llvm::Module &mod) const {
   return mod.getFunction("MONNOM_RT_ICT_" + key);
+}
+bool NomInterfaceCallTag::ResultNeedsCast(const NomMethod *method) {
+  bool simpleReturnType = false;
+  auto actualReturnType = method->GetReturnType();
+  if (actualReturnType->GetKind() == TypeKind::TKClass) {
+    auto classReturnType = (NomClassTypeRef)actualReturnType;
+    if (!classReturnType->Named->IsInterface() &&
+        !classReturnType->ContainsVariables()) {
+      simpleReturnType = true;
+    }
+  }
+  if (actualReturnType->GetKind() == TypeKind::TKVariable) {
+    simpleReturnType = true;
+  }
+  return (!RTConfig_OmitCallTagCasts) || simpleReturnType;
+}
+llvm::Value *NomInterfaceCallTag::GenerateResultCast(
+    NomBuilder &builder, llvm::Function *fun, llvm::Value *callTagFun,
+    llvm::Value **varargs, llvm::Value *actualResult, const NomMethod *method,
+    size_t argCount) {
+  // a structural value remember the types it cast to in its header cast data
+  auto structCastType =
+      StructuralValueHeader::GenerateReadCastData(builder, varargs[0]);
+  auto structCastTypeAsInt =
+      builder->CreatePtrToInt(structCastType, numtype(intptr_t));
+  auto structCastTypeTag =
+      builder->CreateTrunc(structCastTypeAsInt, inttype(1));
+  builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                           {structCastTypeTag, MakeUInt(1, 0)});
+  BasicBlock *multiCastListBlock =
+      BasicBlock::Create(LLVMCONTEXT, "multiCastList", fun);
+  static const char *castfail_msg = "Cast failed!";
+  BasicBlock *castFailBlock =
+      RTOutput_Fail::GenerateFailOutputBlock(builder, castfail_msg);
+  BasicBlock *singleCastBlock =
+      BasicBlock::Create(LLVMCONTEXT, "singleCastCast", fun);
+  BasicBlock *outBlock = BasicBlock::Create(LLVMCONTEXT, "out", fun);
+  BasicBlock *curBlock = builder->GetInsertBlock();
+  builder->SetInsertPoint(outBlock);
+  auto outPHI = builder->CreatePHI(actualResult->getType(), 2);
+  builder->SetInsertPoint(curBlock);
+
+  builder->CreateCondBr(structCastTypeTag, multiCastListBlock, singleCastBlock,
+                        GetLikelySecondBranchMetadata());
+  {
+    builder->SetInsertPoint(singleCastBlock);
+
+    BasicBlock *bestMatchBlock =
+        BasicBlock::Create(LLVMCONTEXT, "castTypePerfectMatch", fun);
+    BasicBlock *mismatchBlock =
+        BasicBlock::Create(LLVMCONTEXT, "castTypeMismatch", fun);
+
+    auto iface =
+        RTClassType::GenerateReadClassDescriptorLink(builder, structCastType);
+    auto ifaceMatch = CreatePointerEq(
+        builder, iface,
+        method->GetContainer()->GetLLVMElement(*fun->getParent()));
+    builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                             {ifaceMatch, MakeUInt(1, 1)});
+    builder->CreateCondBr(ifaceMatch, bestMatchBlock, mismatchBlock,
+                          GetLikelyFirstBranchMetadata());
+
+    builder->SetInsertPoint(bestMatchBlock);
+    {
+      if (NomCastStats) {
+        builder->CreateCall(
+            GetIncPerfectCallTagTypeMatchesFunction(*fun->getParent()), {});
+      }
+      CastedValueCompileEnv cvce = CastedValueCompileEnv(
+          method->GetDirectTypeParameters(),
+          method->GetParent()->GetAllTypeParameters(), fun, 2, argCount,
+          builder->CreatePointerCast(
+              builder->CreateGEP(
+                  builder->CreatePointerCast(
+                      structCastType,
+                      RTClassType::GetLLVMType()->getPointerTo()),
+                  {MakeInt32(0), MakeInt32(RTClassTypeFields::TypeArgs)}),
+              TYPETYPE->getPointerTo()));
+      auto castResult = RTCast::GenerateCast(builder, &cvce, actualResult,
+                                             method->GetReturnType());
+      // builder->CreateIntrinsic(Intrinsic::expect, { inttype(1) }, {
+      // castResult, MakeUInt(1,1) }); builder->CreateCondBr(castResult,
+      // outBlock, castFailBlock, GetLikelyFirstBranchMetadata());
+      outPHI->addIncoming(castResult, builder->GetInsertBlock());
+      builder->CreateBr(outBlock);
+    }
+
+    {
+      builder->SetInsertPoint(mismatchBlock);
+      if (NomCastStats) {
+        builder->CreateCall(
+            GetIncCallTagTypeMismatchesFunction(*fun->getParent()), {});
+      }
+      auto typeArgRefStore =
+          builder->CreateAlloca(TYPETYPE->getPointerTo(), MakeUInt(64, 1));
+      builder->CreateIntrinsic(
+          Intrinsic::lifetime_start, {POINTERTYPE},
+          {MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
+               TYPETYPE->getPointerTo())),
+           builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
+      MakeInvariantStore(
+          builder,
+          builder->CreatePointerCast(
+              builder->CreateGEP(
+                  builder->CreatePointerCast(
+                      structCastType,
+                      RTClassType::GetLLVMType()->getPointerTo()),
+                  {MakeInt32(0), MakeInt32(RTClassTypeFields::TypeArgs)}),
+              TYPETYPE->getPointerTo()),
+          typeArgRefStore, AtomicOrdering::NotAtomic);
+      auto invariantID = builder->CreateIntrinsic(
+          Intrinsic::invariant_start, {POINTERTYPE},
+          {MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
+               TYPETYPE->getPointerTo())),
+           builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
+      Value **checkArgs =
+          makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
+      checkArgs[0] = builder->CreatePointerCast(callTagFun, POINTERTYPE);
+      checkArgs[1] = typeArgRefStore;
+      checkArgs[2] = actualResult;
+      for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
+           i < RTConfig_NumberOfVarargsArguments; i++) {
+        checkArgs[i + 3] = varargs[i + 1];
+      }
+      // When an untyped value is used as an interface
+      // its methods return dyn, but the interface promises a type
+      // after call the call-tag in interface call-tag
+      // do cast the return value to the declared type
+      auto rvcf =
+          RTInterface::GenerateReadReturnValueCheckFunction(builder, iface);
+      builder
+          ->CreateCall(GetCheckReturnValueFunctionType(), rvcf,
+                       llvm::ArrayRef<Value *>(
+                           checkArgs, 3 + RTConfig_NumberOfVarargsArguments))
+          ->setCallingConv(NOMCC);
+
+      builder->CreateIntrinsic(
+          llvm::Intrinsic::invariant_end, {POINTERTYPE},
+          {invariantID,
+           MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
+               TYPETYPE->getPointerTo())),
+           builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
+      builder->CreateIntrinsic(
+          llvm::Intrinsic::lifetime_end, {POINTERTYPE},
+          {MakeInt<int64_t>(GetNomJITDataLayout().getTypeAllocSize(
+               TYPETYPE->getPointerTo())),
+           builder->CreatePointerCast(typeArgRefStore, POINTERTYPE)});
+      outPHI->addIncoming(actualResult, builder->GetInsertBlock());
+      builder->CreateBr(outBlock);
+    }
+  }
+
+  {
+    BasicBlock *loopHeadBlock =
+        BasicBlock::Create(LLVMCONTEXT, "castList$Head", fun);
+    BasicBlock *loopBodyBlock =
+        BasicBlock::Create(LLVMCONTEXT, "castList$Body", fun);
+    builder->SetInsertPoint(multiCastListBlock);
+    auto typeArgRefStore =
+        builder->CreateAlloca(TYPETYPE->getPointerTo(), MakeUInt(64, 1));
+    auto firstNode =
+        StructuralValueHeader::GenerateCastListNode(builder, structCastType);
+    builder->CreateBr(loopHeadBlock);
+
+    builder->SetInsertPoint(loopHeadBlock);
+    auto node = builder->CreatePHI(firstNode->getType(), 2, "castListNode");
+    node->addIncoming(firstNode, multiCastListBlock);
+    builder->CreateCondBr(builder->CreateIsNull(node), outBlock, loopBodyBlock);
+    outPHI->addIncoming(actualResult, loopHeadBlock);
+
+    builder->SetInsertPoint(loopBodyBlock);
+    auto castType =
+        StructuralValueHeader::GenerateReadCastListType(builder, node);
+    auto iface =
+        RTClassType::GenerateReadClassDescriptorLink(builder, castType);
+    MakeStore(builder,
+              builder->CreatePointerCast(
+                  builder->CreateGEP(
+                      builder->CreatePointerCast(
+                          castType, RTClassType::GetLLVMType()->getPointerTo()),
+                      {MakeInt32(0), MakeInt32(RTClassTypeFields::TypeArgs)}),
+                  TYPETYPE->getPointerTo()),
+              typeArgRefStore, AtomicOrdering::NotAtomic);
+
+    Value **checkArgs =
+        makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
+    checkArgs[0] = builder->CreatePointerCast(callTagFun, POINTERTYPE);
+    checkArgs[1] = typeArgRefStore;
+    checkArgs[2] = actualResult;
+    for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
+         i < RTConfig_NumberOfVarargsArguments; i++) {
+      checkArgs[i + 3] = varargs[i + 1];
+    }
+    auto rvcf =
+        RTInterface::GenerateReadReturnValueCheckFunction(builder, iface);
+    builder
+        ->CreateCall(GetCheckReturnValueFunctionType(), rvcf,
+                     llvm::ArrayRef<Value *>(
+                         checkArgs, 3 + RTConfig_NumberOfVarargsArguments))
+        ->setCallingConv(NOMCC);
+    node->addIncoming(
+        StructuralValueHeader::GenerateReadCastListNext(builder, node),
+        builder->GetInsertBlock());
+    builder->CreateBr(loopHeadBlock);
+  }
+
+  builder->SetInsertPoint(outBlock);
+  return outPHI;
 }
 } // namespace Runtime
 } // namespace Nom

@@ -57,8 +57,8 @@ struct IMTCompileJob {
 // The main thread builds the IR, which needs the shared LLVMCONTEXT, the
 // runtime's type data and the GC heap, and hands it over as bitcode. The
 // worker stays out of all three, in a private context. It is not registered
-// with Boehm: registering a thread starts the parallel markers and locks the
-// allocator, so --trans would no longer run with the same GC as the base mode.
+// with Boehm: registering a thread locks the allocator, so --trans would no
+// longer run with the same GC as the base mode.
 class IMTAsyncCompiler {
 private:
   std::mutex mutex; // guards queued, finished and stopping

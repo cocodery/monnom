@@ -30,11 +30,15 @@
 #include <llvm/IR/GlobalValue.h>
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 using namespace llvm;
 namespace Nom {
 namespace Runtime {
 namespace IMTUtils {
+
+// IMT entry functions and their modules share this name prefix
+static const char IMTEntryPrefix[] = "MONNOM_RT_RECORDIMT_";
 
 static NomRecordMethod *LookupRecordMethod(const NomRecord *nomRecord,
                                            const NomInterfaceCallTag *callTag) {
@@ -103,6 +107,68 @@ static void *LookupRecordMethodAddr(const NomRecordMethod *meth) {
   return addr;
 }
 
+static NomTypeRef ClosedResultCastType(const NomRecordMethod *meth,
+                                       const NomInterfaceCallTag *callTag) {
+  auto ifaceMethod = callTag->GetMethod();
+  auto returnType = ifaceMethod->GetReturnType();
+  if (returnType->ContainsVariables() ||
+      !NomInterfaceCallTag::ResultNeedsCast(ifaceMethod)) {
+    return nullptr;
+  }
+  NomSubstitutionContextMemberContext nscmc(meth);
+  // record method returns a subtype of the interface method return type
+  return meth->GetReturnType(&nscmc)->IsSubtype(returnType) ? nullptr
+                                                            : returnType;
+}
+
+static FunctionType *GetResultCastFunctionType() {
+  static auto ft = FunctionType::get(REFTYPE, {REFTYPE}, false);
+  return ft;
+}
+
+// shared cast function
+static void *LookupResultCastAddr(NomTypeRef type) {
+  static std::unordered_map<std::string, void *> casts;
+  auto [iter, inserted] = casts.try_emplace(type->GetSymbolRep(), nullptr);
+  if (!inserted) {
+    return iter->second;
+  }
+  auto &jit = NomJIT::Instance();
+  std::string name =
+      IMTEntryPrefix + std::string("CAST_") + std::to_string(casts.size());
+  std::unique_ptr<Module> mod;
+  {
+    // held until the module is handed to the JIT
+    auto lock = jit.getContextLock();
+    mod = std::make_unique<Module>(name, LLVMCONTEXT);
+    mod->setDataLayout(jit.getDataLayout());
+    Function *fun =
+        Function::Create(GetResultCastFunctionType(), Function::ExternalLinkage,
+                         name, mod.get());
+    fun->setCallingConv(NOMCC);
+    NomBuilder builder;
+    builder->SetInsertPoint(BasicBlock::Create(LLVMCONTEXT, "", fun));
+    CastedValueCompileEnv env(
+        {}, {}, fun, 1, 0, ConstantPointerNull::get(TYPETYPE->getPointerTo()));
+    builder->CreateRet(EnsurePackedUnpacked(
+        builder, RTCast::GenerateCast(builder, &env, fun->arg_begin(), type),
+        REFTYPE));
+    if (auto err = jit.addModule(std::move(mod))) {
+      logAllUnhandledErrors(std::move(err), errs(),
+                            "Could not add result cast " + name + ": ");
+      throw new std::exception();
+    }
+  }
+  auto sym = jit.lookup(name);
+  if (!sym) {
+    logAllUnhandledErrors(sym.takeError(), errs(),
+                          "Could not find result cast " + name + ": ");
+    throw new std::exception();
+  }
+  iter->second = reinterpret_cast<void *>(sym->getAddress());
+  return iter->second;
+}
+
 // The record's methods are compiled before
 // its address is looked up only when an entry is about to be built
 bool CheckCallTagMethodExist(const NomRecord *nomRecord,
@@ -112,7 +178,11 @@ bool CheckCallTagMethodExist(const NomRecord *nomRecord,
 
 void CacheRecordMethodAddr(const NomRecord *nomRecord,
                            const NomInterfaceCallTag *callTag) {
-  LookupRecordMethodAddr(LookupRecordMethodCached(nomRecord, callTag));
+  auto meth = LookupRecordMethodCached(nomRecord, callTag);
+  LookupRecordMethodAddr(meth);
+  if (auto castType = ClosedResultCastType(meth, callTag)) {
+    LookupResultCastAddr(castType);
+  }
 }
 
 // Reads the IMT entry argument at position `pos` (0 is the receiver)
@@ -206,16 +276,32 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
                                         meth->GetQName());
   callResult->setCallingConv(NOMCC);
   // Return in the interface method's representation as NomInterfaceCallTag does
-  auto actualResult = EnsurePackedUnpacked(
-      builder, EnsurePackedUnpacked(builder, callResult, REFTYPE),
-      ifaceFunctionType->getReturnType());
+  Value *actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
+  auto ifaceMethod = callTag->GetMethod();
+  if (auto castType = ClosedResultCastType(meth, callTag)) {
+    // return type is closed but not subtype of interface method return type
+    auto castFun = builder->CreateIntToPtr(
+        ConstantInt::get(
+            numtype(intptr_t),
+            reinterpret_cast<intptr_t>(LookupResultCastAddr(castType))),
+        GetResultCastFunctionType()->getPointerTo());
+    auto castCall = builder->CreateCall(GetResultCastFunctionType(), castFun,
+                                        {actualResult});
+    castCall->setCallingConv(NOMCC);
+    actualResult = castCall;
+  } else if (NomInterfaceCallTag::ResultNeedsCast(ifaceMethod) &&
+             ifaceMethod->GetReturnType()->ContainsVariables()) {
+    // the return type contains type variables
+    actualResult = NomInterfaceCallTag::GenerateResultCast(
+        builder, fun, argCallTag, varargs, actualResult, ifaceMethod,
+        meth->GetArgumentCount());
+  }
+  actualResult = EnsurePackedUnpacked(builder, actualResult,
+                                      ifaceFunctionType->getReturnType());
   builder->CreateRet(EnsurePackedUnpacked(builder, actualResult, POINTERTYPE));
 
   builder->SetInsertPoint(nextBlock);
 }
-
-// IMT entry functions and their modules share this name prefix
-static const char IMTEntryPrefix[] = "MONNOM_RT_RECORDIMT_";
 
 std::unique_ptr<Module>
 BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,

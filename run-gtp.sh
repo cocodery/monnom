@@ -2,8 +2,8 @@
 # Run the GTP benchmark ports in gtp-benchmark-monnom with nombench and check
 # that every configuration printed the expected result.
 #
-# usage: ./run-gtp <test|all> [-r RUNS] [-p] [--compare | --dry-run | --clean]
-#                  [-- NOM_FLAGS...]
+# usage: ./run-gtp <test|all> [-r RUNS] [-p] [--lattice]
+#                  [--compare | --dry-run | --clean] [-- NOM_FLAGS...]
 #
 #   <test>          a benchmark folder in gtp-benchmark-monnom (e.g. sieve);
 #                   `all` runs every benchmark in turn
@@ -12,6 +12,11 @@
 #   -p              also chart the running times, into
 #                   charts/gtp/<test>/<test>-<nom flags>.png (<test>-base.png
 #                   without flags); only when every configuration passed
+#   --lattice       also draw the performance lattice, into
+#                   charts/gtp/<test>/<test>-<nom flags>-lattice.png and .html;
+#                   failed configurations are marked on it. With --compare
+#                   each mode gets its own, all relative to the fully untyped
+#                   configuration of the base mode
 #   --compare       collect performance data: nombench generates the
 #                   configurations once, then each one runs with nom in three
 #                   modes (no flags, --trans, --trans --sync), RUNS times per
@@ -79,7 +84,7 @@ rungtp_print_matrix() {
 }
 
 rungtp_usage() {
-  sed -n '5,31p' "$RUNGTP_SELF" | sed 's/^# \{0,1\}//'
+  sed -n '5,36p' "$RUNGTP_SELF" | sed 's/^# \{0,1\}//'
   if [ -d "$TESTS_DIR" ]; then
     echo "available tests:"
     mapfile -t RUNGTP_NAMES < <(rungtp_list_tests)
@@ -101,6 +106,7 @@ RUNS_GIVEN=0
 DRYRUN=0
 CLEAN=0
 PLOT=0
+LATTICE=0
 COMPARE=0
 FORWARD=()
 while [ $# -gt 0 ]; do
@@ -110,6 +116,7 @@ while [ $# -gt 0 ]; do
         fi
         RUNS="$2"; RUNS_GIVEN=1; shift 2 ;;
     -p) PLOT=1; shift ;;
+    --lattice) LATTICE=1; shift ;;
     --compare) COMPARE=1; shift ;;
     --dry-run) DRYRUN=1; shift ;;
     --clean) CLEAN=1; shift ;;
@@ -121,9 +128,9 @@ if [ $DRYRUN -eq 1 ] && [ $CLEAN -eq 1 ]; then
   echo "ERROR: --dry-run and --clean cannot be combined"; rungtp_usage
 fi
 if { [ $DRYRUN -eq 1 ] || [ $CLEAN -eq 1 ]; } &&
-   { [ $RUNS_GIVEN -eq 1 ] || [ $PLOT -eq 1 ] || [ $COMPARE -eq 1 ] ||
-     [ ${#FORWARD[@]} -gt 0 ]; }; then
-  echo "ERROR: -r, -p, --compare and nom flags only apply when the" \
+   { [ $RUNS_GIVEN -eq 1 ] || [ $PLOT -eq 1 ] || [ $LATTICE -eq 1 ] ||
+     [ $COMPARE -eq 1 ] || [ ${#FORWARD[@]} -gt 0 ]; }; then
+  echo "ERROR: -r, -p, --lattice, --compare and nom flags only apply when the" \
        "configurations are run"
   rungtp_usage
 fi
@@ -360,6 +367,29 @@ rungtp_run_test() {
     return 1
   fi
 
+  local OUTDIR="$RUNGTP_DIR/charts/gtp/$B" LATTICE_OK=1
+  # before the failure check: a long run's lattice is worth having even if
+  # a few configurations failed
+  if [ $LATTICE -eq 1 ]; then
+    NAME="$(rungtp_chart_name "$B")"
+    NAME="${NAME%.png}-lattice.png"
+    mkdir -p "$OUTDIR"
+    echo "== $LABEL: drawing the lattice into $OUTDIR/$NAME"
+    # base runs first; the other modes are measured against its time
+    local BASELINE=()
+    [ "$VARIANT" = base ] && BASELINE=(--save-baseline "$RAW_TMP/$B.baseline")
+    [ -n "$VARIANT" ] && [ "$VARIANT" != base ] &&
+      BASELINE=(--baseline "$RAW_TMP/$B.baseline")
+    if python3 "$RUNGTP_DIR/scripts/python/lattice.py" "$OUTDIR/$NAME" "$D" \
+         "${BASELINE[@]}" --failed "${bad[@]#.BM_}"; then
+      RESULT+=", lattice charts/gtp/$B/$NAME"
+    else
+      RESULT+=", drawing the lattice failed"
+      echo "$LABEL: ERROR: drawing the lattice failed"
+      LATTICE_OK=0
+    fi
+  fi
+
   if [ ${#bad[@]} -gt 0 ]; then
     echo "$LABEL: failing configurations:"
     printf '  %s\n' "${bad[@]:0:20}"
@@ -370,7 +400,6 @@ rungtp_run_test() {
   fi
 
   if [ $PLOT -eq 1 ]; then
-    local OUTDIR="$RUNGTP_DIR/charts/gtp/$B"
     NAME="$(rungtp_chart_name "$B")"
     mkdir -p "$OUTDIR"
     echo "== $LABEL: charting into $OUTDIR/$NAME"
@@ -383,7 +412,7 @@ rungtp_run_test() {
     fi
     RESULT+=", chart charts/gtp/$B/$NAME"
   fi
-  return 0
+  [ $LATTICE_OK -eq 1 ]
 }
 
 # runtime flags of each --compare variant

@@ -3,7 +3,7 @@
 # configuration executed and returned the right result, and with -p chart
 # the running times.
 #
-# usage: ./run-benchmark.sh <test> [name|CONFIG] [-p [DIR]] [-r RUNS]
+# usage: ./run-benchmark.sh <test> [name|CONFIG] [-p [DIR]] [--lattice] [-r RUNS]
 #                           [--plot-only | --no-gen | --compare | --dry-run |
 #                            --clean]
 #                           [-- RUNTIME_FLAGS...]
@@ -16,6 +16,11 @@
 #                   $MONNOMBASE); without -p the results are only checked.
 #                   Any word after -p is DIR, so put <test> and [name]
 #                   before -p
+#   --lattice       also draw the performance lattice, as
+#                   <name>-lattice.png and .html in the -p DIR (default
+#                   $MONNOMBASE); failed configurations are marked on it.
+#                   With --compare each variant gets its own, all relative
+#                   to the fully untyped configuration of the base variant
 #   -r RUNS         measured runs per configuration (default 1)
 #   --plot-only     skip running, chart the existing results.csv (implies -p)
 #   --no-gen        skip the benchmark generator, rerun the existing
@@ -36,7 +41,7 @@ RUNBENCH_SELF="$( realpath "${BASH_SOURCE[0]}" )"
 RUNBENCH_DIR="$( dirname "$RUNBENCH_SELF" )"
 
 runbench_usage() {
-  sed -n '6,31p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
+  sed -n '6,36p' "$RUNBENCH_SELF" | sed 's/^# \{0,1\}//'
   echo "available tests:"
   for d in "$RUNBENCH_DIR"/experiments/monnom/*/; do
     [ -f "$d/plotconfig.json" ] && echo "  $(basename "$d")"
@@ -60,6 +65,7 @@ RUNS_GIVEN=0
 OUTNAME=""
 OUTDIR=""
 PLOT=0
+LATTICE=0
 PLOTONLY=0
 NOGEN=0
 COMPARE=0
@@ -74,6 +80,7 @@ while [ $# -gt 0 ]; do
         if [ $# -gt 0 ] && [[ "$1" != -* ]]; then
           OUTDIR="$1"; shift
         fi ;;
+    --lattice) LATTICE=1; shift ;;
     --plot-only) PLOTONLY=1; PLOT=1; shift ;;
     --no-gen) NOGEN=1; shift ;;
     --compare) COMPARE=1; shift ;;
@@ -103,15 +110,17 @@ elif [[ "$OUTNAME" =~ ^[A-Z]+$ ]]; then
   exit 1
 fi
 if [ $DRYRUN -eq 1 ] && { [ -n "$CONFIG" ] || [ $PLOT -eq 1 ] ||
-   [ $COMPARE -eq 1 ] || [ $NOGEN -eq 1 ] || [ $CLEAN -eq 1 ] ||
+   [ $LATTICE -eq 1 ] || [ $COMPARE -eq 1 ] || [ $NOGEN -eq 1 ] || [ $CLEAN -eq 1 ] ||
    [ $RUNS_GIVEN -eq 1 ] || [ ${#FORWARD[@]} -gt 0 ]; }; then
   echo "ERROR: --dry-run only generates configurations; it cannot be" \
-       "combined with a CONFIG, -p, -r, --plot-only, --no-gen, --compare," \
+       "combined with a CONFIG, -p, -r, --lattice, --plot-only, --no-gen," \
+       "--compare," \
        "--clean or runtime flags"
   exit 1
 fi
-if [ -n "$CONFIG" ] && [ $PLOT -eq 1 ]; then
-  echo "ERROR: -p and --plot-only make no sense for a single configuration"
+if [ -n "$CONFIG" ] && { [ $PLOT -eq 1 ] || [ $LATTICE -eq 1 ]; }; then
+  echo "ERROR: -p, --lattice and --plot-only make no sense for a single" \
+       "configuration"
   exit 1
 fi
 
@@ -192,6 +201,10 @@ if [ $COMPARE -eq 1 ]; then
   fi
   COMMON=(-r "$RUNS")
   [ $PLOT -eq 1 ] && COMMON+=(-p ${OUTDIR:+"$OUTDIR"})
+  [ $LATTICE -eq 1 ] && COMMON+=(--lattice)
+  # base runs first; the other variants' lattices are measured against its time
+  BASELINE_DIR="$( mktemp -d )"
+  trap 'rm -rf "$BASELINE_DIR"' EXIT
   BASE="${OUTNAME%.png}"
   FAILED=()
   for VARIANT in "${COMPARE_VARIANTS[@]}"; do
@@ -201,7 +214,11 @@ if [ $COMPARE -eq 1 ]; then
     ALL=( "${FLAGS[@]}" "${FORWARD[@]}" )
     # the run prints this header right before its nom command, i.e. after
     # nombench has generated the configurations for base
+    BASELINE_FLAG=--baseline
+    [ "$VARIANT" = base ] && BASELINE_FLAG=--save-baseline
     if ! RUNBENCH_HEADER="==== $VARIANT${ALL[*]:+: ${ALL[*]}}" \
+         RUNBENCH_BASELINE_FLAG="$BASELINE_FLAG" \
+         RUNBENCH_BASELINE_FILE="$BASELINE_DIR/baseline" \
          "$RUNBENCH_SELF" "$TEST" "$BASE-$VARIANT" "${COMMON[@]}" "${GEN[@]}" \
          -- "${FLAGS[@]}" "${FORWARD[@]}"; then
       FAILED+=("$VARIANT")
@@ -295,6 +312,15 @@ fi
 if [ ! -s "$BENCHDIR/results.csv" ]; then
   echo "ERROR: no results in $BENCHDIR/results.csv"
   exit 1
+fi
+# before the checks below: a long run's lattice is worth having even if a
+# few configurations failed
+if [ $LATTICE -eq 1 ]; then
+  LATTICEFILE="${OUTDIR:-$MONNOMBASE}/${OUTNAME%.png}-lattice.png"
+  echo "== drawing the lattice into $LATTICEFILE"
+  python3 "$MONNOMBASE/scripts/python/lattice.py" "$LATTICEFILE" "$BENCHDIR" \
+    ${RUNBENCH_BASELINE_FLAG:+"$RUNBENCH_BASELINE_FLAG" "$RUNBENCH_BASELINE_FILE"} \
+    || { echo "ERROR: drawing the lattice failed"; exit 1; }
 fi
 # a run that crashed or printed an error leaves an empty out file
 mapfile -t EMPTY < <( find "$BENCHDIR" -path '*/.BM_*/out*.txt' -empty \

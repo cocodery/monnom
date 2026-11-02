@@ -76,8 +76,9 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
   auto directTypeArgCount = method.Elem->GetDirectTypeParametersCount();
   auto classTypeArgCount = method.TypeArgs.size() - directTypeArgCount;
   for (size_t i = 1; i <= directTypeArgCount; i++) {
-    argarr[i] = method.TypeArgs[classTypeArgCount + i - 1]
-                    ->GenerateRTInstantiation(builder, env);
+    argarr[i] =
+        method.TypeArgs[classTypeArgCount + i - 1]->GenerateRTInstantiation(
+            builder, env);
   }
 
   for (int i = env->GetArgCount() - 1; i >= 0; i--) {
@@ -153,7 +154,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
 
   Value *receiver = (*env)[Receiver];
 
-  if (rawInvoke) {
+  if (rawInvoke) { // typed raw invocation
     // builder->CreateCall(
     //     GetPrint(mod),
     //     {ConstantInt::get(
@@ -309,12 +310,6 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
     } else {
       result = builder->CreateBitOrPointerCast(call, rettype);
     }
-    if (RTConfig_EnableTransition && rettype == REFTYPE) {
-      // in normal version return value from RCT is casted in ICT
-      // but IMT Transition get return value from IMT Entry without cast
-      result = RTCast::GenerateCast(builder, env, result,
-                                    method.Elem->GetReturnType(&nscl));
-    }
     RegisterValue(env,
                   NomValue(result, method.Elem->GetReturnType(&nscl), true));
     if (invariantID != nullptr) {
@@ -326,7 +321,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
                argsArrSize),
            argarr[RTConfig_NumberOfVarargsArguments + 1]});
     }
-  } else { // for dynamic call
+  } else { // direct class method call
     if (NomCastStats) {
       builder->CreateCall(GetIncDirectClassMethodCalls(*mod), {});
     }

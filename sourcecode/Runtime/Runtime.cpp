@@ -188,6 +188,9 @@ void initLibrary() {
 int main(int argc, char **args) {
   parseArguments(argc, args);
   GC_INIT();
+  // mark in parallel in every mode. No other thread allocates from the GC
+  // heap, so this leaves the allocator lock-free, unlike registering threads
+  GC_start_mark_threads();
 
   llvm::InitializeNativeTarget();
   llvm::InitializeNativeTargetAsmPrinter();
