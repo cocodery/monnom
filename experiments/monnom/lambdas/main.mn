@@ -1,0 +1,87 @@
+class Bench
+{
+	# map, filter and fold with function objects
+	public static fun Pipelines(Int seed) : Int
+	{
+		IIntList xs = Ops.Range(seed, 1000);
+		# the generator substitutes constructor arguments into the lambda it
+		# makes of a class, so they are locals rather than nested news
+		IIntFun add = new AddN(seed % 7);
+		IIntFun mul = new MulN(3);
+		IIntFun step = new Compose(add, mul);
+		IIntList ys = Ops.Map(xs, step);
+		IIntList zs = Ops.Filter(ys, new IsMultiple(5));
+		return (Ops.Fold(zs, new Plus(1000003), 0) + Ops.Fold(xs, new MaxOf(), 0)) % 1000003;
+	}
+
+	# new strategy records every time, called through IOp; dictionary
+	# fields get fewer calls, their lookups cost as much as the rest together
+	public static fun Strategies(Int seed) : Int
+	{
+		Int acc = 0;
+		Int k = 1;
+		while (k <= 4)
+		{
+			acc = (acc + Ops.RunOp(Ops.MakeOp(k + seed % 3), 1000)) % 1000003;
+			acc = (acc + Ops.RunOp(Ops.MakeDictOp(k + seed % 5), 100)) % 1000003;
+			k = k + 1;
+		}
+		return acc;
+	}
+
+	# typed closures that capture locals
+	public static fun Closures(Int seed) : Int
+	{
+		Int offset = seed % 11;
+		Fun<Int, Int> inc = (Int x) => x + offset;
+		Fun<Int, Int, Int> mix = (Int a, Int b) => (a * 31 + b) % 1000003;
+		Int acc = 0;
+		Int j = 0;
+		while (j < 12000)
+		{
+			acc = mix(acc, inc(j));
+			j = j + 1;
+		}
+		Int k = 0;
+		while (k < 8)
+		{
+			Fun<Int, Int> adder = Ops.MakeAdder(k + offset);
+			Int m = 0;
+			while (m < 800)
+			{
+				acc = mix(acc, adder(m));
+				m = m + 1;
+			}
+			k = k + 1;
+		}
+		return acc;
+	}
+}
+
+class Main
+{
+	public static fun Main() : Void
+	{
+		Int iterations = 3000;
+		Int pipelines = 0;
+		Int strategies = 0;
+		Int closures = 0;
+		Timer t = new Timer();
+		Int i = 0;
+		while (i < iterations)
+		{
+			pipelines = (pipelines + Bench.Pipelines(i)) % 1000003;
+			strategies = (strategies + Bench.Strategies(i)) % 1000003;
+			closures = (closures + Bench.Closures(i)) % 1000003;
+			i = i + 1;
+		}
+		t.PrintDifference();
+		"\n".Print();
+		pipelines.ToString().Print();
+		"\n".Print();
+		strategies.ToString().Print();
+		"\n".Print();
+		closures.ToString().Print();
+		"\n".Print();
+	}
+}

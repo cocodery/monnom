@@ -2,13 +2,16 @@
 # Run the GTP benchmark ports in gtp-benchmark-monnom with nombench and check
 # that every configuration printed the expected result.
 #
-# usage: ./run-gtp <test|all> [-r RUNS] [--chart] [--lattice]
+# usage: ./run-gtp <test|all> [-r RUNS] [-w WARMUPS] [--chart] [--lattice]
 #                  [--compare | --dry-run | --clean] [-- NOM_FLAGS...]
 #
 #   <test>          a benchmark folder in gtp-benchmark-monnom (e.g. sieve);
 #                   `all` runs every benchmark in turn
 #   -r RUNS         measured runs per configuration, passed to nombench
 #                   (default 1)
+#   -w WARMUPS      untimed runs of the program before the measured one, in
+#                   the same nom process, passed to nom as -w<WARMUPS>
+#                   (default 0); the timeout covers them too
 #   --chart         also draw the performance chart with newplot.py, into
 #                   charts/gtp/<test>/<test>-<nom flags>.png (<test>-base.png
 #                   without flags); only when every configuration passed
@@ -84,7 +87,7 @@ rungtp_print_matrix() {
 }
 
 rungtp_usage() {
-  sed -n '5,36p' "$RUNGTP_SELF" | sed 's/^# \{0,1\}//'
+  sed -n '5,39p' "$RUNGTP_SELF" | sed 's/^# \{0,1\}//'
   if [ -d "$TESTS_DIR" ]; then
     echo "available tests:"
     mapfile -t RUNGTP_NAMES < <(rungtp_list_tests)
@@ -103,6 +106,8 @@ case "$TEST" in
 esac
 RUNS=1
 RUNS_GIVEN=0
+WARMUPS=0
+WARMUPS_GIVEN=0
 DRYRUN=0
 CLEAN=0
 PLOT=0
@@ -115,6 +120,10 @@ while [ $# -gt 0 ]; do
           echo "ERROR: -r needs a positive number"; rungtp_usage
         fi
         RUNS="$2"; RUNS_GIVEN=1; shift 2 ;;
+    -w) if [ -z "$2" ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+          echo "ERROR: -w needs a number"; rungtp_usage
+        fi
+        WARMUPS="$2"; WARMUPS_GIVEN=1; shift 2 ;;
     --chart) PLOT=1; shift ;;
     --lattice) LATTICE=1; shift ;;
     --compare) COMPARE=1; shift ;;
@@ -128,12 +137,18 @@ if [ $DRYRUN -eq 1 ] && [ $CLEAN -eq 1 ]; then
   echo "ERROR: --dry-run and --clean cannot be combined"; rungtp_usage
 fi
 if { [ $DRYRUN -eq 1 ] || [ $CLEAN -eq 1 ]; } &&
-   { [ $RUNS_GIVEN -eq 1 ] || [ $PLOT -eq 1 ] || [ $LATTICE -eq 1 ] ||
+   { [ $RUNS_GIVEN -eq 1 ] || [ $WARMUPS_GIVEN -eq 1 ] || [ $PLOT -eq 1 ] ||
+     [ $LATTICE -eq 1 ] ||
      [ $COMPARE -eq 1 ] || [ ${#FORWARD[@]} -gt 0 ]; }; then
-  echo "ERROR: -r, --chart, --lattice, --compare and nom flags only apply when the" \
-       "configurations are run"
+  echo "ERROR: -r, -w, --chart, --lattice, --compare and nom flags only apply" \
+       "when the configurations are run"
   rungtp_usage
 fi
+
+# nom's warmup flag, for every run; not part of NOMFLAGS, so the chart and
+# lattice names stay the same
+WARMUP=()
+[ "$WARMUPS" -gt 0 ] && WARMUP=("-w$WARMUPS")
 
 if [ $CLEAN -eq 0 ]; then
   # setpath.sh puts nom, nomc and nombench on PATH
@@ -144,6 +159,16 @@ if [ $CLEAN -eq 0 ]; then
       exit 1
     fi
   done
+
+  # --compare pins every run to $CPUS; if this shell may not use them (e.g.
+  # a cpuset left behind by bench-cpus.sh) every run would fail, so stop now
+  if [ $COMPARE -eq 1 ] && ! taskset -c "$CPUS" true 2> /dev/null; then
+    echo "ERROR: cannot pin to CPUs $CPUS: this shell may only use CPUs" \
+         "$(sed -n 's/^Cpus_allowed_list:\s*//p' /proc/self/status)"
+    echo "  set RUNGTP_CPUS to CPUs it may use, or give the CPUs back with" \
+         "./bench-cpus.sh --restore (see ./bench-cpus.sh --status)"
+    exit 1
+  fi
 
   # the ports are a git submodule; fetch it if it has not been checked out
   if [ ! -d "$TESTS_DIR" ] || [ -z "$(ls -A "$TESTS_DIR" 2> /dev/null)" ]; then
@@ -248,7 +273,8 @@ rungtp_follow_nombench() {
 # current run
 rungtp_announce() {
   [ -n "$HEADER" ] && echo "$HEADER"
-  echo "== $LABEL: nom -o3${NOMFLAGS[*]:+ ${NOMFLAGS[*]}} $P ($1)"
+  local FLAGS=("${WARMUP[@]}" "${NOMFLAGS[@]}")
+  echo "== $LABEL: nom -o3${FLAGS[*]:+ ${FLAGS[*]}} $P ($1)"
 }
 
 # runs every generated configuration of $D with nom directly, the way
@@ -271,7 +297,7 @@ rungtp_run_configs() {
       printf 'Run %s/%s: %s(%s/%s) ...' "$R" "$RUNS" "$(basename "$CONF")" \
         "$N" "${#CONFS[@]}"
       ( cd "$CONF" && timeout "$TIMEOUT" taskset -c "$CPUS" \
-          nom -p "$CONF" -o3 "${NOMFLAGS[@]}" "$P" > "out$R.txt" 2> "$ERR" )
+          nom -p "$CONF" -o3 "${WARMUP[@]}" "${NOMFLAGS[@]}" "$P" > "out$R.txt" 2> "$ERR" )
       RC=$?
       # anything nom printed to stderr (e.g. a crash) goes on its own lines
       if [ -s "$ERR" ]; then
@@ -317,8 +343,8 @@ rungtp_run_test() {
     if [ $DRYRUN -eq 0 ] && [ $COMPARE -eq 0 ]; then
       ARGS+=(-r "$RUNS")
       # --forward must come last: nombench skips the argument following it
-      [ ${#NOMFLAGS[@]} -gt 0 ] &&
-        ARGS+=(--forward ${#NOMFLAGS[@]} "${NOMFLAGS[@]}")
+      local FLAGS=("${WARMUP[@]}" "${NOMFLAGS[@]}")
+      [ ${#FLAGS[@]} -gt 0 ] && ARGS+=(--forward ${#FLAGS[@]} "${FLAGS[@]}")
     fi
     echo "== $LABEL: nombench ${ARGS[*]}"
     rm -rf "$D"/.BM_*

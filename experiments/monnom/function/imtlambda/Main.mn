@@ -98,9 +98,83 @@ class Main
 		" Done for class method after adding a field\n".Print();
 	}
 
+	# k * n captures n, so the records of this site hold different lambdas
+	# the Int field gives the site its own record struct, and so its own graph
+	public static fun MakeField(Int n) : dyn
+	{
+		return new (Int id = 0, Scale = k => k * n){};
+	}
+
+	# the same with the lambda in the record's dictionary
+	public static fun MakeDict(Int n) : dyn
+	{
+		dyn r = new (Int id = 1){};
+		r.Scale = k => k * n;
+		return r;
+	}
+
+	public static fun SumScale(IScale s, Int count) : Int
+	{
+		Int sum = 0;
+		Int i = 0;
+		while (i < count)
+		{
+			sum = sum + s.Scale(i);
+			i = i + 1;
+		}
+		return sum;
+	}
+
+	# with --trans an interface call on a lambda field installs an IMT entry
+	# the entry reads the field of each receiver, so one entry serves every
+	# record of the site whatever its lambda captured
+	public static fun TestLambda() : Void
+	{
+		# both records exist before the site's first interface call
+		dyn f2 = MakeField(2);
+		dyn f3 = MakeField(3);
+		IScale s2 = f2;
+		IScale s3 = f3;
+		# s2 compiles the entry; s3 finds the transition in the IMT node and
+		# moves to the same entry, which still calls s3's own lambda
+		SumScale(s2, 1000).ToString().Print();
+		"\n".Print();
+		SumScale(s3, 1000).ToString().Print();
+		" Done for declared lambda fields of one site\n".Print();
+
+		# an entry that calls a lambda field never becomes the start descriptor
+		# so a record created after it starts without it, keeps its own
+		# reassigned lambda, and reaches the entry through the record call-tag
+		dyn f4 = MakeField(4);
+		f4.Scale = k => k + 100;
+		IScale s4 = f4;
+		s4.Scale(1).ToString().Print();
+		" Done for declared field reassigned before entry call\n".Print();
+		# the record call-tag froze the field, so the reassignment below aborts
+		# f4.Scale = k => k + 6;
+
+		dyn d2 = MakeDict(2);
+		dyn d3 = MakeDict(3);
+		IScale t2 = d2;
+		IScale t3 = d3;
+		SumScale(t2, 1000).ToString().Print();
+		"\n".Print();
+		SumScale(t3, 1000).ToString().Print();
+		" Done for dictionary lambda fields of one site\n".Print();
+
+		dyn d4 = MakeDict(4);
+		d4.Scale = k => k - 1;
+		IScale t4 = d4;
+		t4.Scale(10).ToString().Print();
+		" Done for dictionary field reassigned before entry call\n".Print();
+		# the record call-tag froze the field, so the reassignment below aborts
+		# d4.Scale = k => k + 6;
+	}
+
 	public static fun Main() : Void
 	{
 		TestOnRecord();
 		TestOnClass();
+		TestLambda();
 	}
 }

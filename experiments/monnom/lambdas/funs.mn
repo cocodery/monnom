@@ -1,0 +1,89 @@
+# Function objects: each class has only a this method, so the benchmark
+# generator can also turn it into a lambda, its fields becoming captures.
+
+class AddN implements IIntFun
+{
+	private readonly Int N;
+	public constructor(Int n)
+	{
+		N = n;
+	}
+	public fun this(Int x) : Int
+	{
+		return x + N;
+	}
+}
+
+class MulN implements IIntFun
+{
+	private readonly Int N;
+	public constructor(Int n)
+	{
+		N = n;
+	}
+	public fun this(Int x) : Int
+	{
+		return x * N;
+	}
+}
+
+# F after G
+class Compose implements IIntFun
+{
+	private readonly IIntFun F;
+	private readonly IIntFun G;
+	public constructor(IIntFun f, IIntFun g)
+	{
+		F = f;
+		G = g;
+	}
+	public fun this(Int x) : Int
+	{
+		IIntFun f = F;
+		IIntFun g = G;
+		return f(g(x));
+	}
+}
+
+class Plus implements IIntFun2
+{
+	private readonly Int Modulus;
+	public constructor(Int modulus)
+	{
+		Modulus = modulus;
+	}
+	public fun this(Int a, Int b) : Int
+	{
+		return (a + b) % Modulus;
+	}
+}
+
+class MaxOf implements IIntFun2
+{
+	private readonly Int Unused;
+	public constructor()
+	{
+		Unused = 0;
+	}
+	public fun this(Int a, Int b) : Int
+	{
+		if (a > b)
+		{
+			return a;
+		}
+		return b;
+	}
+}
+
+class IsMultiple implements IIntPred
+{
+	private readonly Int K;
+	public constructor(Int k)
+	{
+		K = k;
+	}
+	public fun this(Int x) : Bool
+	{
+		return x % K == 0;
+	}
+}

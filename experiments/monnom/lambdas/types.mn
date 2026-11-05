@@ -1,0 +1,33 @@
+# Lambdas: a lambda-heavy benchmark, see NOTES.md.
+# Every function value crosses file boundaries through these interfaces.
+
+interface IIntFun
+{
+	fun this(Int x) : Int;
+}
+
+interface IIntFun2
+{
+	fun this(Int a, Int b) : Int;
+}
+
+interface IIntPred
+{
+	fun this(Int x) : Bool;
+}
+
+# lists cross files through this interface: a generic ArrayList<Int> would
+# fail its cast when an untyped file built it as ArrayList<dyn>
+interface IIntList
+{
+	fun Add(Int x) : Void;
+	fun Get(Int i) : Int;
+	fun Length() : Int;
+}
+
+# implemented by records whose methods are lambdas (ops.mn)
+interface IOp
+{
+	fun Apply(Int x) : Int;
+	fun Combine(Int a, Int b) : Int;
+}

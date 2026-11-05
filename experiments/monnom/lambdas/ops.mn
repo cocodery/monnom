@@ -1,0 +1,114 @@
+# Higher-order list functions, and strategy records whose methods are
+# lambdas: an interface call on such a record invokes the lambda in a field.
+
+class IntList implements IIntList
+{
+	private readonly ArrayList<Int> Items;
+	public constructor()
+	{
+		Items = new ArrayList<Int>();
+	}
+	public fun Add(Int x) : Void
+	{
+		Items.Add(x);
+	}
+	public fun Get(Int i) : Int
+	{
+		return Items.Get(i);
+	}
+	public fun Length() : Int
+	{
+		return Items.Length();
+	}
+}
+
+class Ops
+{
+	public static fun Range(Int from, Int count) : IIntList
+	{
+		IIntList xs = new IntList();
+		Int i = 0;
+		while (i < count)
+		{
+			xs.Add((from + i) % 1000);
+			i = i + 1;
+		}
+		return xs;
+	}
+
+	public static fun Map(IIntList xs, IIntFun f) : IIntList
+	{
+		IIntList ys = new IntList();
+		Int i = 0;
+		Int n = xs.Length();
+		while (i < n)
+		{
+			ys.Add(f(xs.Get(i)));
+			i = i + 1;
+		}
+		return ys;
+	}
+
+	public static fun Filter(IIntList xs, IIntPred p) : IIntList
+	{
+		IIntList ys = new IntList();
+		Int i = 0;
+		Int n = xs.Length();
+		while (i < n)
+		{
+			Int x = xs.Get(i);
+			if (p(x))
+			{
+				ys.Add(x);
+			}
+			i = i + 1;
+		}
+		return ys;
+	}
+
+	public static fun Fold(IIntList xs, IIntFun2 f, Int init) : Int
+	{
+		Int acc = init;
+		Int i = 0;
+		Int n = xs.Length();
+		while (i < n)
+		{
+			acc = f(acc, xs.Get(i));
+			i = i + 1;
+		}
+		return acc;
+	}
+
+	# the lambdas capture k, so the records of this site differ
+	public static fun MakeOp(Int k) : IOp
+	{
+		dyn op = new (Apply = x => x * k + 1, Combine = (a, b) => (a + b * k) % 100003){};
+		return op;
+	}
+
+	# the same with the lambdas in the record's dictionary
+	public static fun MakeDictOp(Int k) : IOp
+	{
+		dyn op = new (Int id = k){};
+		op.Apply = x => x + k;
+		op.Combine = (a, b) => (a * k + b) % 100003;
+		return op;
+	}
+
+	public static fun RunOp(IOp op, Int count) : Int
+	{
+		Int acc = 0;
+		Int i = 0;
+		while (i < count)
+		{
+			acc = op.Combine(acc, op.Apply(i));
+			i = i + 1;
+		}
+		return acc;
+	}
+
+	public static fun MakeAdder(Int k) : Fun<Int, Int>
+	{
+		return (Int x) => x * k + 1;
+	}
+}
