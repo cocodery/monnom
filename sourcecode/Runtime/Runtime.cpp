@@ -245,6 +245,6 @@ int main(int argc, char **args) {
     result = run(NomApplicationArgs);
   }
   // stop the background IMT compiler before static destructors run
-  Nom::Runtime::IMTUtils::ShutdownIMTCompiler();
+  Nom::Runtime::NomIMTAsync::ShutdownIMTCompiler();
   return result;
 }

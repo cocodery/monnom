@@ -95,7 +95,7 @@ extern "C" DLLEXPORT void *NOM_RT_Fail(const char *errstr) {
   std::cout.flush();
   RT_debugout->flush();
   RT_NOM_STATS_Print(3);
-  Nom::Runtime::IMTUtils::ShutdownIMTCompiler();
+  Nom::Runtime::NomIMTAsync::ShutdownIMTCompiler();
   exit(1);
   return nullptr;
 }

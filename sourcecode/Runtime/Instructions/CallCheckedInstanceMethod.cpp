@@ -155,6 +155,7 @@ void CallCheckedInstanceMethod::Compile(NomBuilder &builder, CompileEnv *env,
   Value *receiver = (*env)[Receiver];
 
   if (rawInvoke) { // typed raw invocation
+    // lambda used as a function type; records with `this`; classes with `this`
     // builder->CreateCall(
     //     GetPrint(mod),
     //     {ConstantInt::get(

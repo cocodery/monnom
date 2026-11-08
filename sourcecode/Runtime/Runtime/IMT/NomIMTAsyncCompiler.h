@@ -6,7 +6,7 @@
 
 namespace Nom {
 namespace Runtime {
-namespace IMTUtils {
+namespace NomIMTAsync {
 // Whether new IMT entries are compiled on the background thread
 // JIT's debug profiling instrumentation edits modules in the shared LLVMCONTEXT
 // so enabling any of it forces the synchronous path.
@@ -28,6 +28,6 @@ void ShutdownIMTCompiler();
 
 // Whether an entry for this slot is still being compiled.
 bool IsIMTEntryPending(const NomIMTGraph *imtGraph, int imtIndex);
-} // namespace IMTUtils
+} // namespace NomIMTAsync
 } // namespace Runtime
 } // namespace Nom
