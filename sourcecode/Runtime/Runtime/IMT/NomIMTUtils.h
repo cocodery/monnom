@@ -3,6 +3,7 @@
 #include "NomIMTransition.h"
 #include "NomInterfaceCallTag.h"
 #include "NomRecord.h"
+#include "RTVTable.h"
 #include <memory>
 
 namespace llvm {
@@ -12,15 +13,20 @@ class Module;
 namespace Nom {
 namespace Runtime {
 namespace IMTUtils {
-// Whether the record has a method for callTag's interface method
-bool CheckCallTagMethodExist(const NomRecord *nomRecord,
-                             const NomInterfaceCallTag *callTag);
-// Caches the JIT address of the record's method for callTag
-// The method must exist (CheckCallTagMethodExist).
-void CacheRecordMethodAddr(const NomRecord *nomRecord,
-                           const NomInterfaceCallTag *callTag);
-// Builds the IR for an IMT entry covering the parent CallTags plus callTag
-// address it needs must already be cached (see CacheRecordMethodAddr)
+struct CallTagTarget {
+  DispatchTargetKind kind;
+  NomRecordMethod *method;     // only for DispatchTargetKind::Method
+  const NomRecordField *field; // only for DispatchTargetKind::Field
+  void *methodAddr;
+};
+const CallTagTarget &GetCallTagTarget(const NomRecord *nomRecord,
+                                      const NomInterfaceCallTag *callTag);
+void SetCallTagTarget(const NomRecord *nomRecord,
+                      const NomInterfaceCallTag *callTag, uint64_t kind,
+                      uint64_t addr);
+void CacheCallTagTargetCastFun(const NomRecord *nomRecord,
+                               const NomInterfaceCallTag *callTag);
+                               
 std::unique_ptr<llvm::Module>
 BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
                     const NomInterfaceCallTag *callTag, void *callTagFunAddr,

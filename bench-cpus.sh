@@ -88,10 +88,11 @@ benchcpus_save() {
     done
     for s in "${SLICES[@]}"; do
       v="$(systemctl show -p AllowedCPUs --value "$s")"
-      echo "systemctl set-property --runtime $s AllowedCPUs=$v"
-      # systemd does not write an empty AllowedCPUs= back to the kernel, so
-      # the slice would stay off the benchmark CPUs; empty means the parent's
-      echo "echo '$v' > /sys/fs/cgroup/$s/cpuset.cpus"
+      # systemd does not write an empty AllowedCPUs= back to the kernel, and
+      # the kernel refuses an empty cpuset.cpus (ENOSPC) for a cgroup with
+      # processes, so an unrestricted slice gets every online CPU instead
+      echo "systemctl set-property --runtime $s AllowedCPUs=${v:-$ONLINE}"
+      echo "echo ${v:-$ONLINE} > /sys/fs/cgroup/$s/cpuset.cpus"
     done
     echo "echo $(cat /proc/irq/default_smp_affinity) > /proc/irq/default_smp_affinity"
     for irq in /proc/irq/[0-9]*; do
@@ -135,12 +136,14 @@ case "$1" in
       stuck=()
       for s in "${SLICES[@]}"; do
         [ -z "$(systemctl show -p AllowedCPUs --value "$s")" ] &&
-          [ -n "$(cat /sys/fs/cgroup/$s/cpuset.cpus)" ] && stuck+=("$s")
+          [ -n "$(cat /sys/fs/cgroup/$s/cpuset.cpus)" ] &&
+          [ "$(cat /sys/fs/cgroup/$s/cpuset.cpus)" != "$ONLINE" ] && stuck+=("$s")
       done
       [ ${#stuck[@]} -eq 0 ] && { echo "nothing to restore"; exit 0; }
-      echo "== giving every CPU back to ${stuck[*]}"
+      echo "== giving every CPU ($ONLINE) back to ${stuck[*]}"
       for s in "${stuck[@]}"; do
-        echo | sudo tee /sys/fs/cgroup/$s/cpuset.cpus > /dev/null
+        # every online CPU, not an empty list: the kernel refuses that (ENOSPC)
+        echo "$ONLINE" | sudo tee /sys/fs/cgroup/$s/cpuset.cpus > /dev/null
       done
       benchcpus_status; exit 0
     fi

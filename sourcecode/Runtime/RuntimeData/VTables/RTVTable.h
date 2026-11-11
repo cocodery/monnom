@@ -17,6 +17,18 @@ enum class RTVTableFields : unsigned char {
   WriteField = 6,
   NomObjPtr = 7
 };
+
+enum class DispatchTargetKind : uint64_t {
+  Method = 0,
+  Field = 1,
+  DictField = 2
+};
+
+struct DispatchTargetPair {
+  llvm::Value *kind = nullptr; // DispatchTargetKind
+  llvm::Value *addr = nullptr; // pointer to method or field
+};
+
 class RTVTable {
 public:
   static llvm::StructType *GetLLVMType();
@@ -58,12 +70,12 @@ public:
   static llvm::Value *
   GenerateFindDynamicDispatcherPair(NomBuilder &builder, llvm::Value *refValue,
                                     llvm::Value *vtablePtr, size_t name,
-                                    bool freezeInvokedField = false);
-  static llvm::Value *
-  GenerateFindDynamicDispatcherPair(NomBuilder &builder, llvm::Value *refValue,
-                                    llvm::Value *vtablePtr, llvm::Value *name,
-                                    llvm::Value *tableIndex,
-                                    bool freezeInvokedField = false);
+                                    bool freezeInvokedField = false,
+                                    DispatchTargetPair *targetOut = nullptr);
+  static llvm::Value *GenerateFindDynamicDispatcherPair(
+      NomBuilder &builder, llvm::Value *refValue, llvm::Value *vtablePtr,
+      llvm::Value *name, llvm::Value *tableIndex,
+      bool freezeInvokedField = false, DispatchTargetPair *targetOut = nullptr);
   // without lambda optimization (--nolambdaopt) there is no raw invoke
   // pointer: an invokable value (lambda, record or object with a `this`
   // method) is invoked through its dynamic dispatcher for the empty name.

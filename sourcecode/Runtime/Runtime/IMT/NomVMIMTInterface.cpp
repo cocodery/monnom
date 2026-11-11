@@ -35,7 +35,8 @@ llvm::Function *GetIMTTransition(llvm::Module *mod) {
   Function *ret = mod->getFunction("CPP_NOM_GetIMTTransition");
   if (ret == nullptr) {
     FunctionType *funType = FunctionType::get(
-        VOIDTYPE, {INTTYPE, INTTYPE, INTTYPE, INTTYPE}, false);
+        VOIDTYPE, // return type
+        {INTTYPE, INTTYPE, INTTYPE, INTTYPE, INTTYPE, INTTYPE}, false);
     ret = Function::Create(funType, Function::ExternalLinkage,
                            "CPP_NOM_GetIMTTransition", mod);
   }
@@ -71,15 +72,10 @@ static inline void **GetIMTArray(char *vtable) {
 }
 
 // RTVTable is at the first address of an object and normally unchanged
-// Apart from record the transition of IMTNode which is used for find the
-// IMT Entry if compiled before;  We use shared vtable mechanism to avoid
-// copying whole RTVTable at transition;
-// let <vtable, imtIndex, newIMTEntry> to check whether exists an vtable has
-// already such a writing to the IMT-Array. If exists, redirect the VTable to
-// the nextVTable; otherwise copy and write the IMT-Entry
+// let <vtable, imtIndex, newIMTEntry> to check whether exists an vtable
 static void MoveToNextDescriptor(void *receiver, NomRecord *nomRecord,
                                  NomIMTGraph *imtGraph, int imtIndex,
-                                 void *newIMTEntry) {
+                                 void *newIMTEntry, bool newIsMethod) {
   auto vtable = ReadVTable(receiver);
   auto nextVTable = imtGraph->FindDescriptor(vtable, imtIndex, newIMTEntry);
   if (nextVTable == nullptr) {
@@ -98,43 +94,36 @@ static void MoveToNextDescriptor(void *receiver, NomRecord *nomRecord,
     }
   }
   *reinterpret_cast<char **>(receiver) = nextVTable;
-  // entries are valid for every object of the record, so new objects can
-  // start here; only extending the start descriptor keeps its entries
-  if (nomRecord->StartDescriptor == nullptr ||
-      nomRecord->StartDescriptor == vtable) {
+  if (nomRecord->StartDescriptor == nullptr) {
+    // initial assignment of the record structure
+    nomRecord->StartDescriptor = vtable;
+  }
+  if (newIsMethod && nomRecord->StartDescriptor == vtable) {
+    // exclude lambdas getting the record start descriptor
+    // as record methods are fixed for the record structure
     nomRecord->StartDescriptor = nextVTable;
   }
 }
 
-extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
-                                                   void *callTagFunAddr,
-                                                   void *nomRecordAddr,
-                                                   void *receiver) {
+extern "C" DLLEXPORT void
+CPP_NOM_GetIMTTransition(void *callTagAddr, void *callTagFunAddr,
+                         void *nomRecordAddr, void *receiver,
+                         uint64_t targetKind, uint64_t targetAddr) {
   // std::cout << "Enter IMT Entry Compilcation" << std::endl;
-  // link entries compiled in the background since the last fallback into
-  // their graphs first so the lookup below can find them
-  IMTUtils::InstallFinishedIMTEntries();
-
-  // callTagAddr for get interface method index in IMT
-  auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
-  // callTagFunAddr for insert as branch condition
   // nomRecordAddr for locate the IMTGraph
   auto nomRecord = reinterpret_cast<NomRecord *>(nomRecordAddr);
-  // a lambda (no NomObjPtr) reaches the record call-tag when it is invoked
-  // through a functional interface without lambda optimization; it has no
-  // IMT graph, and its descriptor is constant, so the call stays on dynamic
-  // dispatch
+  // a lambda (no NomObjPtr) would reach the record call-tag when it is invoked
+  // through a functional interface without lambda optimization
   if (nomRecord == nullptr) {
     return;
   }
+  // link entries compiled in the background since the last fallback into
+  // their graphs first so the lookup below can find them
+  NomIMTAsync::InstallFinishedIMTEntries();
 
-  // the record has no method for this call-tag
-  // no IMT entry can handle it so the caller falls back to dynamic dispatch
-  // either a lambda field holds the method or not exist at all
-  if (IMTUtils::CheckCallTagMethodExist(nomRecord, callTag) == false) {
-    return;
-  }
-
+  // callTagAddr of the interface call-tag for get interface method index in IMT
+  auto callTag = reinterpret_cast<NomInterfaceCallTag *>(callTagAddr);
+  // callTagFunAddr of the interface call-tag for insert as branch condition
   auto imtIndex = callTag->GetMethod()->GetIMTIndex();
   auto imtEntry = GetIMTArray(ReadVTable(receiver))[imtIndex];
 
@@ -159,6 +148,9 @@ extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
     // std::cout << "The callTag " << callTag->GetKey()
     //           << " is already in the imtNode and return current imtEntry "
     //           << imtEntry << std::endl;
+    if (NomCastStats) {
+      RT_NOM_STATS_IncIMTEntriesHit();
+    }
     return;
   } else if (auto tmpEntry = imtNode->CheckTransition(callTag)) {
     // if the callTag is in the imtNode's transition chain
@@ -172,19 +164,20 @@ extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
     if (NomCastStats) {
       RT_NOM_STATS_IncIMTGraphTransitions();
     }
-  } else if (IMTUtils::IsIMTEntryPending(imtGraph, imtIndex)) {
+  } else if (NomIMTAsync::IsIMTEntryPending(imtGraph, imtIndex)) {
     // an entry for this slot is still compiling
     // leave the slot alone and let this call go through dynamic dispatch
     // std::cout << "The worker thread works on the compilation" << std::endl;
     return;
-  } else if (IMTUtils::UseAsyncIMTCompile()) {
+  } else if (NomIMTAsync::UseAsyncIMTCompile()) {
     // compile in the background while this call goes on to dynamic dispatch
     // the entry reaches this object from the graph on a later fallback
     // std::cout << "The callTag " << callTag->GetKey()
     //           << " async compile a new imtEntry for it" << std::endl;
-    IMTUtils::CompileIMTEntryFunctionAsync(nomRecord, imtGraph, imtIndex,
-                                           imtEntry, callTag, callTagFunAddr,
-                                           imtNode);
+    IMTUtils::SetCallTagTarget(nomRecord, callTag, targetKind, targetAddr);
+    NomIMTAsync::CompileIMTEntryFunctionAsync(nomRecord, imtGraph, imtIndex,
+                                              imtEntry, callTag, callTagFunAddr,
+                                              imtNode);
     return;
   } else {
     // if the callTag is not in the imtNode
@@ -192,6 +185,7 @@ extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
     // create a new imtEntry for the new callTag
     // std::cout << "The callTag " << callTag->GetKey()
     //           << " sync compile a new imtEntry for it" << std::endl;
+    IMTUtils::SetCallTagTarget(nomRecord, callTag, targetKind, targetAddr);
     newIMTEntry = IMTUtils::CompileIMTEntryFunction(
         nomRecord, imtIndex, callTag, callTagFunAddr, imtNode);
     auto newIMTNode = NomIMTNode::CreateTransitionNode(
@@ -208,5 +202,7 @@ extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
   if (NomCastStats) {
     RT_NOM_STATS_IncIMTEntriesInstalled();
   }
-  MoveToNextDescriptor(receiver, nomRecord, imtGraph, imtIndex, newIMTEntry);
+  MoveToNextDescriptor(receiver, nomRecord, imtGraph, imtIndex, newIMTEntry,
+                       static_cast<DispatchTargetKind>(targetKind) ==
+                           DispatchTargetKind::Method);
 }

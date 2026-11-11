@@ -137,6 +137,14 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
     //     GetReadFunCallTag(&mod),
     //     {builder->CreatePtrToInt(callTag, numtype(intptr_t))});
 
+    // record call tags are only reached through interface calls
+    // so a lambda field found here is frozen
+    DispatchTargetPair pair;
+    auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
+        builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,
+        NomNameRepository::Instance().GetNameID(name), true,
+        &pair); // DCE would remove this if we don't use the result
+
     if (RTConfig_EnableTransition) {
       auto callTagAddr = MakeInvariantLoad(
           builder,
@@ -150,16 +158,10 @@ llvm::Constant *NomRecordCallTag::createLLVMElement(
       auto nomRecordAddr = RTVTable::GenerateReadNomObjPtr(builder, vtable);
 
       auto receiverAddr = builder->CreatePtrToInt(receiver, INTTYPE);
-      builder->CreateCall(GetIMTTransition(&mod), {callTagAddr, callTagFunAddr,
-                                                   nomRecordAddr, receiverAddr});
+      builder->CreateCall(GetIMTTransition(&mod),
+                          {callTagAddr, callTagFunAddr, nomRecordAddr,
+                           receiverAddr, pair.kind, pair.addr});
     }
-
-    // record call tags are only reached through interface calls
-    // so a lambda field found here is frozen
-    auto dpair = RTVTable::GenerateFindDynamicDispatcherPair(
-        builder, builder->CreatePointerCast(receiver, REFTYPE), vtable,
-        NomNameRepository::Instance().GetNameID(name), true);
-
     auto target = builder->CreateExtractValue(dpair, {0});
     argarr[1] = builder->CreatePointerCast(
         builder->CreateExtractValue(dpair, {1}), POINTERTYPE);

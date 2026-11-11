@@ -583,6 +583,9 @@ NomRecord::GetDynamicDispatcherLookup(llvm::Module &mod,
           Function::Create(GetIMTFunctionType(), linkage,
                            "NOMMON_RT_DD_" + *meth->GetSymbolName(), mod);
       fun->setCallingConv(NOMCC);
+      fun->setPrefixData(ConstantStruct::getAnon(
+          {ConstantInt::get(INTTYPE, reinterpret_cast<int64_t>(meth), false),
+           ConstantExpr::getPtrToInt(meth->GetLLVMElement(mod), INTTYPE)}));
 
       NomBuilder builder;
 

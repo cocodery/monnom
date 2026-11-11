@@ -43,6 +43,7 @@ public:
   virtual llvm::FunctionType *GetLLVMFunctionType(
       const NomSubstitutionContext *context = nullptr) const override;
   virtual const NomInterface *GetContainer() const = 0;
+  bool ResultNeedsCast() const;
 };
 
 class NomMethodLoaded : public virtual NomMethod, public NomCallableLoaded {

@@ -327,6 +327,7 @@ build/
 .antlr/
 charts/
 lattice/
+logs/
 *.sln
 !Dockerfile
 *.fdb_latexmk

@@ -214,7 +214,7 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   }
   llvm::Value *retval = nullptr;
-  if (ResultNeedsCast(method)) {
+  if (method->ResultNeedsCast()) {
     // IMT entries call the same function, so the cast is compiled once
     auto castArgs = makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
     castArgs[0] = builder->CreatePointerCast(fun, POINTERTYPE);
@@ -250,21 +250,6 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
 }
 llvm::Constant *NomInterfaceCallTag::findLLVMElement(llvm::Module &mod) const {
   return mod.getFunction("MONNOM_RT_ICT_" + key);
-}
-bool NomInterfaceCallTag::ResultNeedsCast(const NomMethod *method) {
-  bool simpleReturnType = false;
-  auto actualReturnType = method->GetReturnType();
-  if (actualReturnType->GetKind() == TypeKind::TKClass) {
-    auto classReturnType = (NomClassTypeRef)actualReturnType;
-    if (!classReturnType->Named->IsInterface() &&
-        !classReturnType->ContainsVariables()) {
-      simpleReturnType = true;
-    }
-  }
-  if (actualReturnType->GetKind() == TypeKind::TKVariable) {
-    simpleReturnType = true;
-  }
-  return (!RTConfig_OmitCallTagCasts) || simpleReturnType;
 }
 std::string NomInterfaceCallTag::GetResultCastFunctionName() const {
   return "MONNOM_RT_ICT_CAST_" + key;

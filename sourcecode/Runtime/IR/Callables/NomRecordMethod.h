@@ -1,20 +1,22 @@
 #pragma once
 #include "NomCallable.h"
-#include <atomic>
 
 namespace Nom {
 namespace Runtime {
 class NomRecord;
 class NomInstruction;
+
+// reinterpret_cast<const RecordDDTEPrefix *>(dispatcher) - 1
+struct RecordDDTEPrefix {
+  const NomRecordMethod *method;
+  void *addr; // record method addr
+};
+
 class NomRecordMethod : public NomCallableLoaded {
 public:
   const NomRecord *Container;
   // ConstantID ArgumentTypes;
   ConstantID ReturnType;
-
-  // JIT address of this method cached by IMTUtils::LookupRecordMethodAddr
-  // Atomic because the background IMT compiler reads it
-  mutable std::atomic<void *> CompiledAddr{nullptr};
 
   NomRecordMethod(const NomRecord *container, std::string &name,
                   std::string &qname, ConstantID typeParameters,

@@ -134,10 +134,10 @@ llvm::Value *RTVTable::GenerateReadNomObjPtr(NomBuilder &builder,
 }
 llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
     NomBuilder &builder, Value *refValue, Value *vtablePtr, size_t name,
-    bool freezeInvokedField) {
+    bool freezeInvokedField, DispatchTargetPair *targetOut) {
   return GenerateFindDynamicDispatcherPair(
       builder, refValue, vtablePtr, MakeUInt(64, name),
-      MakeUInt(32, name % IMTsize), freezeInvokedField);
+      MakeUInt(32, name % IMTsize), freezeInvokedField, targetOut);
 }
 llvm::Value *RTVTable::GenerateHasRawInvoke(NomBuilder &builder,
                                             Value *vtablePtr) {
@@ -166,7 +166,7 @@ llvm::Value *RTVTable::GenerateIsNominalValue(NomBuilder &builder,
 }
 llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
     NomBuilder &builder, Value *refValue, Value *vtablePtr, Value *name,
-    Value *tableIndex, bool freezeInvokedField) {
+    Value *tableIndex, bool freezeInvokedField, DispatchTargetPair *targetOut) {
   auto listPtr = MakeInvariantLoad(
       builder,
       builder->CreatePointerCast(vtablePtr, GetLLVMType()->getPointerTo()),
@@ -186,8 +186,6 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
       BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Match$Field", fun);
   BasicBlock *loopMatchMethodBlock =
       BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$Match$Method", fun);
-  //   BasicBlock *loopDictionaryBlock =
-  //       RTOutput_Fail::GenerateFailUnimplementedBlock(builder);
   BasicBlock *loopDictionaryBlock =
       BasicBlock::Create(LLVMCONTEXT, "DDLookupLoop$IsRecord", fun);
   BasicBlock *loopRecordDictionaryBlock =
@@ -199,7 +197,8 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
   BasicBlock *outBlock = BasicBlock::Create(LLVMCONTEXT, "DDLookup$out", fun);
 
   builder->SetInsertPoint(outBlock);
-  auto outPHI = builder->CreatePHI(GetDynamicDispatcherLookupResultType(), 3);
+  auto outPHI = builder->CreatePHI(GetDynamicDispatcherLookupResultType(), 2);
+  auto kindPHI = builder->CreatePHI(INTTYPE, 2, "targetKind");
 
   builder->SetInsertPoint(origBlock);
 
@@ -252,6 +251,9 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
     auto retval = builder->CreateInsertValue(
         pairfirst, EnsurePackedUnpacked(builder, refValue, POINTERTYPE), {1});
     outPHI->addIncoming(retval, builder->GetInsertBlock());
+    kindPHI->addIncoming(
+        MakeInt<uint64_t>(static_cast<uint64_t>(DispatchTargetKind::Method)),
+        builder->GetInsertBlock());
     builder->CreateBr(outBlock);
   }
 
@@ -262,7 +264,8 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
                                    "but value has no lambda method!";
   BasicBlock *noLambdaBlock =
       RTOutput_Fail::GenerateFailOutputBlock(builder, noLambdaMsg);
-  auto fieldValuePHI = builder->CreatePHI(REFTYPE, 3, "fieldValue");
+  auto fieldValuePHI = builder->CreatePHI(REFTYPE, 4, "fieldValue");
+  auto fieldKindPHI = builder->CreatePHI(INTTYPE, 4, "fieldTargetKind");
   BasicBlock *isRefValueBlock =
       BasicBlock::Create(LLVMCONTEXT, "fieldIsRefValue", fun);
   auto fieldValueAsInt = builder->CreatePtrToInt(fieldValuePHI, INTTYPE);
@@ -297,12 +300,14 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
         pairfirst, EnsurePackedUnpacked(builder, fieldValuePHI, POINTERTYPE),
         {1});
     outPHI->addIncoming(retval, builder->GetInsertBlock());
+    kindPHI->addIncoming(fieldKindPHI, builder->GetInsertBlock());
     builder->CreateBr(outBlock);
   } else {
     auto findFun = GetFindInvokeDispatcherFunction(*fun->getParent());
     auto retval = builder->CreateCall(findFun, {fieldValuePHI});
     retval->setCallingConv(findFun->getCallingConv());
     outPHI->addIncoming(retval, builder->GetInsertBlock());
+    kindPHI->addIncoming(fieldKindPHI, builder->GetInsertBlock());
     builder->CreateBr(outBlock);
   }
 
@@ -317,8 +322,7 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
         kind, MakeIntLike(kind, (uint64_t)RTDescriptorKind::Record));
     builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
                              {isRecord, MakeUInt(1, 1)});
-    builder->CreateCondBr(isRecord, loopRecordDictionaryBlock,
-                          notRecordBlock);
+    builder->CreateCondBr(isRecord, loopRecordDictionaryBlock, notRecordBlock);
 
     builder->SetInsertPoint(notRecordBlock);
     auto isClass = builder->CreateICmpEQ(
@@ -332,6 +336,9 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
       RecordHeader::GenerateFreezeDictField(builder, refValue, name);
     }
     fieldValuePHI->addIncoming(dfield, builder->GetInsertBlock());
+    fieldKindPHI->addIncoming(
+        MakeInt<uint64_t>(static_cast<uint64_t>(DispatchTargetKind::DictField)),
+        builder->GetInsertBlock());
     builder->CreateBr(checkLambdaExistsBlock);
   }
 
@@ -340,8 +347,7 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
     // the class's field lookup reads its instance dictionary for names
     // that are not declared fields; classes without one yield null. No
     // freezing here: record call tags never dispatch on class objects
-    auto fieldLookupFun =
-        GenerateReadReadFieldFunction(builder, vtablePtr);
+    auto fieldLookupFun = GenerateReadReadFieldFunction(builder, vtablePtr);
     auto cfieldCall = builder->CreateCall(
         GetFieldReadFunctionType(), fieldLookupFun,
         {builder->CreateZExtOrTrunc(name, numtype(size_t)),
@@ -357,6 +363,9 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
                           GetLikelySecondBranchMetadata());
     builder->SetInsertPoint(classDictFoundBlock);
     fieldValuePHI->addIncoming(cfield, builder->GetInsertBlock());
+    fieldKindPHI->addIncoming(
+        MakeInt<uint64_t>(static_cast<uint64_t>(DispatchTargetKind::DictField)),
+        builder->GetInsertBlock());
     builder->CreateBr(checkLambdaExistsBlock);
   }
 
@@ -405,6 +414,9 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
       if (refValueBlock != nullptr) {
         builder->SetInsertPoint(refValueBlock);
         fieldValuePHI->addIncoming(fieldValue, builder->GetInsertBlock());
+        fieldKindPHI->addIncoming(
+            MakeInt<uint64_t>(static_cast<uint64_t>(DispatchTargetKind::Field)),
+            builder->GetInsertBlock());
         builder->CreateBr(checkLambdaExistsBlock);
       }
       if (intBlock != nullptr) {
@@ -436,11 +448,20 @@ llvm::Value *RTVTable::GenerateFindDynamicDispatcherPair(
         RecordHeader::GenerateWriteWrittenTag(builder, refValue, actualIndex);
       }
       fieldValuePHI->addIncoming(fieldValue, builder->GetInsertBlock());
+      fieldKindPHI->addIncoming(
+          MakeInt<uint64_t>(static_cast<uint64_t>(DispatchTargetKind::Field)),
+          builder->GetInsertBlock());
       builder->CreateBr(checkLambdaExistsBlock);
     }
   }
 
   builder->SetInsertPoint(outBlock);
+  if (targetOut != nullptr) {
+    targetOut->kind = kindPHI;
+    // the DDTE of the method, or the invoke of the lambda
+    targetOut->addr = builder->CreatePtrToInt(
+        builder->CreateExtractValue(outPHI, {0}), INTTYPE, "targetAddr");
+  }
   return outPHI;
 }
 

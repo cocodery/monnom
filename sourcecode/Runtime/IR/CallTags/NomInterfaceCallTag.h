@@ -28,7 +28,6 @@ public:
   virtual llvm::Constant *findLLVMElement(llvm::Module &mod) const override;
   const std::string &GetKey() const { return key; }
   const NomMethod *GetMethod() const { return method; }
-  static bool ResultNeedsCast(const NomMethod *method);
 
   std::string GetResultCastFunctionName() const;
   static llvm::FunctionType *GetResultCastFunctionType();

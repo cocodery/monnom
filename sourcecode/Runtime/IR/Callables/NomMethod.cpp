@@ -4,10 +4,12 @@
 #include "FloatClass.h"
 #include "IntClass.h"
 #include "NomBuilder.h"
+#include "NomClassType.h"
 #include "NomInterface.h"
 #include "NomSubstitutionContext.h"
 #include "NomType.h"
 #include "NomTypeVar.h"
+#include "RTCompileConfig.h"
 #include "RTConfig.h"
 #include "StringClass.h"
 #include "llvm/IR/Verifier.h"
@@ -332,5 +334,20 @@ const NomInterface *NomMethodDeclInternal::GetContainer() const {
   return Container;
 }
 
+bool NomMethod::ResultNeedsCast() const {
+  bool simpleReturnType = false;
+  auto actualReturnType = GetReturnType();
+  if (actualReturnType->GetKind() == TypeKind::TKClass) {
+    auto classReturnType = (NomClassTypeRef)actualReturnType;
+    if (!classReturnType->Named->IsInterface() &&
+        !classReturnType->ContainsVariables()) {
+      simpleReturnType = true;
+    }
+  }
+  if (actualReturnType->GetKind() == TypeKind::TKVariable) {
+    simpleReturnType = true;
+  }
+  return (!RTConfig_OmitCallTagCasts) || simpleReturnType;
+}
 } // namespace Runtime
 } // namespace Nom

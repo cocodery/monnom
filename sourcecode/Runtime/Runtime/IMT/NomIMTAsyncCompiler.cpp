@@ -240,7 +240,7 @@ void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
                                   const NomInterfaceCallTag *callTag,
                                   void *callTagFunAddr, NomIMTNode *imtNode) {
   // the parent's call-tags were cached when their entries were built
-  IMTUtils::CacheCallTagTargetAddrs(nomRecord, callTag);
+  IMTUtils::CacheCallTagTargetCastFun(nomRecord, callTag);
   auto job = std::make_unique<IMTCompileJob>(imtIndex, imtEntry, callTag,
                                              callTagFunAddr, imtGraph, imtNode);
   {

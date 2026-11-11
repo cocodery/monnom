@@ -12,7 +12,7 @@ using namespace llvm;
 using namespace Nom::Runtime;
 
 extern llvm::Function *GetIMTTransition(llvm::Module *mod);
-extern "C" DLLEXPORT void CPP_NOM_GetIMTTransition(void *callTagAddr,
-                                                   void *callTagFunAddr,
-                                                   void *nomRecordAddr,
-                                                   void *receiver);
+extern "C" DLLEXPORT void
+CPP_NOM_GetIMTTransition(void *callTagAddr, void *callTagFunAddr,
+                         void *nomRecordAddr, void *receiver,
+                         uint64_t targetKind, uint64_t targetAddr);

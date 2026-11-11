@@ -3,16 +3,24 @@
 #include "CompileEnv.h"
 #include "CompileHelpers.h"
 #include "IMT.h"
+#include "InstanceDictionary.h"
 #include "Metadata.h"
 #include "NomBuilder.h"
+#include "NomField.h"
 #include "NomJIT.h"
+#include "NomLambdaCallTag.h"
 #include "NomMethod.h"
+#include "NomNameRepository.h"
 #include "NomRecordMethod.h"
 #include "NomSubstitutionContext.h"
 #include "NomVMInterface.h"
 #include "ObjectHeader.h"
 #include "RTCast.h"
 #include "RTCompileConfig.h"
+#include "RTOutput.h"
+#include "RTVTable.h"
+#include "RecordHeader.h"
+#include "RefValueHeader.h"
 #include "TypeOperations.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/LegacyPassManager.h"
@@ -24,6 +32,7 @@
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar.h"
 #include <atomic>
+#include <cassert>
 #include <iostream>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Function.h>
@@ -40,85 +49,85 @@ namespace IMTUtils {
 // IMT entry functions and their modules share this name prefix
 static const char IMTEntryPrefix[] = "MONNOM_RT_RECORDIMT_";
 
-static NomRecordMethod *LookupRecordMethod(const NomRecord *nomRecord,
-                                           const NomInterfaceCallTag *callTag) {
-  // find the record method for the callTag in the nomRecord
-  // for same method signature no matter NomRecordMethod or NomMethod
-  // GetSymbolName() is the same so jit find the record method by method name
-  // return the record method if found otherwise return nullptr
-  auto method = callTag->GetMethod();
-  auto methodName = method->GetName();
-  auto targCount = method->GetDirectTypeParametersCount();
-  auto argCount = method->GetArgumentCount();
-  for (auto *meth : nomRecord->Methods) {
-    // probably the one and only method with the same signature
-    if (meth->GetName() == methodName &&
-        meth->GetDirectTypeParametersCount() == targCount &&
-        meth->GetArgumentCount() == argCount) {
-      return meth;
-    }
-  }
-  // if the record method not found return nullptr
-  // for the case that lambda method or not exist at all
-  return nullptr;
+using DenseMapPair = std::pair<const NomRecord *, const NomInterfaceCallTag *>;
+static DenseMap<DenseMapPair, CallTagTarget> &CallTagTargetCache() {
+  static DenseMap<DenseMapPair, CallTagTarget> cache;
+  return cache;
 }
 
-// LookupRecordMethod memoized per (record, call-tag)
-static NomRecordMethod *
-LookupRecordMethodCached(const NomRecord *nomRecord,
-                         const NomInterfaceCallTag *callTag) {
-  static DenseMap<std::pair<const NomRecord *, const NomInterfaceCallTag *>,
-                  NomRecordMethod *>
-      cache;
-  auto [iter, inserted] = cache.try_emplace({nomRecord, callTag}, nullptr);
-  if (inserted) {
-    auto addr = LookupRecordMethod(nomRecord, callTag);
-    iter->second = addr;
-    return addr;
+const CallTagTarget &GetCallTagTarget(const NomRecord *nomRecord,
+                                      const NomInterfaceCallTag *callTag) {
+  auto &cache = CallTagTargetCache();
+  auto iter = cache.find({nomRecord, callTag});
+  if (iter == cache.end()) {
+    std::cerr << "No IMT target recorded for call-tag " << callTag->GetKey()
+              << std::endl;
+    throw new std::exception();
   }
   return iter->second;
 }
 
-// Main thread and background compiler both read this cache (meth->CompiledAddr)
-// The main thread fills it (CacheRecordMethodAddr) for every call-tag before
-// an entry covering that call-tag is built, so BuildIMTEntryModule only ever
-// hits it and never calls into the JIT while holding the context lock.
-// Relaxed is enough: the main thread stores an address before it submits
-// any job that uses it, and the job queue's mutex orders that store before
-// the worker's load. The worker only embeds the address, never runs it.
-static void *LookupRecordMethodAddr(const NomRecordMethod *meth) {
-  if (auto addr = meth->CompiledAddr.load(std::memory_order_relaxed)) {
-    return addr;
+static CallTagTarget MakeCallTagTarget(const NomRecord *nomRecord,
+                                       const NomInterfaceCallTag *callTag,
+                                       uint64_t kind, uint64_t addr) {
+  switch (static_cast<DispatchTargetKind>(kind)) {
+  case DispatchTargetKind::Method: {
+    auto prefix = reinterpret_cast<const RecordDDTEPrefix *>(addr) - 1;
+    auto meth = const_cast<NomRecordMethod *>(prefix->method);
+    // assert(meth->Container == nomRecord);
+    auto ifaceMethod = callTag->GetMethod();
+    if (meth->GetDirectTypeParametersCount() !=
+            ifaceMethod->GetDirectTypeParametersCount() ||
+        meth->GetArgumentCount() != ifaceMethod->GetArgumentCount()) {
+      std::cerr << "Called record method " << meth->GetName()
+                << " with invalid number of arguments" << std::endl;
+      throw new std::exception();
+    }
+    return {DispatchTargetKind::Method, meth, nullptr, prefix->addr};
   }
-  // not cached yet: look it up in the JIT
-  auto &jit = NomJIT::Instance();
-  auto sym = jit.lookup(*meth->GetSymbolName());
-  if (!sym) {
-    // nomorally this should not happen
-    // because the symbol name is generated by RecordMethod
-    logAllUnhandledErrors(sym.takeError(), errs(),
-                          "Could not find record method " +
-                              *meth->GetSymbolName() + ": ");
+  case DispatchTargetKind::Field: {
+    auto methodName = callTag->GetMethod()->GetName();
+    for (auto *field : nomRecord->Fields) {
+      if (field->GetName()->ToStdString() == methodName) {
+        return {DispatchTargetKind::Field, nullptr, field, nullptr};
+      }
+    }
+    std::cerr << "dispatch found no declared field of this name" << std::endl;
     throw new std::exception();
   }
-  // only the main thread gets here so no other thread races this store
-  auto addr = reinterpret_cast<void *>(sym->getAddress());
-  meth->CompiledAddr.store(addr, std::memory_order_relaxed);
-  return addr;
+  case DispatchTargetKind::DictField:
+    return {DispatchTargetKind::DictField, nullptr, nullptr, nullptr};
+  }
+  std::cerr << "Invalid IMT target kind " << kind << " for call-tag "
+            << callTag->GetKey() << std::endl;
+  throw new std::exception();
 }
 
-static NomTypeRef ClosedResultCastType(const NomRecordMethod *meth,
+void SetCallTagTarget(const NomRecord *nomRecord,
+                      const NomInterfaceCallTag *callTag, uint64_t kind,
+                      uint64_t addr) {
+  auto &cache = CallTagTargetCache();
+  if (cache.count({nomRecord, callTag}) != 0) {
+    return; // already set
+  }
+  cache.try_emplace({nomRecord, callTag},
+                    MakeCallTagTarget(nomRecord, callTag, kind, addr));
+}
+
+static NomTypeRef ClosedResultCastType(const CallTagTarget &target,
                                        const NomInterfaceCallTag *callTag) {
   auto ifaceMethod = callTag->GetMethod();
   auto returnType = ifaceMethod->GetReturnType();
-  if (returnType->ContainsVariables() ||
-      !NomInterfaceCallTag::ResultNeedsCast(ifaceMethod)) {
+  if (returnType->ContainsVariables() || !ifaceMethod->ResultNeedsCast()) {
     return nullptr;
   }
-  NomSubstitutionContextMemberContext nscmc(meth);
-  // record method returns a subtype of the interface method return type
-  return meth->GetReturnType(&nscmc)->IsSubtype(returnType) ? nullptr
-                                                            : returnType;
+  if (target.kind == DispatchTargetKind::Method) {
+    NomSubstitutionContextMemberContext nscmc(target.method);
+    if (target.method->GetReturnType(&nscmc)->IsSubtype(returnType)) {
+      return nullptr;
+    }
+  }
+  return returnType;
 }
 
 static FunctionType *GetResultCastFunctionType() {
@@ -191,22 +200,16 @@ static void *LookupCallTagResultCastAddr(const NomInterfaceCallTag *callTag) {
 
 static bool NeedsCallTagResultCast(const NomInterfaceCallTag *callTag) {
   auto ifaceMethod = callTag->GetMethod();
-  return NomInterfaceCallTag::ResultNeedsCast(ifaceMethod) &&
+  return ifaceMethod->ResultNeedsCast() &&
          ifaceMethod->GetReturnType()->ContainsVariables();
 }
 
-// The record's methods are compiled before
-// its address is looked up only when an entry is about to be built
-bool CheckCallTagMethodExist(const NomRecord *nomRecord,
-                             const NomInterfaceCallTag *callTag) {
-  return LookupRecordMethodCached(nomRecord, callTag) != nullptr;
-}
-
-void CacheRecordMethodAddr(const NomRecord *nomRecord,
-                           const NomInterfaceCallTag *callTag) {
-  auto meth = LookupRecordMethodCached(nomRecord, callTag);
-  LookupRecordMethodAddr(meth);
-  if (auto castType = ClosedResultCastType(meth, callTag)) {
+// Looks up and caches the address of the result-cast function the branch
+// for callTag calls, so building the entry only reads the cache
+void CacheCallTagTargetCastFun(const NomRecord *nomRecord,
+                               const NomInterfaceCallTag *callTag) {
+  auto target = GetCallTagTarget(nomRecord, callTag);
+  if (auto castType = ClosedResultCastType(target, callTag)) {
     LookupResultCastAddr(castType);
   } else if (NeedsCallTagResultCast(callTag)) {
     LookupCallTagResultCastAddr(callTag);
@@ -229,40 +232,19 @@ static Value *ReadIMTArgument(NomBuilder &builder, Value **varargs,
                          MakeInt32(pos - regCount)),
       "varArg", AtomicOrdering::NotAtomic);
 }
-
-// Emits one compare-and-branch for `callTag`: if the incoming call-tag is
-// `callTagFunAddr`, call the record method implementing it and return.
-// Leaves the builder in the fall-through block. Does nothing if the record
-// has no matching method.
-static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
-                                  NomRecord *nomRecord, Value *argCallTag,
-                                  Value **varargs,
-                                  const NomInterfaceCallTag *callTag,
-                                  void *callTagFunAddr) {
-  NomRecordMethod *meth = LookupRecordMethod(nomRecord, callTag);
-  assert(meth != nullptr && "Record method should exist for call-tag");
-
-  BasicBlock *callBlock = BasicBlock::Create(LLVMCONTEXT, meth->GetName(), fun);
-  BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
-
-  auto lhs = builder->CreatePtrToInt(argCallTag, numtype(intptr_t));
-  auto rhs = ConstantInt::get(numtype(intptr_t),
-                              reinterpret_cast<intptr_t>(callTagFunAddr));
-  auto callTagMatch = builder->CreateICmpEQ(lhs, rhs, "callTagMatch");
-  builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
-                           {callTagMatch, MakeUInt(1, 1)});
-  builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
-                        GetLikelyFirstBranchMetadata());
-  builder->SetInsertPoint(callBlock);
-
+static Value *GenerateMethodCall(NomBuilder &builder, Function *fun,
+                                 NomRecord *nomRecord, Value **varargs,
+                                 const NomInterfaceCallTag *callTag,
+                                 const CallTagTarget &target) {
+  auto meth = target.method;
   // same as how record IMT entry build
   auto implFunctionType = meth->GetLLVMFunctionType();
   auto paramCount = implFunctionType->getNumParams();
   auto argsarr = makealloca(Value *, paramCount);
 
   auto methodPtr = builder->CreateIntToPtr(
-      ConstantInt::get(numtype(intptr_t), reinterpret_cast<intptr_t>(
-                                              LookupRecordMethodAddr(meth))),
+      ConstantInt::get(numtype(intptr_t),
+                       reinterpret_cast<intptr_t>(target.methodAddr)),
       implFunctionType->getPointerTo());
   // although the method is still called under the record signature discipline
   // the argument types need to read from it
@@ -303,9 +285,163 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
                                         ArrayRef<Value *>(argsarr, paramCount),
                                         meth->GetQName());
   callResult->setCallingConv(NOMCC);
+  return EnsurePackedUnpacked(builder, callResult, REFTYPE);
+}
+
+static Value *GenerateLambdaFieldCall(NomBuilder &builder, Function *fun,
+                                      NomRecord *nomRecord, Value **varargs,
+                                      const NomInterfaceCallTag *callTag,
+                                      const CallTagTarget &target) {
+  auto method = callTag->GetMethod();
+  auto receiver = builder->CreatePointerCast(varargs[0], REFTYPE);
+
+  // unreachable: an object only reaches this branch after the record
+  // call-tag's dispatch found a lambda in the field and froze it. Its
+  // dispatch would abort with the same message
+  BasicBlock *fallbackBlock = RTOutput_Fail::GenerateFailOutputBlock(
+      builder, "Tried to load invokable value from field, "
+               "but value has no lambda method!");
+  BasicBlock *checkBlock = BasicBlock::Create(LLVMCONTEXT, "checkLambda", fun);
+  BasicBlock *isRefValueBlock =
+      BasicBlock::Create(LLVMCONTEXT, "lambdaIsRefValue", fun);
+  BasicBlock *callBlock = BasicBlock::Create(LLVMCONTEXT, "callLambda", fun);
+
+  Value *fieldValue = nullptr;
+  if (target.kind == DispatchTargetKind::Field) {
+    auto index = target.field->Index;
+    fieldValue = RecordHeader::GenerateReadField(builder, receiver, index,
+                                                 nomRecord->Fields.size());
+    builder->CreateBr(checkBlock);
+  } else {
+    BasicBlock *lookupBlock =
+        BasicBlock::Create(LLVMCONTEXT, "dictLookup", fun);
+    auto name = MakeUInt(
+        64, NomNameRepository::Instance().GetNameID(method->GetName()));
+    // reading the dictionary pointer does not create a missing dictionary
+    auto dict = RecordHeader::GenerateReadStructDictionary(builder, receiver);
+    builder->CreateCondBr(builder->CreateIsNull(dict), fallbackBlock,
+                          lookupBlock, GetLikelySecondBranchMetadata());
+
+    builder->SetInsertPoint(lookupBlock);
+    fieldValue = InstanceDictionary::GenerateLookup(builder, dict, name);
+    builder->CreateCondBr(builder->CreateIsNull(fieldValue), fallbackBlock,
+                          checkBlock, GetLikelySecondBranchMetadata());
+  }
+
+  builder->SetInsertPoint(checkBlock);
+  auto fieldValueAsInt = builder->CreatePtrToInt(fieldValue, INTTYPE);
+  auto isRefValue = builder->CreateAnd(
+      builder->CreateICmpEQ(
+          builder->CreateAnd(fieldValueAsInt, MakeIntLike(fieldValueAsInt, 3)),
+          MakeIntLike(fieldValueAsInt, 0)),
+      builder->CreateICmpNE(fieldValueAsInt, MakeIntLike(fieldValueAsInt, 0)));
+  builder->CreateCondBr(isRefValue, isRefValueBlock, fallbackBlock,
+                        GetLikelyFirstBranchMetadata());
+
+  builder->SetInsertPoint(isRefValueBlock);
+  auto hasLambda = RTVTable::GenerateHasRawInvoke(
+      builder, RefValueHeader::GenerateReadVTablePointer(builder, fieldValue));
+  builder->CreateCondBr(hasLambda, callBlock, fallbackBlock,
+                        GetLikelyFirstBranchMetadata());
+
+  builder->SetInsertPoint(callBlock);
+  auto lambdaArgs = makealloca(Value *, 2 + RTConfig_NumberOfVarargsArguments);
+  for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
+       i <= RTConfig_NumberOfVarargsArguments; i++) {
+    lambdaArgs[i + 1] = varargs[i];
+  }
+  {
+    auto calledType = method->GetLLVMFunctionType();
+    auto paramCount = calledType->getNumParams();
+    Value **packed = lambdaArgs + 1;
+    for (decltype(paramCount) j = 0; j < paramCount; j++) {
+      auto paramType = calledType->getParamType(j);
+      if (paramType == REFTYPE || paramType == TYPETYPE) {
+        continue;
+      }
+      bool inRegister = j < RTConfig_NumberOfVarargsArguments ||
+                        RTConfig_NumberOfVarargsArguments + 1 == paramCount;
+      Value *slot = nullptr;
+      Value *curArg = nullptr;
+      if (inRegister) {
+        curArg = packed[j];
+      } else {
+        slot = builder->CreateGEP(
+            builder->CreatePointerCast(
+                packed[RTConfig_NumberOfVarargsArguments],
+                POINTERTYPE->getPointerTo()),
+            MakeInt32(j - RTConfig_NumberOfVarargsArguments));
+        curArg = MakeLoad(builder, slot, "varArg", AtomicOrdering::NotAtomic);
+      }
+      curArg = EnsurePackedUnpacked(builder, curArg, paramType);
+      curArg = EnsurePackedUnpacked(builder, curArg, REFTYPE);
+      curArg = EnsurePackedUnpacked(builder, curArg, POINTERTYPE);
+      if (inRegister) {
+        packed[j] = curArg;
+      } else {
+        MakeStore(builder, curArg, slot, AtomicOrdering::NotAtomic);
+      }
+    }
+  }
+
+  Value *callee = nullptr;
+  if (NomLambdaOptimizationLevel > 0) {
+    callee = RefValueHeader::GenerateReadRawInvoke(builder, fieldValue);
+    lambdaArgs[1] = builder->CreatePointerCast(fieldValue, POINTERTYPE);
+  } else {
+    auto findFun = RTVTable::GetFindInvokeDispatcherFunction(*fun->getParent());
+    auto dpair = builder->CreateCall(findFun, {fieldValue});
+    dpair->setCallingConv(findFun->getCallingConv());
+    callee = builder->CreateExtractValue(dpair, {0});
+    lambdaArgs[1] = builder->CreatePointerCast(
+        builder->CreateExtractValue(dpair, {1}), POINTERTYPE);
+  }
+  lambdaArgs[0] =
+      NomLambdaCallTag::GetCallTag(method->GetDirectTypeParametersCount(),
+                                   method->GetArgumentCount())
+          ->GetLLVMElement(*fun->getParent());
+  auto callResult = builder->CreateCall(
+      GetIMTFunctionType(),
+      builder->CreatePointerCast(callee, GetIMTFunctionType()->getPointerTo()),
+      ArrayRef<Value *>(lambdaArgs, 2 + RTConfig_NumberOfVarargsArguments),
+      "lambda_" + method->GetName());
+  callResult->setCallingConv(NOMCC);
+  return EnsurePackedUnpacked(builder, callResult, REFTYPE);
+}
+
+static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
+                                  NomRecord *nomRecord, Value *argCallTag,
+                                  Value **varargs,
+                                  const NomInterfaceCallTag *callTag,
+                                  void *callTagFunAddr) {
+  auto target = GetCallTagTarget(nomRecord, callTag);
+
+  BasicBlock *callBlock =
+      BasicBlock::Create(LLVMCONTEXT, callTag->GetMethod()->GetName(), fun);
+  BasicBlock *nextBlock = BasicBlock::Create(LLVMCONTEXT, "next", fun);
+
+  auto lhs = builder->CreatePtrToInt(argCallTag, numtype(intptr_t));
+  auto rhs = ConstantInt::get(numtype(intptr_t),
+                              reinterpret_cast<intptr_t>(callTagFunAddr));
+  auto callTagMatch = builder->CreateICmpEQ(lhs, rhs, "callTagMatch");
+  builder->CreateIntrinsic(Intrinsic::expect, {inttype(1)},
+                           {callTagMatch, MakeUInt(1, 1)});
+  builder->CreateCondBr(callTagMatch, callBlock, nextBlock,
+                        GetLikelyFirstBranchMetadata());
+  builder->SetInsertPoint(callBlock);
+
+  Value *actualResult = nullptr;
+  if (target.kind == DispatchTargetKind::Method) {
+    actualResult =
+        GenerateMethodCall(builder, fun, nomRecord, varargs, callTag, target);
+  } else {
+    actualResult = GenerateLambdaFieldCall(builder, fun, nomRecord, varargs,
+                                           callTag, target);
+  }
+
   // Return in the interface method's representation as NomInterfaceCallTag does
-  Value *actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
-  if (auto castType = ClosedResultCastType(meth, callTag)) {
+  auto ifaceFunctionType = callTag->GetMethod()->GetLLVMFunctionType();
+  if (auto castType = ClosedResultCastType(target, callTag)) {
     // return type is closed but not subtype of interface method return type
     auto castFun = builder->CreateIntToPtr(
         ConstantInt::get(
@@ -447,7 +583,7 @@ void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
                               const NomInterfaceCallTag *callTag,
                               void *callTagFunAddr, NomIMTNode *imtNode) {
   auto &jit = NomJIT::Instance();
-  CacheRecordMethodAddr(nomRecord, callTag);
+  CacheCallTagTargetCastFun(nomRecord, callTag);
   std::unique_ptr<Module> mod;
   {
     auto lock = jit.getContextLock();
