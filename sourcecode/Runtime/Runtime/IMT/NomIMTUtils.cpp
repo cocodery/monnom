@@ -7,12 +7,12 @@
 #include "Metadata.h"
 #include "NomBuilder.h"
 #include "NomField.h"
+#include "NomIMTResultCast.h"
 #include "NomJIT.h"
 #include "NomLambdaCallTag.h"
 #include "NomMethod.h"
 #include "NomNameRepository.h"
 #include "NomRecordMethod.h"
-#include "NomSubstitutionContext.h"
 #include "NomVMInterface.h"
 #include "ObjectHeader.h"
 #include "RTCast.h"
@@ -21,7 +21,6 @@
 #include "RTVTable.h"
 #include "RecordHeader.h"
 #include "RefValueHeader.h"
-#include "TypeOperations.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include "llvm/IR/Verifier.h"
@@ -47,7 +46,7 @@ namespace Runtime {
 namespace IMTUtils {
 
 // IMT entry functions and their modules share this name prefix
-static const char IMTEntryPrefix[] = "MONNOM_RT_RECORDIMT_";
+const char IMTEntryPrefix[] = "MONNOM_RT_RECORDIMT_";
 
 using DenseMapPair = std::pair<const NomRecord *, const NomInterfaceCallTag *>;
 static DenseMap<DenseMapPair, CallTagTarget> &CallTagTargetCache() {
@@ -112,108 +111,6 @@ void SetCallTagTarget(const NomRecord *nomRecord,
   }
   cache.try_emplace({nomRecord, callTag},
                     MakeCallTagTarget(nomRecord, callTag, kind, addr));
-}
-
-static NomTypeRef ClosedResultCastType(const CallTagTarget &target,
-                                       const NomInterfaceCallTag *callTag) {
-  auto ifaceMethod = callTag->GetMethod();
-  auto returnType = ifaceMethod->GetReturnType();
-  if (returnType->ContainsVariables() || !ifaceMethod->ResultNeedsCast()) {
-    return nullptr;
-  }
-  if (target.kind == DispatchTargetKind::Method) {
-    NomSubstitutionContextMemberContext nscmc(target.method);
-    if (target.method->GetReturnType(&nscmc)->IsSubtype(returnType)) {
-      return nullptr;
-    }
-  }
-  return returnType;
-}
-
-static FunctionType *GetResultCastFunctionType() {
-  static auto ft = FunctionType::get(REFTYPE, {REFTYPE}, false);
-  return ft;
-}
-
-// shared cast function
-static void *LookupResultCastAddr(NomTypeRef type) {
-  static std::unordered_map<std::string, void *> casts;
-  auto [iter, inserted] = casts.try_emplace(type->GetSymbolRep(), nullptr);
-  if (!inserted) {
-    return iter->second;
-  }
-  auto &jit = NomJIT::Instance();
-  std::string name =
-      IMTEntryPrefix + std::string("CAST_") + std::to_string(casts.size());
-  std::unique_ptr<Module> mod;
-  {
-    // held until the module is handed to the JIT
-    auto lock = jit.getContextLock();
-    mod = std::make_unique<Module>(name, LLVMCONTEXT);
-    mod->setDataLayout(jit.getDataLayout());
-    Function *fun =
-        Function::Create(GetResultCastFunctionType(), Function::ExternalLinkage,
-                         name, mod.get());
-    fun->setCallingConv(NOMCC);
-    NomBuilder builder;
-    builder->SetInsertPoint(BasicBlock::Create(LLVMCONTEXT, "", fun));
-    CastedValueCompileEnv env(
-        {}, {}, fun, 1, 0, ConstantPointerNull::get(TYPETYPE->getPointerTo()));
-    builder->CreateRet(EnsurePackedUnpacked(
-        builder, RTCast::GenerateCast(builder, &env, fun->arg_begin(), type),
-        REFTYPE));
-    if (auto err = jit.addModule(std::move(mod))) {
-      logAllUnhandledErrors(std::move(err), errs(),
-                            "Could not add result cast " + name + ": ");
-      throw new std::exception();
-    }
-  }
-  auto sym = jit.lookup(name);
-  if (!sym) {
-    logAllUnhandledErrors(sym.takeError(), errs(),
-                          "Could not find result cast " + name + ": ");
-    throw new std::exception();
-  }
-  iter->second = reinterpret_cast<void *>(sym->getAddress());
-  return iter->second;
-}
-
-// The interface call-tag's own result cast, for return types with type
-// variables. Its module is in the JIT: the bridge only runs after a call
-// went through the call-tag, which calls this function.
-static void *LookupCallTagResultCastAddr(const NomInterfaceCallTag *callTag) {
-  static std::unordered_map<const NomInterfaceCallTag *, void *> casts;
-  auto [iter, inserted] = casts.try_emplace(callTag, nullptr);
-  if (!inserted) {
-    return iter->second;
-  }
-  auto name = callTag->GetResultCastFunctionName();
-  auto sym = NomJIT::Instance().lookup(name);
-  if (!sym) {
-    logAllUnhandledErrors(sym.takeError(), errs(),
-                          "Could not find result cast " + name + ": ");
-    throw new std::exception();
-  }
-  iter->second = reinterpret_cast<void *>(sym->getAddress());
-  return iter->second;
-}
-
-static bool NeedsCallTagResultCast(const NomInterfaceCallTag *callTag) {
-  auto ifaceMethod = callTag->GetMethod();
-  return ifaceMethod->ResultNeedsCast() &&
-         ifaceMethod->GetReturnType()->ContainsVariables();
-}
-
-// Looks up and caches the address of the result-cast function the branch
-// for callTag calls, so building the entry only reads the cache
-void CacheCallTagTargetCastFun(const NomRecord *nomRecord,
-                               const NomInterfaceCallTag *callTag) {
-  auto target = GetCallTagTarget(nomRecord, callTag);
-  if (auto castType = ClosedResultCastType(target, callTag)) {
-    LookupResultCastAddr(castType);
-  } else if (NeedsCallTagResultCast(callTag)) {
-    LookupCallTagResultCastAddr(callTag);
-  }
 }
 
 // Reads the IMT entry argument at position `pos` (0 is the receiver)
@@ -409,11 +306,11 @@ static Value *GenerateLambdaFieldCall(NomBuilder &builder, Function *fun,
   return EnsurePackedUnpacked(builder, callResult, REFTYPE);
 }
 
-static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
-                                  NomRecord *nomRecord, Value *argCallTag,
-                                  Value **varargs,
-                                  const NomInterfaceCallTag *callTag,
-                                  void *callTagFunAddr) {
+static void
+GenerateCallTagBranch(NomBuilder &builder, Function *fun, NomRecord *nomRecord,
+                      Value *argCallTag, Value **varargs,
+                      const NomInterfaceCallTag *callTag, void *callTagFunAddr,
+                      const IMTResultCast::ReceiverTypeArgs &recvTypeArgs) {
   auto target = GetCallTagTarget(nomRecord, callTag);
 
   BasicBlock *callBlock =
@@ -441,38 +338,9 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
 
   // Return in the interface method's representation as NomInterfaceCallTag does
   auto ifaceFunctionType = callTag->GetMethod()->GetLLVMFunctionType();
-  if (auto castType = ClosedResultCastType(target, callTag)) {
-    // return type is closed but not subtype of interface method return type
-    auto castFun = builder->CreateIntToPtr(
-        ConstantInt::get(
-            numtype(intptr_t),
-            reinterpret_cast<intptr_t>(LookupResultCastAddr(castType))),
-        GetResultCastFunctionType()->getPointerTo());
-    auto castCall = builder->CreateCall(GetResultCastFunctionType(), castFun,
-                                        {actualResult});
-    castCall->setCallingConv(NOMCC);
-    actualResult = castCall;
-  } else if (NeedsCallTagResultCast(callTag)) {
-    // the return type contains type variables: the call-tag's own cast reads
-    // the receiver's cast data to find what they stand for
-    auto castFun = builder->CreateIntToPtr(
-        ConstantInt::get(
-            numtype(intptr_t),
-            reinterpret_cast<intptr_t>(LookupCallTagResultCastAddr(callTag))),
-        NomInterfaceCallTag::GetResultCastFunctionType()->getPointerTo());
-    auto castArgs = makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
-    castArgs[0] = argCallTag;
-    for (decltype(RTConfig_NumberOfVarargsArguments) i = 0;
-         i <= RTConfig_NumberOfVarargsArguments; i++) {
-      castArgs[i + 1] = varargs[i];
-    }
-    castArgs[2 + RTConfig_NumberOfVarargsArguments] = actualResult;
-    auto castCall = builder->CreateCall(
-        NomInterfaceCallTag::GetResultCastFunctionType(), castFun,
-        ArrayRef<Value *>(castArgs, 3 + RTConfig_NumberOfVarargsArguments));
-    castCall->setCallingConv(NOMCC);
-    actualResult = castCall;
-  }
+  actualResult = IMTResultCast::GenerateBranchResultCast(
+      builder, fun, target, callTag, argCallTag, varargs, recvTypeArgs,
+      actualResult);
   actualResult = EnsurePackedUnpacked(builder, actualResult,
                                       ifaceFunctionType->getReturnType());
   builder->CreateRet(EnsurePackedUnpacked(builder, actualResult, POINTERTYPE));
@@ -483,7 +351,8 @@ static void GenerateCallTagBranch(NomBuilder &builder, Function *fun,
 std::unique_ptr<Module>
 BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
                     const NomInterfaceCallTag *callTag, void *callTagFunAddr,
-                    const IMTCallTagSet &parentCallTags) {
+                    const IMTCallTagSet &parentCallTags,
+                    const IMTResultCast::ReceiverTypeArgs &recvTypeArgs) {
   static std::atomic<int> transitionCount{0};
 
   std::string name = IMTEntryPrefix + *nomRecord->GetSymbolName() + "_" +
@@ -528,11 +397,11 @@ BuildIMTEntryModule(NomRecord *nomRecord, int imtIndex,
 
   // The call-tag being added
   GenerateCallTagBranch(builder, fun, nomRecord, argCallTag, varargs, callTag,
-                        callTagFunAddr);
+                        callTagFunAddr, recvTypeArgs);
   // Call-tags the parent node already handles
   for (auto &[parentTag, parentTagFunAddr] : parentCallTags) {
     GenerateCallTagBranch(builder, fun, nomRecord, argCallTag, varargs,
-                          parentTag, parentTagFunAddr);
+                          parentTag, parentTagFunAddr, recvTypeArgs);
   }
 
   // No call-tag matched call the call-tag itself
@@ -579,16 +448,17 @@ void OptimizeIMTEntryModule(Module &mod) {
   fpm.doFinalization();
 }
 
-void *CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
-                              const NomInterfaceCallTag *callTag,
-                              void *callTagFunAddr, NomIMTNode *imtNode) {
+void *
+CompileIMTEntryFunction(NomRecord *nomRecord, int imtIndex,
+                        const NomInterfaceCallTag *callTag,
+                        void *callTagFunAddr, NomIMTNode *imtNode,
+                        const IMTResultCast::ReceiverTypeArgs &recvTypeArgs) {
   auto &jit = NomJIT::Instance();
-  CacheCallTagTargetCastFun(nomRecord, callTag);
   std::unique_ptr<Module> mod;
   {
     auto lock = jit.getContextLock();
     mod = BuildIMTEntryModule(nomRecord, imtIndex, callTag, callTagFunAddr,
-                              imtNode->GetCallTags());
+                              imtNode->GetCallTags(), recvTypeArgs);
   }
   std::string name = mod->getModuleIdentifier();
 

@@ -169,30 +169,34 @@ CPP_NOM_GetIMTTransition(void *callTagAddr, void *callTagFunAddr,
     // leave the slot alone and let this call go through dynamic dispatch
     // std::cout << "The worker thread works on the compilation" << std::endl;
     return;
-  } else if (NomIMTAsync::UseAsyncIMTCompile()) {
-    // compile in the background while this call goes on to dynamic dispatch
-    // the entry reaches this object from the graph on a later fallback
-    // std::cout << "The callTag " << callTag->GetKey()
-    //           << " async compile a new imtEntry for it" << std::endl;
-    IMTUtils::SetCallTagTarget(nomRecord, callTag, targetKind, targetAddr);
-    NomIMTAsync::CompileIMTEntryFunctionAsync(nomRecord, imtGraph, imtIndex,
-                                              imtEntry, callTag, callTagFunAddr,
-                                              imtNode);
-    return;
   } else {
-    // if the callTag is not in the imtNode
-    // the callTag is a new interface method for the imtNode
-    // create a new imtEntry for the new callTag
-    // std::cout << "The callTag " << callTag->GetKey()
-    //           << " sync compile a new imtEntry for it" << std::endl;
     IMTUtils::SetCallTagTarget(nomRecord, callTag, targetKind, targetAddr);
-    newIMTEntry = IMTUtils::CompileIMTEntryFunction(
-        nomRecord, imtIndex, callTag, callTagFunAddr, imtNode);
-    auto newIMTNode = NomIMTNode::CreateTransitionNode(
-        imtNode, callTag, callTagFunAddr, newIMTEntry);
-    imtGraph->GenerateTransitionRelation(imtIndex, newIMTNode);
-    if (NomCastStats) {
-      RT_NOM_STATS_IncIMTEntriesCompiled();
+    auto recvTypeArgs = IMTResultCast::ReadReceiverTypeArgs(receiver);
+    IMTResultCast::CacheIMTEntryCastFuns(nomRecord, callTag,
+                                         imtNode->GetCallTags(), recvTypeArgs);
+    if (NomIMTAsync::UseAsyncIMTCompile()) {
+      // compile in the background while this call goes on to dynamic dispatch
+      // the entry reaches this object from the graph on a later fallback
+      // std::cout << "The callTag " << callTag->GetKey()
+      //           << " async compile a new imtEntry for it" << std::endl;
+      NomIMTAsync::CompileIMTEntryFunctionAsync(
+          nomRecord, imtGraph, imtIndex, imtEntry, callTag, callTagFunAddr,
+          imtNode, recvTypeArgs);
+      return;
+    } else {
+      // if the callTag is not in the imtNode
+      // the callTag is a new interface method for the imtNode
+      // create a new imtEntry for the new callTag
+      // std::cout << "The callTag " << callTag->GetKey()
+      //           << " sync compile a new imtEntry for it" << std::endl;
+      newIMTEntry = IMTUtils::CompileIMTEntryFunction(
+          nomRecord, imtIndex, callTag, callTagFunAddr, imtNode, recvTypeArgs);
+      auto newIMTNode = NomIMTNode::CreateTransitionNode(
+          imtNode, callTag, callTagFunAddr, newIMTEntry);
+      imtGraph->GenerateTransitionRelation(imtIndex, newIMTNode);
+      if (NomCastStats) {
+        RT_NOM_STATS_IncIMTEntriesCompiled();
+      }
     }
   }
   // install the entry so later calls through the IMT reach it directly

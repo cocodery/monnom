@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NomIMTUtils.h"
 #include "NomIMTransition.h"
 #include "NomInterfaceCallTag.h"
 #include "NomRecord.h"
@@ -14,10 +15,10 @@ bool UseAsyncIMTCompile();
 
 // Queues a new IMT entry on the background thread
 // A later InstallFinishedIMTEntries call installs the entry into imtArray
-void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
-                                  int imtIndex, void *imtEntry,
-                                  const NomInterfaceCallTag *callTag,
-                                  void *callTagFunAddr, NomIMTNode *imtNode);
+void CompileIMTEntryFunctionAsync(
+    NomRecord *nomRecord, NomIMTGraph *imtGraph, int imtIndex, void *imtEntry,
+    const NomInterfaceCallTag *callTag, void *callTagFunAddr,
+    NomIMTNode *imtNode, const IMTResultCast::ReceiverTypeArgs &recvTypeArgs);
 
 // Links every entry the background thread has finished into the JIT
 // adds its node to the IMT graph and installs it into its IMT slot

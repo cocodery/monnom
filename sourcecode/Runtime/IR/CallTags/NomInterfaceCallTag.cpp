@@ -302,15 +302,15 @@ llvm::Value *NomInterfaceCallTag::GenerateResultCast(
                            {structCastTypeTag, MakeUInt(1, 0)});
   BasicBlock *multiCastListBlock =
       BasicBlock::Create(LLVMCONTEXT, "multiCastList", fun);
-  static const char *castfail_msg = "Cast failed!";
-  BasicBlock *castFailBlock =
-      RTOutput_Fail::GenerateFailOutputBlock(builder, castfail_msg);
+  //   static const char *castfail_msg = "Cast failed!";
+  //   BasicBlock *castFailBlock =
+  //       RTOutput_Fail::GenerateFailOutputBlock(builder, castfail_msg);
   BasicBlock *singleCastBlock =
       BasicBlock::Create(LLVMCONTEXT, "singleCastCast", fun);
   BasicBlock *outBlock = BasicBlock::Create(LLVMCONTEXT, "out", fun);
   BasicBlock *curBlock = builder->GetInsertBlock();
   builder->SetInsertPoint(outBlock);
-  auto outPHI = builder->CreatePHI(actualResult->getType(), 2);
+  auto outPHI = builder->CreatePHI(actualResult->getType(), 3);
   builder->SetInsertPoint(curBlock);
 
   builder->CreateCondBr(structCastTypeTag, multiCastListBlock, singleCastBlock,

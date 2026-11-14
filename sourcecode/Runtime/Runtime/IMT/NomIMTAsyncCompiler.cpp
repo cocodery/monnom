@@ -235,12 +235,10 @@ bool UseAsyncIMTCompile() {
          NomStatsLevel <= 1 && NomFunctionTimingLevel <= 2;
 }
 
-void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
-                                  int imtIndex, void *imtEntry,
-                                  const NomInterfaceCallTag *callTag,
-                                  void *callTagFunAddr, NomIMTNode *imtNode) {
-  // the parent's call-tags were cached when their entries were built
-  IMTUtils::CacheCallTagTargetCastFun(nomRecord, callTag);
+void CompileIMTEntryFunctionAsync(
+    NomRecord *nomRecord, NomIMTGraph *imtGraph, int imtIndex, void *imtEntry,
+    const NomInterfaceCallTag *callTag, void *callTagFunAddr,
+    NomIMTNode *imtNode, const IMTResultCast::ReceiverTypeArgs &recvTypeArgs) {
   auto job = std::make_unique<IMTCompileJob>(imtIndex, imtEntry, callTag,
                                              callTagFunAddr, imtGraph, imtNode);
   {
@@ -248,9 +246,9 @@ void CompileIMTEntryFunctionAsync(NomRecord *nomRecord, NomIMTGraph *imtGraph,
     // builder IR in the worker thread need to register GC
     // move to main thread can remove it
     auto lock = NomJIT::Instance().getContextLock();
-    auto mod = IMTUtils::BuildIMTEntryModule(nomRecord, imtIndex, callTag,
-                                             callTagFunAddr,
-                                             imtNode->GetCallTags());
+    auto mod = IMTUtils::BuildIMTEntryModule(
+        nomRecord, imtIndex, callTag, callTagFunAddr, imtNode->GetCallTags(),
+        recvTypeArgs);
     job->name = mod->getModuleIdentifier();
     raw_svector_ostream bitcodeStream(job->bitcode);
     WriteBitcodeToFile(*mod, bitcodeStream);
