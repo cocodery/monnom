@@ -6,8 +6,8 @@
 #
 #   TEST...         test folders in experiments/monnom/function
 #                   (default: all of them)
-#   --compare       run each test three times: no flags, --trans,
-#                   --trans --sync; all three outputs must be identical
+#   --compare       run each test twice: no flags and --trans --sync (async
+#                   --trans is off); both outputs must be identical
 #   -- FLAGS...     extra flags passed to nom, after the default -o3 so
 #                   they override it (e.g. --trans, -o1)
 #   --clean         delete the files generated for the tests (*.mnil,
@@ -84,7 +84,9 @@ if [ $CLEAN -eq 1 ]; then
   exit 0
 fi
 MODES=("")
-[ $COMPARE -eq 1 ] && MODES=(base trans trans-sync)
+# the async --trans mode is commented out for now, as in the runtime
+# [ $COMPARE -eq 1 ] && MODES=(base trans trans-sync)
+[ $COMPARE -eq 1 ] && MODES=(base trans-sync)
 
 . "$RUNFN_DIR/setpath.sh" > /dev/null
 TMP="$( mktemp -d )"

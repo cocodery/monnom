@@ -253,23 +253,24 @@ def main():
                        font=dict(size=13, color=MUTED))
     fig.add_annotation(x=0, y=-44, showarrow=False, text="fully untyped",
                        font=dict(size=13, color=MUTED))
-    if detailed:
-        fig.add_annotation(x=0, y=-68, showarrow=False, font=dict(size=12, color=MUTED),
-                           text="Each cell is one unit: black typed, grey untyped, "
-                                "white structural or removed")
     ratios = overhead.values()
-    title = os.path.basename(out)[:-len(".png")]
-    subtitle = ("%d variations, %d run(s) each · baseline %s %.3f s · %d faster than it,"
-                " %d within 2×, worst %.3f×%s"
-                % (len(names), runs, base_label, base_time, sum(r < 1 for r in ratios), sum(r <= 2 for r in ratios),
-                   max(ratios), " · %d failed" % len(bad) if bad else ""))
+    # in the bottom-right corner, which the narrow bottom levels leave empty
+    note = ("%d variations, %d run(s) each<br>baseline %s %.3f s<br>"
+            "%d faster than it, %d within 2×, worst %.3f×%s"
+            % (len(names), runs, base_label, base_time, sum(r < 1 for r in ratios),
+               sum(r <= 2 for r in ratios), max(ratios),
+               ", %d failed" % len(bad) if bad else ""))
+    # its right edge lines up with the colour bar's title: the bar starts at
+    # x=1.02 of the plot (plotly's default) and its title ends 75 px further;
+    # raised one line (17 px) off the bottom edge
+    fig.add_annotation(xref="paper", yref="paper", x=1.02, y=0, xanchor="right",
+                       yanchor="bottom", align="right", showarrow=False, text=note,
+                       xshift=75, yshift=17, font=dict(size=13, color=INK))
     width = max(760, int(2 * half) + 160)
-    height = (top + 1) * px_y + 200
+    height = (top + 1) * px_y + 140
     fig.update_layout(
         width=width, height=height, plot_bgcolor="#fcfcfb", paper_bgcolor="#fcfcfb",
-        title=dict(text="%s<br><sup>%s</sup>" % (title, subtitle), x=0.02,
-                   font=dict(size=20, color=INK)),
-        margin=dict(l=20, r=90, t=90, b=20), hovermode="closest",
+        margin=dict(l=20, r=90, t=30, b=20), hovermode="closest",
         legend=dict(x=0, y=1),
         xaxis=dict(visible=False, range=[-half, half]),
         yaxis=dict(visible=False, range=[-86, top * px_y + 60]))

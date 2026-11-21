@@ -1,5 +1,6 @@
 #include "NomIMTResultCast.h"
 #include "CallingConvConf.h"
+#include "CastStats.h"
 #include "CompileEnv.h"
 #include "CompileHelpers.h"
 #include "Metadata.h"
@@ -294,8 +295,12 @@ Value *GenerateBranchResultCast(NomBuilder &builder, Function *fun,
                                 Value *argCallTag, Value **varargs,
                                 const ReceiverTypeArgs &recvTypeArgs,
                                 Value *result) {
+  auto &mod = *fun->getParent();
   if (auto castType = ClosedResultCastType(target, callTag)) {
     // return type is closed but not subtype of interface method return type
+    if (NomCastStats) {
+      builder->CreateCall(GetIncIMTClosedResultCasts(mod), {});
+    }
     auto castFun = builder->CreateIntToPtr(
         ConstantInt::get(
             numtype(intptr_t),
@@ -307,6 +312,9 @@ Value *GenerateBranchResultCast(NomBuilder &builder, Function *fun,
     return castCall;
   }
   if (!NeedsCallTagResultCast(callTag)) {
+    if (NomCastStats) {
+      builder->CreateCall(GetIncIMTUncastResults(mod), {});
+    }
     return result;
   }
   auto spec = GetSpecializedResultCast(target, callTag, recvTypeArgs);
@@ -330,6 +338,12 @@ Value *GenerateBranchResultCast(NomBuilder &builder, Function *fun,
     resultPHI = builder->CreatePHI(REFTYPE, 2, "resultCast");
 
     builder->SetInsertPoint(fastBlock);
+    if (NomCastStats) {
+      builder->CreateCall(spec.needsCast
+                              ? GetIncIMTSpecializedResultCasts(mod)
+                              : GetIncIMTSpecializedUncastResults(mod),
+                          {});
+    }
     Value *fastResult = result;
     if (spec.needsCast) {
       auto castFun = builder->CreateIntToPtr(
@@ -346,6 +360,9 @@ Value *GenerateBranchResultCast(NomBuilder &builder, Function *fun,
     builder->CreateBr(joinBlock);
 
     builder->SetInsertPoint(genericBlock);
+  }
+  if (NomCastStats) {
+    builder->CreateCall(GetIncIMTGenericResultCasts(mod), {});
   }
   auto castFun = builder->CreateIntToPtr(
       ConstantInt::get(

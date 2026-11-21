@@ -21,16 +21,16 @@
 #                   each mode gets its own, all relative to the fully untyped
 #                   configuration of the base mode
 #   --compare       collect performance data: nombench generates the
-#                   configurations once, then each one runs with nom in three
-#                   modes (no flags, --trans, --trans --sync), RUNS times per
+#                   configurations once, then each one runs with nom in two
+#                   modes (no flags, --trans --sync; async --trans is off), RUNS times per
 #                   mode. Once a benchmark finishes, the running times go to
 #                   charts/benchmark/raw/<test>/ and make_tables.py composes them
 #                   into charts/benchmark/tables/<test>.md
 #                   and .csv, one row per configuration with the average
-#                   time of its runs in all three modes,
+#                   time of its runs in both modes,
 #                   and charts/benchmark/SUMMARY.md, one row per benchmark. With
-#                   --chart each mode is also charted, as <test>-base,
-#                   <test>-trans, <test>-trans-sync
+#                   --chart each mode is also charted, as <test>-base and
+#                   <test>-trans-sync
 #   --dry-run       only generate the configurations with nombench, do not
 #                   run them
 #   --clean         delete the generated files (.BM_* configurations,
@@ -478,7 +478,9 @@ for B in "${TESTS[@]}"; do
     continue
   fi
   mkdir -p "$RAW_TMP/$B"
-  for VARIANT in base trans trans-sync; do
+  # the async --trans mode is commented out for now, as in the runtime
+  # for VARIANT in base trans trans-sync; do
+  for VARIANT in base trans-sync; do
     runbench_variant_flags "$VARIANT"
     NOMFLAGS=("${FLAGS[@]}" "${FORWARD[@]}")
     RESULT="" LABEL="$B [$VARIANT]"

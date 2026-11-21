@@ -53,6 +53,18 @@ extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTEntriesCompiled();
 extern "C" DLLEXPORT void RT_NOM_STATS_IncRecordIMTCopies();
 extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTEntriesInstalled();
 
+extern "C" DLLEXPORT void RT_NOM_STATS_IncFallbackRecordCalls();
+
+extern "C" DLLEXPORT void RT_NOM_STATS_IncICTResultCasts();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncSingleCastTypeResultCasts();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncCastListResultCasts();
+
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTUncastResults();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTClosedResultCasts();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTSpecializedResultCasts();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTSpecializedUncastResults();
+extern "C" DLLEXPORT void RT_NOM_STATS_IncIMTGenericResultCasts();
+
 enum class NomDebugPrintValueType : unsigned char {
   Nothing = 0,
   Pointer = 1,
@@ -99,6 +111,19 @@ llvm::Function *GetIncStaticMethodCalls(llvm::Module &mod);
 llvm::Function *GetIncDynamicInvokes(llvm::Module &mod);
 llvm::Function *GetIncDynamicMethodCalls(llvm::Module &mod);
 llvm::Function *GetIncDynamicFieldLookups(llvm::Module &mod);
+
+llvm::Function *GetFallbackRecordCalls(llvm::Module &mod);
+
+// result casts in the interface call-tag and its cast function
+llvm::Function *GetIncICTResultCasts(llvm::Module &mod);
+llvm::Function *GetIncSingleCastTypeResultCasts(llvm::Module &mod);
+llvm::Function *GetIncCastListResultCasts(llvm::Module &mod);
+// results of IMT entry branches, one per case of GenerateBranchResultCast
+llvm::Function *GetIncIMTUncastResults(llvm::Module &mod);
+llvm::Function *GetIncIMTClosedResultCasts(llvm::Module &mod);
+llvm::Function *GetIncIMTSpecializedResultCasts(llvm::Module &mod);
+llvm::Function *GetIncIMTSpecializedUncastResults(llvm::Module &mod);
+llvm::Function *GetIncIMTGenericResultCasts(llvm::Module &mod);
 
 void InitializeProfileCounter();
 void PrintCastStats();

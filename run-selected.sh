@@ -1,6 +1,6 @@
 #!/bin/bash
 # Collects the performance data of the chosen benchmarks: every
-# configuration in three modes (base, --trans, --trans --sync), RUNS measured
+# configuration in two modes (base, --trans --sync; async --trans is off), RUNS measured
 # runs per mode after WARMUPS warmups, with the chart and lattice of each mode
 # and the tables of charts/{benchmark,gtp}/.
 #

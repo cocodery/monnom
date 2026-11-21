@@ -174,6 +174,13 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
     callResult->setCallingConv(NOMCC);
     actualResult = EnsurePackedUnpacked(builder, callResult, REFTYPE);
   } else {
+    if (NomCastStats) {
+      builder->CreateCall(
+          GetFallbackRecordCalls(
+              *builder->GetInsertBlock()->getParent()->getParent()),
+          {});
+    }
+
     // builder->CreateCall(
     //     GetPrint(&mod),
     //     {ConstantInt::get(INTTYPE,
@@ -215,6 +222,9 @@ llvm::Constant *NomInterfaceCallTag::createLLVMElement(
   }
   llvm::Value *retval = nullptr;
   if (method->ResultNeedsCast()) {
+    if (NomCastStats) {
+      builder->CreateCall(GetIncICTResultCasts(mod), {});
+    }
     // IMT entries call the same function, so the cast is compiled once
     auto castArgs = makealloca(Value *, 3 + RTConfig_NumberOfVarargsArguments);
     castArgs[0] = builder->CreatePointerCast(fun, POINTERTYPE);
@@ -317,6 +327,10 @@ llvm::Value *NomInterfaceCallTag::GenerateResultCast(
                         GetLikelySecondBranchMetadata());
   {
     builder->SetInsertPoint(singleCastBlock);
+    if (NomCastStats) {
+      builder->CreateCall(GetIncSingleCastTypeResultCasts(*fun->getParent()),
+                          {});
+    }
 
     BasicBlock *bestMatchBlock =
         BasicBlock::Create(LLVMCONTEXT, "castTypePerfectMatch", fun);
@@ -429,6 +443,9 @@ llvm::Value *NomInterfaceCallTag::GenerateResultCast(
     BasicBlock *loopBodyBlock =
         BasicBlock::Create(LLVMCONTEXT, "castList$Body", fun);
     builder->SetInsertPoint(multiCastListBlock);
+    if (NomCastStats) {
+      builder->CreateCall(GetIncCastListResultCasts(*fun->getParent()), {});
+    }
     auto typeArgRefStore =
         builder->CreateAlloca(TYPETYPE->getPointerTo(), MakeUInt(64, 1));
     auto firstNode =

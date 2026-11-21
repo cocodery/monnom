@@ -349,11 +349,10 @@ if(len(sys.argv)>2):
     if(sys.argv[1][-4:]==".png"):
        renderimg=True
        figtitle=figtitle[0:-4]
-    fig.layout.title.text=sys.argv[1]
-    fig.layout.title.font.size=30
     fig.layout.width=1350
     fig.layout.height=750*figrows
-    fig.layout.margin.t=130
+    # no title: the legends sit above the charts
+    fig.layout.margin.t=60
     fig.layout.margin.r=40
     # one legend above each column of charts
     fig.layout.legend=dict(orientation="h",traceorder="normal",xanchor="left",x=fig.layout.xaxis.domain[0],yanchor="bottom",y=1.02)

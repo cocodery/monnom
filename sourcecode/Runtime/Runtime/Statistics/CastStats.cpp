@@ -25,6 +25,28 @@ static size_t imtEntriesCompiled = 0;
 static size_t recordIMTCopies = 0;
 static size_t imtEntriesInstalled = 0;
 
+static size_t fallbackRecordCalls = 0;
+
+// result casts the interface call-tag does on what the record call-tag returns
+static size_t ictResultCasts = 0;
+// runs of MONNOM_RT_ICT_CAST_<key>, by the receiver's cast data
+static size_t singleCastTypeResultCasts = 0;
+static size_t castListResultCasts = 0;
+
+// results of IMT entry branches, by the cast the branch does
+static size_t imtUncastResults = 0;
+static size_t imtClosedResultCasts = 0;
+static size_t imtSpecializedResultCasts = 0;
+static size_t imtSpecializedUncastResults = 0;
+static size_t imtGenericResultCasts = 0;
+// The part of the cast function's runs that came from an IMT entry's generic
+// cast. Both callers count just before they call it, which sets the flag.
+static bool resultCastFromIMTEntry = false;
+static size_t imtGenericSingleCastTypes = 0;
+static size_t imtGenericPerfectMatches = 0;
+static size_t imtGenericMismatches = 0;
+static size_t imtGenericCastLists = 0;
+
 static size_t perfectCallTagTypeMatches = 0;
 static size_t callTagTypeMismatches = 0;
 static size_t impositionsCount = 0;
@@ -82,10 +104,16 @@ DLLEXPORT void RT_NOM_STATS_IncTypeInstanceAlloactions() {
 
 DLLEXPORT void RT_NOM_STATS_IncPerfectCallTagTypeMatches() {
   perfectCallTagTypeMatches++;
+  if (resultCastFromIMTEntry) {
+    imtGenericPerfectMatches++;
+  }
 }
 
 DLLEXPORT void RT_NOM_STATS_IncCallTagTypeMismatches() {
   callTagTypeMismatches++;
+  if (resultCastFromIMTEntry) {
+    imtGenericMismatches++;
+  }
 }
 
 DLLEXPORT void RT_NOM_STATS_IncImpositions() { impositionsCount++; }
@@ -216,6 +244,40 @@ DLLEXPORT void RT_NOM_STATS_IncIMTGraphTransitions() { imtGraphTransitions++; }
 DLLEXPORT void RT_NOM_STATS_IncIMTEntriesCompiled() { imtEntriesCompiled++; }
 DLLEXPORT void RT_NOM_STATS_IncRecordIMTCopies() { recordIMTCopies++; }
 DLLEXPORT void RT_NOM_STATS_IncIMTEntriesInstalled() { imtEntriesInstalled++; }
+
+DLLEXPORT void RT_NOM_STATS_IncFallbackRecordCalls() { fallbackRecordCalls++; }
+
+DLLEXPORT void RT_NOM_STATS_IncICTResultCasts() {
+  ictResultCasts++;
+  resultCastFromIMTEntry = false;
+}
+DLLEXPORT void RT_NOM_STATS_IncSingleCastTypeResultCasts() {
+  singleCastTypeResultCasts++;
+  if (resultCastFromIMTEntry) {
+    imtGenericSingleCastTypes++;
+  }
+}
+DLLEXPORT void RT_NOM_STATS_IncCastListResultCasts() {
+  castListResultCasts++;
+  if (resultCastFromIMTEntry) {
+    imtGenericCastLists++;
+  }
+}
+
+DLLEXPORT void RT_NOM_STATS_IncIMTUncastResults() { imtUncastResults++; }
+DLLEXPORT void RT_NOM_STATS_IncIMTClosedResultCasts() {
+  imtClosedResultCasts++;
+}
+DLLEXPORT void RT_NOM_STATS_IncIMTSpecializedResultCasts() {
+  imtSpecializedResultCasts++;
+}
+DLLEXPORT void RT_NOM_STATS_IncIMTSpecializedUncastResults() {
+  imtSpecializedUncastResults++;
+}
+DLLEXPORT void RT_NOM_STATS_IncIMTGenericResultCasts() {
+  imtGenericResultCasts++;
+  resultCastFromIMTEntry = true;
+}
 
 static size_t debugPrint_lastIndices[4][RBUFSIZE];
 static size_t debugPrint_lastStrs[4][RBUFSIZE];
@@ -464,6 +526,8 @@ void PrintCastStats() {
             << (interfaceMethodCalls + extendedInterfaceMethodCalls);
   outstream << "\n  #Interface Method Calls with Extended Argument Arrays: "
             << std::dec << extendedInterfaceMethodCalls;
+  outstream << "\n  #Interface Method Calls falling back to Record Calls: "
+            << std::dec << fallbackRecordCalls;
   outstream << "\n#Typed Raw Invocations: " << std::dec << typedRawInvokes;
   outstream << "\n#Final Instance Method Calls: " << std::dec
             << finalInstanceMethodCalls;
@@ -477,6 +541,39 @@ void PrintCastStats() {
   outstream << "\n#IMT Entries Compiled: " << std::dec << imtEntriesCompiled;
   outstream << "\n#Record IMT Copies: " << std::dec << recordIMTCopies;
   outstream << "\n#IMT Entries Installed: " << std::dec << imtEntriesInstalled;
+
+  outstream << "\n\nResult Cast Stats:\n----------------------";
+  outstream << "\n#Interface Call Tag Result Casts: " << std::dec
+            << ictResultCasts;
+  // the paths taken through the cast function MONNOM_RT_ICT_CAST_<key>
+  auto printCastPaths = [&outstream](const char *indent, size_t single,
+                                     size_t perfect, size_t mismatch,
+                                     size_t castList) {
+    outstream << "\n" << indent << "#Single Cast Type: " << std::dec << single;
+    outstream << "\n"
+              << indent << "  #Cast Type Perfect Match: " << std::dec
+              << perfect;
+    outstream << "\n"
+              << indent << "  #Cast Type Mismatch: " << std::dec << mismatch;
+    outstream << "\n" << indent << "#Multi Cast List: " << std::dec << castList;
+  };
+  printCastPaths("  ", singleCastTypeResultCasts - imtGenericSingleCastTypes,
+                 perfectCallTagTypeMatches - imtGenericPerfectMatches,
+                 callTagTypeMismatches - imtGenericMismatches,
+                 castListResultCasts - imtGenericCastLists);
+  outstream << "\n#IMT Entry Results: " << std::dec
+            << (imtUncastResults + imtClosedResultCasts +
+                imtSpecializedResultCasts + imtSpecializedUncastResults +
+                imtGenericResultCasts);
+  outstream << "\n  #No Cast: " << std::dec << imtUncastResults;
+  outstream << "\n  #Closed Casts: " << std::dec << imtClosedResultCasts;
+  outstream << "\n  #Specialized Generic Casts: " << std::dec
+            << (imtSpecializedResultCasts + imtSpecializedUncastResults);
+  outstream << "\n    #Needing No Cast: " << std::dec
+            << imtSpecializedUncastResults;
+  outstream << "\n  #Generic Casts: " << std::dec << imtGenericResultCasts;
+  printCastPaths("    ", imtGenericSingleCastTypes, imtGenericPerfectMatches,
+                 imtGenericMismatches, imtGenericCastLists);
 
 #ifdef _WIN32
   double castSeconds = timeUnitsInCasts / find_timer_frequency();
@@ -821,6 +918,56 @@ llvm::Function *GetIncDynamicFieldLookups(llvm::Module &mod) {
                          "RT_NOM_STATS_IncDynamicFieldLookups", &mod);
   }
   return fun;
+}
+
+llvm::Function *GetFallbackRecordCalls(llvm::Module &mod) {
+  auto fun = mod.getFunction("RT_NOM_STATS_IncFallbackRecordCalls");
+  if (fun == nullptr) {
+    fun =
+        Function::Create(FunctionType::get(Type::getVoidTy(LLVMCONTEXT), false),
+                         GlobalValue::LinkageTypes::ExternalLinkage,
+                         "RT_NOM_STATS_IncFallbackRecordCalls", &mod);
+  }
+  return fun;
+}
+
+static llvm::Function *GetStatsCounterFunction(llvm::Module &mod,
+                                               const char *name) {
+  auto fun = mod.getFunction(name);
+  if (fun == nullptr) {
+    fun = Function::Create(
+        FunctionType::get(Type::getVoidTy(LLVMCONTEXT), false),
+        GlobalValue::LinkageTypes::ExternalLinkage, name, &mod);
+  }
+  return fun;
+}
+
+llvm::Function *GetIncICTResultCasts(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod, "RT_NOM_STATS_IncICTResultCasts");
+}
+llvm::Function *GetIncSingleCastTypeResultCasts(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod,
+                                 "RT_NOM_STATS_IncSingleCastTypeResultCasts");
+}
+llvm::Function *GetIncCastListResultCasts(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod, "RT_NOM_STATS_IncCastListResultCasts");
+}
+llvm::Function *GetIncIMTUncastResults(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod, "RT_NOM_STATS_IncIMTUncastResults");
+}
+llvm::Function *GetIncIMTClosedResultCasts(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod, "RT_NOM_STATS_IncIMTClosedResultCasts");
+}
+llvm::Function *GetIncIMTSpecializedResultCasts(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod,
+                                 "RT_NOM_STATS_IncIMTSpecializedResultCasts");
+}
+llvm::Function *GetIncIMTSpecializedUncastResults(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod,
+                                 "RT_NOM_STATS_IncIMTSpecializedUncastResults");
+}
+llvm::Function *GetIncIMTGenericResultCasts(llvm::Module &mod) {
+  return GetStatsCounterFunction(mod, "RT_NOM_STATS_IncIMTGenericResultCasts");
 }
 } // namespace Runtime
 } // namespace Nom

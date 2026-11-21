@@ -328,6 +328,7 @@ build/
 charts/
 lattice/
 logs/
+temp/
 *.sln
 !Dockerfile
 *.fdb_latexmk
