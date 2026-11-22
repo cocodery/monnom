@@ -52,13 +52,19 @@ llvm::Value *RefValueHeader::GenerateReadVTablePointer(NomBuilder &builder,
                                                        llvm::Value *refValue) {
   auto header =
       builder->CreatePointerCast(refValue, GetLLVMType()->getPointerTo());
-  if (RTConfig_EnableTransition) {
-    // record vtable pointer moves to its own copy on its first IMT transition
-    return MakeLoad(builder, header,
-                    MakeInt32(RefValueHeaderFields::InterfaceTable));
-  }
   return MakeInvariantLoad(builder, header,
                            MakeInt32(RefValueHeaderFields::InterfaceTable));
+}
+llvm::Value *
+RefValueHeader::GenerateReadCurrentVTablePointer(NomBuilder &builder,
+                                                 llvm::Value *refValue) {
+  if (!RTConfig_EnableTransition) {
+    return GenerateReadVTablePointer(builder, refValue);
+  }
+  auto header =
+      builder->CreatePointerCast(refValue, GetLLVMType()->getPointerTo());
+  return MakeLoad(builder, header,
+                  MakeInt32(RefValueHeaderFields::InterfaceTable));
 }
 
 MDNode *GetNominalVsStructuralBranchWeights() {
@@ -662,7 +668,7 @@ llvm::Value *RefValueHeader::GetInterfaceMethodTableFunction(
 
   if (refValueBlock != nullptr) {
     builder->SetInsertPoint(refValueBlock);
-    Value *vtable = GenerateReadVTablePointer(builder, recreg);
+    Value *vtable = GenerateReadCurrentVTablePointer(builder, recreg);
     auto vte =
         RTVTable::GenerateReadInterfaceMethodTableEntry(builder, vtable, index);
     if (count == 1) {

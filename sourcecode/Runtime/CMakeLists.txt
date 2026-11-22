@@ -8,8 +8,8 @@ project(nom)
 
 # Set the C and C++ compilers
 # Set Manually in command line
-# SET(CMAKE_C_COMPILER clang-12)
-# SET(CMAKE_CXX_COMPILER clang++-12)
+SET(CMAKE_C_COMPILER clang-12)
+SET(CMAKE_CXX_COMPILER clang++-12)
 # Set the C and C++ standards
 SET(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

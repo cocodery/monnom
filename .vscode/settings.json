@@ -1,6 +1,10 @@
 {
   "cmake.sourceDirectory": "${workspaceFolder}/sourcecode/Runtime",
   "cmake.buildDirectory": "${workspaceFolder}/sourcecode/Runtime/build",
+  "cmake.configureSettings": {
+    "CMAKE_C_COMPILER": "clang-12",
+    "CMAKE_CXX_COMPILER": "clang++-12",
+  },
   "cmake.defaultVariants": {
     "buildType": {
       "default": "release",

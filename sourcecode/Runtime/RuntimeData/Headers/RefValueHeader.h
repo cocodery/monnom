@@ -27,6 +27,10 @@ public:
   static llvm::StructType *GetUninitializedLLVMType();
   static llvm::Value *GenerateReadVTablePointer(NomBuilder &builder,
                                                 llvm::Value *refValue);
+  // the pointer as it is now, for the IMT lookup: with --trans a record's
+  // pointer moves to a new descriptor when an IMT entry is installed
+  static llvm::Value *GenerateReadCurrentVTablePointer(NomBuilder &builder,
+                                                       llvm::Value *refValue);
 
   static int GenerateRefOrPrimitiveValueSwitch(
       NomBuilder &builder, NomValue value, llvm::BasicBlock **refValueBlock,
