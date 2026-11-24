@@ -6,6 +6,10 @@
 # are sorted by the second mode's % faster, best first. The .md tables end
 # with an average row, the mean of the variations' medians, with its % faster
 # than base.
+# SUMMARY.md first counts, per benchmark, the variations whose second mode is
+# more than 10% faster than base (more than 20% in brackets), 0-3% slower
+# and more than 3% slower, with the best and worst % faster; failed
+# variations are left out. Then it lists the averages and medians.
 # With --mean a variation's time in each mode is the mean of its runs, not the
 # median. The Median columns of SUMMARY.md are always across variations.
 # If <outdir>/rates.csv exists (bench,variation,slow_calls_per_s) the tables
@@ -100,7 +104,24 @@ columns = (["Benchmark", "Variations", "Failed runs (%s)" % "/".join(MODES)]
            + ["Median %s" % m for m in MODES]
            + ["%s faster (median %%)" % m for m in OTHERS]
            + ["Best %s %%" % OTHERS[0], "Worst %s %%" % OTHERS[0]])
+
+# how a benchmark's variations do in the second mode against base: how many
+# are more than 10% faster (20%), up to 3% slower, more than 3% slower, and
+# the best and worst % faster; only variations that passed in every mode
+def distribution(n, pcts):
+    return ["%d" % n, "%d (%d)" % (sum(p > 10 for p in pcts), sum(p > 20 for p in pcts)),
+            "%d" % sum(-3 <= p < 0 for p in pcts), "%d" % sum(p < -3 for p in pcts),
+            "%.1f%%" % max(pcts), "%.1f%%" % min(pcts)]
+
+
 with open(OUT + "/SUMMARY.md", "w") as f:
+    f.write("%s vs base, per variation:\n\n" % OTHERS[0])
+    f.write("| Benchmark | Variations | >10% faster (>20%) | 0–3% slower "
+            "| >3% slower | Best | Worst |\n|---|---:|---:|---:|---:|---:|---:|\n")
+    for b, n, fails, full, pcts in summary:
+        cells = distribution(len(full), pcts[OTHERS[0]]) if full else ["0"] + [""] * 5
+        f.write("| %s | %s |\n" % (b, " | ".join(cells)))
+    f.write("\nAverages and medians:\n\n")
     f.write("| %s |\n" % " | ".join(columns))
     f.write("|---|%s\n" % ("---:|" * (len(columns) - 1)))
     for b, n, fails, full, pcts in summary:

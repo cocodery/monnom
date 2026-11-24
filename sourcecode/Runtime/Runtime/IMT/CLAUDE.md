@@ -160,6 +160,7 @@ Keep these true when changing the code:
 - **Start-descriptor reads.** The constructor reads `StartDescriptor` with a plain load, for the same reason as the vtable reads: it changes during the run.
 - **Call-tags in slots.** Only interface call-tags reach IMT slots (see "Generated IMT entries").
 - **Memory.** Nodes and graphs are allocated with plain `new` (not GC), and descriptors with `malloc`; all of them live for the whole process. Compiled entries embed raw method and call-tag addresses.
+- **Code placement.** With `--trans` the JIT links every object through `NomJITMemoryManager` (`Runtime/NomJIT.cpp`), which packs objects with at most a page of code (IMT entries and result casts) into one shared arena, `JITSmallObjectArena`. Do not give them private `SectionMemoryManager`s again: each entry would then start at offset 0 of its own page, and entries at the same page offset evict each other from the instruction cache, the uop cache and the branch target buffer. richards `SCSCISCIIIIIIIDSSSCCSSC`, with 39 entries, took 3.1 to 5.8 s depending on where the pages landed, against 2.65 s packed. The arena is never unmapped and stays writable and executable. The base mode keeps the plain manager.
 
 ## Testing
 

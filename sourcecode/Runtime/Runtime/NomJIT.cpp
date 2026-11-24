@@ -21,6 +21,8 @@
 #include "llvm/IR/Verifier.h"
 #include "llvm/Object/SymbolSize.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/MathExtras.h"
+#include "llvm/Support/Memory.h"
 #include "llvm/Support/raw_os_ostream.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/AggressiveInstCombine/AggressiveInstCombine.h"
@@ -34,6 +36,7 @@
 #include <fstream>
 #include <iostream>
 #include <jitprofiling.h>
+#include <mutex>
 
 using namespace llvm;
 using namespace llvm::orc;
@@ -49,6 +52,138 @@ using namespace std;
 
 namespace Nom {
 namespace Runtime {
+namespace {
+// The JIT gives every object it links a memory manager of its own, and a
+// SectionMemoryManager maps fresh pages for what it is asked for. An IMT
+// entry or a result cast compiled at run time is an object with one small
+// function, so each of them would start at offset 0 of its own page. Code
+// at the same page offset shares a set in the instruction cache, the uop
+// cache and the branch target buffer, and a program with a few dozen hot
+// entries then misses in all three on most interface calls.
+//
+// This arena is one mapping that such small objects share: code in the
+// first half, data in the second, so an object's sections stay within
+// reach of each other. It is writable and executable and lives for the
+// whole process, like the entries in it.
+class JITSmallObjectArena {
+public:
+  struct Range {
+    uintptr_t cur = 0;
+    uintptr_t end = 0;
+  };
+
+  static JITSmallObjectArena &Instance() {
+    static JITSmallObjectArena *arena = new JITSmallObjectArena();
+    return *arena;
+  }
+
+  // Sets aside a code and a data range for one object; false once the
+  // arena is full (or could not be mapped), and the object gets pages of
+  // its own
+  bool Reserve(uintptr_t codeSize, uintptr_t dataSize, Range &objCode,
+               Range &objData) {
+    std::lock_guard<std::mutex> guard(lock);
+    codeSize = alignTo(codeSize, Alignment);
+    dataSize = alignTo(dataSize, Alignment);
+    if (code.cur == 0 || code.cur + codeSize > code.end ||
+        data.cur + dataSize > data.end) {
+      return false;
+    }
+    objCode = {code.cur, code.cur + codeSize};
+    objData = {data.cur, data.cur + dataSize};
+    code.cur += codeSize;
+    data.cur += dataSize;
+    return true;
+  }
+
+  // Takes a section out of a range Reserve handed out
+  static uint8_t *Take(Range &range, uintptr_t size, unsigned alignment) {
+    uintptr_t addr = alignTo(range.cur, alignment == 0 ? Alignment : alignment);
+    if (range.cur == 0 || addr + size > range.end) {
+      return nullptr;
+    }
+    range.cur = addr + size;
+    return reinterpret_cast<uint8_t *>(addr);
+  }
+
+private:
+  static constexpr uintptr_t Alignment = 16;
+  static constexpr size_t HalfSize = static_cast<size_t>(512) << 10;
+
+  JITSmallObjectArena() {
+    std::error_code ec;
+    auto block = sys::Memory::allocateMappedMemory(
+        2 * HalfSize, nullptr,
+        sys::Memory::MF_READ | sys::Memory::MF_WRITE | sys::Memory::MF_EXEC,
+        ec);
+    if (ec || block.base() == nullptr) {
+      return;
+    }
+    auto base = reinterpret_cast<uintptr_t>(block.base());
+    code = {base, base + HalfSize};
+    data = {base + HalfSize, base + 2 * HalfSize};
+  }
+
+  std::mutex lock;
+  Range code;
+  Range data;
+};
+
+// Puts objects with at most a page of code into the shared arena
+//  larger ones (a program's own module) get their own pages as before
+class NomJITMemoryManager : public SectionMemoryManager {
+public:
+  bool needsToReserveAllocationSpace() override { return true; }
+
+  void reserveAllocationSpace(uintptr_t CodeSize, uint32_t CodeAlign,
+                              uintptr_t RODataSize, uint32_t RODataAlign,
+                              uintptr_t RWDataSize,
+                              uint32_t RWDataAlign) override {
+    if (CodeSize <= SmallObjectCodeLimit) {
+      // The sizes are sums of sections rounded up to the largest
+      // alignment of their kind. Read-only and writable data share one
+      // range here, so leave room for the padding between sections of
+      // different alignment
+      packed = JITSmallObjectArena::Instance().Reserve(
+          CodeSize + CodeAlign,
+          RODataSize + RODataAlign + RWDataSize + RWDataAlign + DataSlack, code,
+          data);
+    }
+  }
+
+  uint8_t *allocateCodeSection(uintptr_t Size, unsigned Alignment,
+                               unsigned SectionID,
+                               StringRef SectionName) override {
+    if (packed) {
+      if (auto mem = JITSmallObjectArena::Take(code, Size, Alignment)) {
+        return mem;
+      }
+    }
+    return SectionMemoryManager::allocateCodeSection(Size, Alignment, SectionID,
+                                                     SectionName);
+  }
+
+  uint8_t *allocateDataSection(uintptr_t Size, unsigned Alignment,
+                               unsigned SectionID, StringRef SectionName,
+                               bool IsReadOnly) override {
+    if (packed) {
+      if (auto mem = JITSmallObjectArena::Take(data, Size, Alignment)) {
+        return mem;
+      }
+    }
+    return SectionMemoryManager::allocateDataSection(Size, Alignment, SectionID,
+                                                     SectionName, IsReadOnly);
+  }
+
+private:
+  static constexpr uintptr_t SmallObjectCodeLimit = 4096;
+  static constexpr uintptr_t DataSlack = 64;
+  bool packed = false;
+  JITSmallObjectArena::Range code;
+  JITSmallObjectArena::Range data;
+};
+} // namespace
+
 class NomJITEventListener : public llvm::JITEventListener {
 public:
   static NomJITEventListener &GetListener() {
@@ -178,8 +313,12 @@ llvm::Expected<std::unique_ptr<NomJIT>> NomJIT::Create() {
   JITbuilder.CreateObjectLinkingLayer =
       [](llvm::orc::ExecutionSession &ES,
          const llvm::Triple &TT) -> std::unique_ptr<llvm::orc::ObjectLayer> {
-    auto GetMemMgr = []() {
-      return std::make_unique<llvm::SectionMemoryManager>();
+    auto GetMemMgr = []() -> std::unique_ptr<RuntimeDyld::MemoryManager> {
+      // only --trans compiles objects at run time, so the base mode keeps
+      // the plain manager and the code placement it always had
+      return RTConfig_EnableTransition
+                 ? std::make_unique<NomJITMemoryManager>()
+                 : std::make_unique<llvm::SectionMemoryManager>();
     };
     auto oll = std::make_unique<llvm::orc::RTDyldObjectLinkingLayer>(
         ES, std::move(GetMemMgr));
