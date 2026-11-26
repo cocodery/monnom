@@ -3,6 +3,8 @@
 #include "NomClass.h"
 #include "NomClassType.h"
 #include "NomConstants.h"
+#include "NomField.h"
+#include "NomRecord.h"
 #include "NomType.h"
 #include <iostream>
 
@@ -21,6 +23,7 @@ WriteFieldInstruction::~WriteFieldInstruction() {}
 void WriteFieldInstruction::Compile(NomBuilder &builder, CompileEnv *env,
                                     int lineno) {
   if (ReceiverType != 0) {
+    // static know that the receiver is a class has the field
     NomConstant *receiverConstant = NomConstants::Get(ReceiverType);
     switch (receiverConstant->Type) {
     case NomConstantType::CTClass: {
@@ -61,8 +64,20 @@ void WriteFieldInstruction::Compile(NomBuilder &builder, CompileEnv *env,
     // field->GenerateWrite(builder, env, (*env)[Receiver],
     // (*env)[ValueRegister]);
   } else {
-    NomDictField::GetInstance(NomConstants::GetString(FieldName)->GetText())
-        ->GenerateWrite(builder, env, (*env)[Receiver], (*env)[ValueRegister]);
+    auto name = NomConstants::GetString(FieldName)->GetText();
+    if (Receiver == 0) { // the receiver is `this`
+      if (auto record = env->GetThisRecord()) {
+        auto field =
+            static_cast<const NomRecordField *>(record->GetField(name));
+        if (field != nullptr && !field->GetType()->ContainsVariables()) {
+          field->GenerateWrite(builder, env, (*env)[Receiver],
+                               (*env)[ValueRegister]);
+          return;
+        }
+      }
+    }
+    NomDictField::GetInstance(name)->GenerateWrite(
+        builder, env, (*env)[Receiver], (*env)[ValueRegister]);
   }
 }
 void WriteFieldInstruction::Print(bool resolve) {

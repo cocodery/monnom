@@ -175,7 +175,7 @@ const NomField *NomRecord::GetField(NomStringRef name) const {
       return field;
     }
   }
-  throw new std::exception();
+  return nullptr;
 }
 
 NomRecordMethod *NomRecord::AddMethod(std::string &name, std::string &qname,

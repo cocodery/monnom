@@ -110,13 +110,13 @@ columns = (["Benchmark", "Variations", "Failed runs (%s)" % "/".join(MODES)]
 # the best and worst % faster; only variations that passed in every mode
 def distribution(n, pcts):
     return ["%d" % n, "%d (%d)" % (sum(p > 10 for p in pcts), sum(p > 20 for p in pcts)),
-            "%d" % sum(-3 <= p < 0 for p in pcts), "%d" % sum(p < -3 for p in pcts),
+            "%d" % sum(-3 <= p < -1 for p in pcts), "%d" % sum(p < -3 for p in pcts),
             "%.1f%%" % max(pcts), "%.1f%%" % min(pcts)]
 
 
 with open(OUT + "/SUMMARY.md", "w") as f:
     f.write("%s vs base, per variation:\n\n" % OTHERS[0])
-    f.write("| Benchmark | Variations | >10% faster (>20%) | 0–3% slower "
+    f.write("| Benchmark | Variations | >10% faster (>20%) | 1-3% slower "
             "| >3% slower | Best | Worst |\n|---|---:|---:|---:|---:|---:|---:|\n")
     for b, n, fails, full, pcts in summary:
         cells = distribution(len(full), pcts[OTHERS[0]]) if full else ["0"] + [""] * 5

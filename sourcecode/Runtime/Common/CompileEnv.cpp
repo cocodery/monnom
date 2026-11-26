@@ -353,6 +353,9 @@ StructMethodCompileEnv::GetEnvTypeArgumentArray(NomBuilder &builder) {
   return RecordHeader::GeneratePointerToTypeArguments(builder, registers[0],
                                                       this->Method->Container);
 }
+const NomRecord *StructMethodCompileEnv::GetThisRecord() {
+  return Method->Container;
+}
 #pragma endregion
 #pragma region NomRecordInstantiation
 StructInstantiationCompileEnv::StructInstantiationCompileEnv(

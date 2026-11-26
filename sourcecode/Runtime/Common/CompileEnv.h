@@ -58,6 +58,8 @@ public:
 
   virtual bool GetInConstructor() = 0;
 
+  virtual const NomRecord *GetThisRecord() { return nullptr; }
+
   virtual size_t GetLocalTypeArgumentCount() = 0;
   virtual size_t GetEnvTypeArgumentCount() = 0;
   virtual llvm::Value *GetLocalTypeArgumentArray(NomBuilder &builder) = 0;
@@ -253,6 +255,7 @@ public:
   virtual size_t GetEnvTypeArgumentCount() override;
   virtual llvm::Value *GetEnvTypeArgumentArray(NomBuilder &builder) override;
   virtual bool GetInConstructor() override { return false; }
+  virtual const NomRecord *GetThisRecord() override;
 };
 
 class StructInstantiationCompileEnv : public AFullArityCompileEnv {
